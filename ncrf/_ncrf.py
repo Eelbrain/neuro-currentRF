@@ -15,13 +15,9 @@ from ._model import NCRF, RegressionData
 DEFAULT_MUs = np.logspace(-3, -1, 7)
 
 
-def _handle_noise_channels(noise: [NDVar, Covariance, np.ndarray], sensor_dim: Sensor) -> np.ndarray:
+def _handle_noise_channels(noise: Covariance | NDVar | np.ndarray, sensor_dim: Sensor) -> np.ndarray:
 
-    if isinstance(noise, NDVar):
-        er = noise.get_data(('sensor', 'time'))
-        noise_cov = np.dot(er, er.T) / er.shape[1]
-
-    elif isinstance(noise, Covariance):
+    if isinstance(noise, Covariance):
         chs_noise = set(noise.ch_names)
         chs_data = set(sensor_dim.names)
         missing = sorted(chs_data - chs_noise)
@@ -37,6 +33,10 @@ def _handle_noise_channels(noise: [NDVar, Covariance, np.ndarray], sensor_dim: S
             noise_cov = full_cov[index, :][:, index]
         else:
             noise_cov = noise.data[index, :][:, index]
+
+    elif isinstance(noise, NDVar):
+        er = noise.get_data(('sensor', 'time'))
+        noise_cov = np.dot(er, er.T) / er.shape[1]
 
     elif isinstance(noise, np.ndarray):
         n = len(sensor_dim)
@@ -70,8 +70,13 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
     lead_field : NDVar
         forward solution a.k.a. lead field matrix.
     noise : mne.Covariance | NDVar | np.ndarray
-        The empty room noise covariance, or data from which to compute it as
-        :class:`eelbrain.NDVar`.
+        The empty room noise covariance as :class:`mne.Covariance`, or data
+        from which to compute it as :class:`eelbrain.NDVar` or
+        :class:`numpy.ndarray`. If supplied as a covariance matrix, the sensors
+        are cross-checked to ensure all the sensors in ``meg`` are also present
+        in covaraince matrix, else the check is skipped. Raises error if
+        any sensor is missing in noise covaraince, or in case of shape
+        mismatch.
     tstart : float | list[float]
         Start of the TRF in seconds. Can define multiple tstarts for more than 1 predictor.
     tstop : float | list[float]
