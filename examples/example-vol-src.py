@@ -272,20 +272,20 @@ ps = [eelbrain.plot.Butterfly(h.norm('space')) for h in hs]
 # First, we locate the sources that are involved in the two prominent early
 # peaks in the common response.
 vmax = hs[0].norm('space').max()
-bs = [eelbrain.plot.GlassBrain(hs[0].sub(time=tt), vmin=-vmax, vmax=vmax,
-                               symmetric_cbar=False,
-                               display_mode='lr',
-                               title=f"Common-[{tt*1000} ms]") 
-                               for tt in (.15, .2)]
+# bs = [eelbrain.plot.GlassBrain(hs[0].sub(time=tt), vmin=-vmax, vmax=vmax,
+#                                symmetric_cbar=False,
+#                                display_mode='lr',
+#                                title=f"Common-[{tt*1000} ms]") 
+#                                for tt in (.15, .2)]
 
 ###############################################################################
 # Next, we do the same with NCRFs to differential response.
 vmax = hs[1].norm('space').max()
-bs = [eelbrain.plot.GlassBrain(hs[1].sub(time=tt), vmin=-vmax, vmax=vmax,
-                               symmetric_cbar=False,
-                               display_mode='lr',
-                               title=f"Differential-[{tt*1000} ms]")
-                               for tt in (.2, )]
+# bs = [eelbrain.plot.GlassBrain(hs[1].sub(time=tt), vmin=-vmax, vmax=vmax,
+#                                symmetric_cbar=False,
+#                                display_mode='lr',
+#                                title=f"Differential-[{tt*1000} ms]")
+#                                for tt in (.2, )]
 
 
 ###############################################################################
