@@ -292,4 +292,4 @@ bs = [eelbrain.plot.GlassBrain(hs[1].sub(time=tt), vmin=-vmax, vmax=vmax,
 # In an interactive iPython session, we can also use interactive time-linked
 # plots with `eelbrain.plot.GlassBrain.butterfly`:
 
-# brain, butterfly = eelbrain.plot.GlassBsrain.butterfly(h)
+# brain, butterfly = eelbrain.plot.GlassBrain.butterfly(h)
