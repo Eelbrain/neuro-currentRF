@@ -123,13 +123,13 @@ meg.time
 # For the common response, we put impulses at the presentation times of both the audio stimuli (i.e., all beeps).
 
 # Create an all-zero NDVar with time axis matching the MEG data 
-stim1 = eelbrain.NDVar.zeros(meg.time, 'beep')
+stim1 = eelbrain.NDVar.zeros(meg.time, 'common')
 # Set values at time points for any sound to 1.  
 stim1[sound_events['time'].values] = 1.
 
 # To distinguish deviant from standard beeps, we assign 1 and -1 impulses respectively.
 stim2 = stim1.copy('deviant')
-high_index = sound_events['label'] == 'standard'
+high_index = sound_events['label'] == 'differential'
 stim2[sound_events['time'].values[high_index]] = -1.
 
 # Visualize the stimulus
