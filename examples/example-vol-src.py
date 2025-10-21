@@ -129,7 +129,7 @@ stim1[sound_events['time'].values] = 1.
 
 # To distinguish deviant from standard beeps, we assign 1 and -1 impulses respectively.
 stim2 = stim1.copy('deviant')
-high_index = sound_events['label'] == 'differential'
+high_index = sound_events['label'] == 'standard'
 stim2[sound_events['time'].values[high_index]] = -1.
 
 # Visualize the stimulus
