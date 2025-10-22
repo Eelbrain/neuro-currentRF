@@ -35,24 +35,6 @@ raw = mne.io.read_raw_ctf(raw_fname, preload=False)
 # We mark a set of bad channels that seem noisier than others. 
 raw.info['bads'] = ['MLO52-4408', 'MRT51-4408', 'MLO42-4408', 'MLO43-4408']
 
-# Add labels for bad data segments
-# This information is currently not used by NCRF
-csv_fname = data_path / 'MEG' / 'bst_auditory' / f'events_bad_01.csv'
-annotations = pd.read_csv(csv_fname, header=None, names=['onset', 'duration', 'id', 'label'])
-# set id to 0 to distinguish it from stimulus events
-annotations['id'] = 0
-annotations
-
-""
-# Store as Annotations on raw (convert from samples to times)
-annotations = mne.Annotations(
-    annotations['onset'].values / raw.info['sfreq'], 
-    annotations['duration'].values / raw.info['sfreq'], 
-    annotations['label'].values,
-)
-raw.set_annotations(annotations)
-raw.annotations
-
 ###############################################################################
 # Event preprocessing: In this dataset, triggers can be adjusted by using a recording of the audio that was presented.
 
@@ -81,7 +63,7 @@ sound_events = pd.DataFrame({
     'id': events[:, 2],
     'label': pd.Categorical.from_codes(events[:, 2], ['', 'standard', 'deviant']),
 })
-sound_events    
+sound_events
 
 ###############################################################################
 # Preprocess raw data:
@@ -266,7 +248,7 @@ p = eelbrain.plot.Butterfly([h.norm('space') for h in hs], rows=1)
 
 ###############################################################################
 # The following code for plotting the anatomical localization.
-# A single time point can be visualized with the function 
+# A single time point can be visualized with the function
 # :class:`eelbrain.plot.GlassBrain`:
 # First, we locate the sources that are involved in the two prominent early
 # peaks in the common response.
@@ -282,7 +264,7 @@ bs = [eelbrain.plot.GlassBrain(
       ) for time in times]
 
 ###############################################################################
-# Next, we do the same with NCRFs to differential response.
+# Next, we do the same with NCRFs to deviant stimulus code.
 times = (0.190,)
 bf = eelbrain.plot.Butterfly(hs[1].norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
 for time in times:
@@ -291,6 +273,32 @@ for time in times:
 bs = [eelbrain.plot.GlassBrain(
         hs[1].sub(time=time), vmax=vmax, display_mode='lr', 
         title=f"Differential-[{time*1000:.0f} ms]",
+      ) for time in times]
+
+###############################################################################
+# Finally, we can get the response to frequent and infrequent stimuli as
+# :math:`[Common - Deviant]` amd :math:`[Common + Deviant]` respectively.
+times = (0.19,)
+# Frequent
+h = hs[0] - hs[1]
+bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+for time in times:
+    bf.add_vline(time, color='k', linestyle='--')
+
+bs = [eelbrain.plot.GlassBrain(
+        h.sub(time=time), vmax=vmax, display_mode='lr',
+        title=f"Frequent-[{time*1000:.0f} ms]",
+      ) for time in times]
+
+# Infrequent
+h = hs[0] + hs[1]
+bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+for time in times:
+    bf.add_vline(time, color='k', linestyle='--')
+
+bs = [eelbrain.plot.GlassBrain(
+        h.sub(time=time), vmax=vmax, display_mode='lr',
+        title=f"Infrequent-[{time*1000:.0f} ms]",
       ) for time in times]
 
 ###############################################################################
