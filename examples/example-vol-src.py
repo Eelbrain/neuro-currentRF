@@ -15,7 +15,7 @@ For this tutorial, we use the auditory Brainstorm tutorial dataset :cite:`Brains
 # Authors: Proloy Das <proloy@umd.edu>
 #          Christian Brodbeck <brodbecc@mcmaster.ca>
 #
-# sphinx_gallery_thumbnail_number = 3
+# sphinx_gallery_thumbnail_number = 8
 
 import eelbrain
 import mne
@@ -96,13 +96,13 @@ meg.time
 ###############################################################################
 # Continuous stimulus variable construction
 # -----------------------------------------
-# After loading and processing the raw data, we will construct the predictor variable for this particular experiment (by putting an impulse at every event time-point). Note that, the predictor variable and meg response should be of same length. 
+# After loading and preprocessing the raw data, we will construct predictor variables for this particular experiment.
+# Here, we construct predictor variables by placing an impulse at every stimulus tone onset. 
+# Note that the predictor variable and MEG response should have the same time axis. 
 #
-# In case of repetitive trials (where you will have a :class:`eelbrain.Case` dimension), supply one predictor variable for each trial. Different predictor variables for a single trial can be nested (see :func:`ncrf.fit_ncrf`).
-#
-# In this example, we use two different predictor variables for a single trial
-
-# For the common response, we put impulses at the presentation times of both the audio stimuli (i.e., all beeps).
+# In this example, we use two different predictor variables:
+# For the common response to any tone, we put impulses at the presentation times of both the audio stimuli (i.e., standard and deviant beeps).
+# To distinguish deviant from standard beeps, we assign 1 and -1 impulses to deviant and standard beeps, respectively (contrast coding).
 
 # Create an all-zero NDVar with time axis matching the MEG data 
 stim1 = eelbrain.NDVar.zeros(meg.time, 'common')
@@ -111,11 +111,10 @@ stim1[sound_events['time'].values] = 1.
 
 # To distinguish deviant from standard beeps, we assign 1 and -1 impulses respectively.
 stim2 = stim1.copy('deviant')
-high_index = sound_events['label'] == 'standard'
-stim2[sound_events['time'].values[high_index]] = -1.
+standard_index = sound_events['label'] == 'standard'
+stim2[sound_events['time'].values[standard_index]] = -1.
 
-# Visualize the stimulus
-# p = eelbrain.plot.LineStack(eelbrain.combine([stim1, stim2]), w=10, h=2.5, legend=False)
+# Visualize the predictors:
 p = eelbrain.plot.UTS([stim1, stim2], color='black', stem=True, frame='none', w=10, h=2.5, legend=False)
 
 ###############################################################################
@@ -276,7 +275,7 @@ bs = [eelbrain.plot.GlassBrain(
       ) for time in times]
 
 ###############################################################################
-# Finally, we can get the response to frequent and infrequent stimuli as
+# Finally, we can reconstruct the response to standard and deviant stimuli as
 # :math:`[Common - Deviant]` amd :math:`[Common + Deviant]` respectively.
 times = (0.19,)
 # Frequent
