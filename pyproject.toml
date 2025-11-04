@@ -59,6 +59,7 @@ style = [
   'yamllint',
 ]
 doc = [
+  'dipy',
   'numpydoc',
   'furo',
   'matplotlib',

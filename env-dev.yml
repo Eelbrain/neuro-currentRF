@@ -13,3 +13,4 @@ dependencies:
 - pip:
   - intersphinx_registry
   - sphinxcontrib.bibtex
+  - dipy > 0.10.1

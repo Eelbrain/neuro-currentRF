@@ -1,7 +1,7 @@
 """
 Volume Source Example
 =====================
-Estimate NCRFs for standard and oddball tones.
+Estimate NCRFs for frequent and oddball tones.
 
 For this tutorial, we use the auditory Brainstorm tutorial dataset :cite:`Brainstorm` that is available as a part of the Brainstorm software.
 
@@ -61,7 +61,7 @@ sound_events = pd.DataFrame({
     'time': onsets / event_sfreq,
     'duration': np.ones(len(onsets)),
     'id': events[:, 2],
-    'label': pd.Categorical.from_codes(events[:, 2], ['', 'standard', 'deviant']),
+    'label': pd.Categorical.from_codes(events[:, 2], ['', 'frequent', 'infrequent']),
 })
 sound_events
 
@@ -96,26 +96,34 @@ meg.time
 ###############################################################################
 # Continuous stimulus variable construction
 # -----------------------------------------
-# After loading and preprocessing the raw data, we will construct predictor variables for this particular experiment.
-# Here, we construct predictor variables by placing an impulse at every stimulus tone onset. 
-# Note that the predictor variable and MEG response should have the same time axis. 
+# After loading and preprocessing the raw data, we will construct predictor
+# variables for this particular experiment.
+# Here, we construct predictor variables by placing an impulse at every
+# stimulus tone onset. 
+# Note that the predictor variable and MEG response should have the same time
+# axis. 
 #
 # In this example, we use two different predictor variables:
-# For the common response to any tone, we put impulses at the presentation times of both the audio stimuli (i.e., standard and deviant beeps).
-# To distinguish deviant from standard beeps, we assign 1 and -1 impulses to deviant and standard beeps, respectively (contrast coding).
+# For the common response to any tone, we put impulses at the presentation
+# times of both the audio stimuli (i.e., frequent and infrequent beeps).
+# To distinguish infrequent from frequent beeps (i.e., contrast), we assign 1
+# and -1 impulses to infrequent and frequent beeps, respectively (contrast
+# coding).
 
 # Create an all-zero NDVar with time axis matching the MEG data 
 stim1 = eelbrain.NDVar.zeros(meg.time, 'common')
-# Set values at time points for any sound to 1.  
-stim1[sound_events['time'].values] = 1.
+# Set values at time points for any sound to 1.
+stim1[sound_events['time'].values] = 1.  # [Common]
 
-# To distinguish deviant from standard beeps, we assign 1 and -1 impulses respectively.
-stim2 = stim1.copy('deviant')
-standard_index = sound_events['label'] == 'standard'
-stim2[sound_events['time'].values[standard_index]] = -1.
+# To contrast infrequent from frequent beeps, we assign 1 and -1 impulses
+# respectively. 
+stim2 = stim1.copy('contrast')
+frequent_index = sound_events['label'] == 'frequent'
+stim2[sound_events['time'].values[frequent_index]] = -1.  # [Contrast]
 
 # Visualize the predictors:
-p = eelbrain.plot.UTS([stim1, stim2], color='black', stem=True, frame='none', w=10, h=2.5, legend=False)
+p = eelbrain.plot.UTS([stim1, stim2], color='black', stem=True, frame='none',
+                      w=10, h=2.5, legend=False)
 
 ###############################################################################
 # Noise covariance estimation
@@ -133,7 +141,8 @@ raw_empty_room.filter(1.0, 8.0, fir_design='firwin')
 raw_empty_room.resample(100, npad="auto")
 
 # Compute the noise covariance matrix
-noise_cov = mne.compute_raw_covariance(raw_empty_room, tmin=0, tmax=None, method='shrunk', rank=None)
+noise_cov = mne.compute_raw_covariance(raw_empty_room, tmin=0, tmax=None,
+                                       method='shrunk', rank=None)
 
 ###############################################################################
 # Forward model (aka lead-field matrix)
@@ -165,7 +174,7 @@ else:
                                         subjects_dir=subjects_dir,
                                         surface=surface,
                                         pos=10.0,
-                                        add_interpolator=False)
+                                        add_interpolator=True)
     mne.write_source_spaces(srcfile, src, overwrite=True)  # needed for smoothing
 src
 
@@ -243,55 +252,87 @@ model.h
 #    Since the estimates are sparse over cortical locations, smoothing the NCRFs over sources to make the visualization more intuitive.
 
 hs = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
-p = eelbrain.plot.Butterfly([h.norm('space') for h in hs], rows=1)
+ps = eelbrain.plot.Butterfly([h.norm('space') for h in hs],
+                             axtitle=['Common', 'Contrast'], rows=1)
+
+##############################################################################
+# For visualizing anatomical locations of the peaks, we use 2D projections of
+# NCRFs with brain glass schematics are added on top.
+# The function :class:`eelbrain.plot.GlassBrain`: visualizes a single time
+# point in that fashion.
+# Howerver, the plotted image should be in MNI space for this to work properly.
+# Hence, we will use the following function for to morph the NCRFs to
+# `fsaverage` brain, which is in MNI space.
+mne.datasets.fetch_fsaverage(subjects_dir)
+fname_src_fsaverage = subjects_dir / "fsaverage" / "bem" / "fsaverage-vol-5-src.fif"
+src_fs = mne.read_source_spaces(fname_src_fsaverage)
+morph = mne.compute_source_morph(
+    fwd["src"],
+    subject_from=subject,
+    subjects_dir=subjects_dir,
+    niter_affine=[10, 10, 5],
+    niter_sdr=[10, 10, 5],  # just for speed
+    src_to=src_fs,
+    verbose=True,
+)
+def morph_to_fsaverage(h):
+    data = h.get_data(('source', 'space', 'time'))
+    time = h.get_dim('time')
+    stc = mne.VolVectorSourceEstimate(data, [fwd['src'][0]['vertno']],
+                                      time.tmin, time.tstep, subject)
+    stc_fsaverage = morph.apply(stc)
+    return eelbrain.load.mne.stc_ndvar(stc_fsaverage, 'fsaverage', 'vol-5')
+hs = [morph_to_fsaverage(h) for h in hs]
 
 ###############################################################################
-# The following code for plotting the anatomical localization.
-# A single time point can be visualized with the function
-# :class:`eelbrain.plot.GlassBrain`:
+# Now, the following code plots the anatomical localization.
 # First, we locate the sources that are involved in the two prominent early
-# peaks in the common response.
+# peaks in the Common stimulus code.
 times = (0.090, 0.150, 0.200)
-vmax = 5e-11
+vmax = 3e-11
 # vmax = hs[0].norm('space').max()  # alternative: vmax based on data
-bf = eelbrain.plot.Butterfly(hs[0].norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+bf = eelbrain.plot.Butterfly(hs[0].norm('space'), axtitle='common', h=2,
+                             vmax=vmax, ylabel='Amplitude')
 for time in times:
     bf.add_vline(time, color='k', linestyle='--')
 bs = [eelbrain.plot.GlassBrain(
         hs[0].sub(time=time), vmax=vmax, display_mode='lr', 
-        title=f"Common-[{time*1000:.0f} ms]",
+        title=f"common-[{time*1000:.0f} ms]",
       ) for time in times]
 
 ###############################################################################
-# Next, we do the same with NCRFs to deviant stimulus code.
+# Next, we do the same with NCRFs to Contrast stimulus code.
 times = (0.190,)
-bf = eelbrain.plot.Butterfly(hs[1].norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+bf = eelbrain.plot.Butterfly(hs[1].norm('space'), axtitle='contrast',
+                             h=2, vmax=vmax, ylabel='Amplitude')
 for time in times:
     bf.add_vline(time, color='k', linestyle='--')
 
 bs = [eelbrain.plot.GlassBrain(
         hs[1].sub(time=time), vmax=vmax, display_mode='lr', 
-        title=f"Differential-[{time*1000:.0f} ms]",
+        title=f"contrast-[{time*1000:.0f} ms]",
       ) for time in times]
 
 ###############################################################################
-# Finally, we can reconstruct the response to standard and deviant stimuli as
-# :math:`[Common - Deviant]` amd :math:`[Common + Deviant]` respectively.
+# Finally, we can reconstruct the response to frequent and infrequent stimuli
+# as :math:`[Common - Contrast]` amd :math:`[Common + Contrast]` respectively.
 times = (0.19,)
 # Frequent
 h = hs[0] - hs[1]
-bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax,
+                             ylabel='Amplitude', frame=None, title='frequent')
 for time in times:
     bf.add_vline(time, color='k', linestyle='--')
 
 bs = [eelbrain.plot.GlassBrain(
         h.sub(time=time), vmax=vmax, display_mode='lr',
-        title=f"Frequent-[{time*1000:.0f} ms]",
+        title=f"frequent-[{time*1000:.0f} ms]",
       ) for time in times]
 
 # Infrequent
 h = hs[0] + hs[1]
-bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax, ylabel='Amplitude')
+bf = eelbrain.plot.Butterfly(h.norm('space'), axtitle='infrequent',
+                             h=2, vmax=vmax, ylabel='Amplitude')
 for time in times:
     bf.add_vline(time, color='k', linestyle='--')
 
