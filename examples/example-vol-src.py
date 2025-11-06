@@ -1,7 +1,7 @@
 """
 Volume Source Example
 =====================
-Estimate NCRFs for frequent and oddball tones.
+Estimate NCRFs for frequent and infrequent (oddball) tones.
 
 For this tutorial, we use the auditory Brainstorm tutorial dataset :cite:`Brainstorm` that is available as a part of the Brainstorm software.
 
@@ -25,7 +25,6 @@ import pandas as pd
 ###############################################################################
 # Preprocessing
 # -------------
-# Preprocess MEG Data: low pass filtering, power line attenuation, downsampling, etc.
 # We broadly follow `this mne-python tutorial <https://mne.tools/stable/auto_tutorials/io/60_ctf_bst_auditory.html>`_.
 
 data_path = mne.datasets.brainstorm.bst_auditory.data_path()
@@ -42,7 +41,7 @@ raw.info['bads'] = ['MLO52-4408', 'MRT51-4408', 'MLO42-4408', 'MLO43-4408']
 event_fname = data_path / 'MEG' / 'bst_auditory' / 'S01_AEF_20131218_01-eve.fif'
 events = mne.find_events(raw, stim_channel='UPPT001')
 
-# The event timing is adjusted by comparing the trigger times on detected sound onsets on channel UADC001-4408.
+# The event timing is adjusted by comparing the trigger times on detected sound onsets on channel UADC001-4408
 sound_data = raw[raw.ch_names.index('UADC001-4408')][0][0]
 onsets = np.where(np.abs(sound_data) > 2. * np.std(sound_data))[0]
 min_diff = int(0.5 * raw.info['sfreq'])
@@ -66,7 +65,7 @@ sound_events = pd.DataFrame({
 sound_events
 
 ###############################################################################
-# Preprocess raw data:
+# Preprocess MEG Data: low pass filtering, power line attenuation, downsampling, etc.
 
 # Notch filter for power line artifact
 raw.load_data()
@@ -87,7 +86,7 @@ raw.resample(100, npad="auto")
 raw.first_time
 
 ###############################################################################
-# Convert MEG data to :class:`eelbrain.NDVar` for NCRF estimation
+# Convert MEG data to :class:`eelbrain.NDVar` for NCRF estimation.
 
 meg = eelbrain.load.mne.raw_ndvar(raw)
 # Time axis is preserved (t_start, t_step, n_samples)
@@ -115,13 +114,13 @@ stim1 = eelbrain.NDVar.zeros(meg.time, 'common')
 # Set values at time points for any sound to 1.
 stim1[sound_events['time'].values] = 1.  # [Common]
 
-# To contrast infrequent from frequent beeps, we assign 1 and -1 impulses
-# respectively. 
+# To contrast infrequent from frequent beeps, we assign 1 and -1 impulses,
+# respectively
 stim2 = stim1.copy('contrast')
 frequent_index = sound_events['label'] == 'frequent'
 stim2[sound_events['time'].values[frequent_index]] = -1.  # [Contrast]
 
-# Visualize the predictors:
+# Visualize the predictors
 p = eelbrain.plot.UTS([stim1, stim2], color='black', stem=True, frame='none',
                       w=10, h=2.5, legend=False)
 
@@ -153,13 +152,10 @@ noise_cov = mne.compute_raw_covariance(raw_empty_room, tmin=0, tmax=None,
 subjects_dir = data_path / 'subjects'
 subject = 'bst_auditory'
 
-# mne.viz.plot_bem(subject=subject, subjects_dir=subjects_dir,
-#                  brain_surfaces='white', orientation='coronal')
-
 # The transformation file obtained by coregistration
 trans = data_path / 'MEG' / 'bst_auditory' / 'bst_auditory-trans.fif'
 
-# Here we look at the head only.
+# Uncomment for visualization
 # mne.viz.plot_alignment(raw.info, trans, subject=subject, dig=True,
 #                        meg=['helmet', 'sensors'], subjects_dir=subjects_dir,
 #                        surfaces='head')
@@ -176,10 +172,13 @@ else:
                                         pos=10.0,
                                         add_interpolator=True)
     mne.write_source_spaces(srcfile, src, overwrite=True)  # needed for smoothing
-src
+
+# Visualize the source space
+fig = mne.viz.plot_bem(subject, subjects_dir, 'coronal', brain_surfaces='white', src=src)
 
 ###############################################################################
 # Compute the forward solution:
+
 fwdfile = subjects_dir / 'bst_auditory' / 'bem' / 'bst_auditory-vol-10-fwd.fif'
 if fwdfile.is_file():
     fwd = mne.read_forward_solution(fwdfile)
@@ -198,7 +197,7 @@ else:
 fwd
 
 ###############################################################################
-# leadfield matrix
+# Extract the leadfield matrix as :class:`eelbrain.NDVar`
 lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
                                         subjects_dir=subjects_dir,
                                         parc='aparc+aseg')
@@ -206,13 +205,13 @@ lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
 ###############################################################################
 # NCRF estimation
 # ---------------
-# Now that we have all the required data to estimate NCRFs.
+# Now we have all the required data to estimate NCRFs.
 #
 # .. note::
 #    This example uses simplified settings to speed up estimation:
 #
 #    1) For this example, we use a fixed regularization parameter (``mu``).
-#    For a real experiment, the optimal ``mu`` would be determined by
+#    For a real experiment, the optimal ``mu`` can be determined by
 #    cross-validation (set ``mu='auto'``, which is the default).
 #    The optimal ``mu`` will then be stored in ``model.mu``
 #    (this is how the ``mu`` used here was determined).
@@ -221,7 +220,7 @@ lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
 #    is recommended (``n_iter``). For stable models, we recommend to use the
 #    default setting (``n_iter=10``).
 
-# To speed up the example, we cache the NCRF:
+# To speed up the example, we cache the NCRF
 ncrf_file = data_path / 'MEG' / 'bst_auditory' / 'oddball_ncrf_vol.pickle'
 if ncrf_file.exists():
     model = eelbrain.load.unpickle(ncrf_file)
@@ -249,20 +248,23 @@ model.h
 # or peaks in the response:
 #
 # .. note::
-#    Since the estimates are sparse over cortical locations, smoothing the NCRFs over sources to make the visualization more intuitive.
+#    Since the estimates are sparse over cortical locations, smoothing the NCRFs
+#    over sources makes the visualization more intuitive.
 
 hs = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
-ps = eelbrain.plot.Butterfly([h.norm('space') for h in hs],
-                             axtitle=['Common', 'Contrast'], rows=1)
+p = eelbrain.plot.Butterfly([h.norm('space') for h in hs],
+                            axtitle=['Common', 'Contrast'], rows=1)
 
 ##############################################################################
-# For visualizing anatomical locations of the peaks, we use 2D projections of
-# NCRFs with brain glass schematics are added on top.
+# We can visualize anatomical locations of the peaks with 2D projections of
+# NCRFs using glass-brain plots.
 # The function :class:`eelbrain.plot.GlassBrain`: visualizes a single time
 # point in that fashion.
-# Howerver, the plotted image should be in MNI space for this to work properly.
-# Hence, we will use the following function for to morph the NCRFs to
-# `fsaverage` brain, which is in MNI space.
+# For brain activations to align with a schematic brain overlay,
+# the plotted image should be in MNI coordinate space.
+# Hence, we will first morph the NCRFs to the `fsaverage` brain,
+# which is in MNI space.
+
 mne.datasets.fetch_fsaverage(subjects_dir)
 fname_src_fsaverage = subjects_dir / "fsaverage" / "bem" / "fsaverage-vol-5-src.fif"
 src_fs = mne.read_source_spaces(fname_src_fsaverage)
@@ -286,8 +288,9 @@ hs = [morph_to_fsaverage(h) for h in hs]
 
 ###############################################################################
 # Now, the following code plots the anatomical localization.
-# First, we locate the sources that are involved in the two prominent early
+# First, we locate the sources that are involved in the prominent early
 # peaks in the Common stimulus code.
+
 times = (0.090, 0.150, 0.200)
 vmax = 3e-11
 # vmax = hs[0].norm('space').max()  # alternative: vmax based on data
@@ -301,7 +304,8 @@ bs = [eelbrain.plot.GlassBrain(
       ) for time in times]
 
 ###############################################################################
-# Next, we do the same with NCRFs to Contrast stimulus code.
+# Next, we do the same with NCRFs to the `Contrast` predictor.
+
 times = (0.190,)
 bf = eelbrain.plot.Butterfly(hs[1].norm('space'), axtitle='contrast',
                              h=2, vmax=vmax, ylabel='Amplitude')
