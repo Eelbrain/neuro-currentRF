@@ -353,6 +353,11 @@ class RegressionData:
         m = max([basis.shape[0] for basis in self.basis])
         y = meg.get_data(('sensor', 'time'))
         y = y[:, m - 1:].astype(np.float64)
+        ch_var = np.var(y, axis=1)
+        zero_var = ch_var == 0
+        if zero_var.any():
+            flat_channels = self.sensor_dim.names[np.flatnonzero(zero_var)]
+            raise ValueError(f"{meg=}: data contains flat channels ({', '.join(flat_channels)})")
         self.meg.append(y / sqrt(y.shape[1]))  # Mind the normalization
 
         if self._norm_factor is None:
