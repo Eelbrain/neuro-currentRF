@@ -907,6 +907,128 @@ class NCRF:
         self.tstop = data.tstop
         self.gaussian_fwhm = data.gaussian_fwhm
 
+    def reduce_data(self):
+        """
+        Reduce model size and save meta data in model.megmeta.
+        """
+        if getattr(self, "_data", None) is None:
+            raise ValueError("self._data is None.")
+
+        if not hasattr(self._data, "meg"):
+            raise ValueError("self._data.meg is missing.")
+
+        if not hasattr(self, "megmeta") or self.megmeta is None:
+            self.megmeta = {}
+
+        meglen = len(self._data.meg)
+        meg_shapes = []
+        for i in range(meglen):
+            meg_i = self._data.meg[i]
+            if not hasattr(meg_i, "shape"):
+                raise TypeError(f"self._data.meg[{i}] has no .shape attribute.")
+            meg_shapes.append(tuple(meg_i.shape))
+
+        self.megmeta["meglen"] = meglen
+        self.megmeta["meg_shapes"] = meg_shapes
+
+        self._stim_normalization = {
+            "s_normalization": self._stim_normalization,
+            "nlevel": self._data.nlevel,
+        }
+
+        self._data = None
+        print("Data removed from model successfully!")
+        return
+
+    def reconstruct_data(
+            self,
+            meg_all,
+            stim_all,
+            in_place=False,
+            do_post_normalization=True,
+            attach=False,
+    ):
+        """
+        Reconstruct RegressionData
+        in_place = False : meg and stim data will not change.
+
+        """
+        if len(meg_all) != len(stim_all):
+            raise ValueError("Meg size and stim size do not match.")
+
+        whitening_filter = getattr(self, "_whitening_filter", None)
+        if whitening_filter is None:
+            raise ValueError("self._whitening_filter is None.")
+
+        stim_norm = getattr(self, "_stim_normalization", None)
+        if not isinstance(stim_norm, dict) or "nlevel" not in stim_norm:
+            raise ValueError("self._stim_normalization invalid")
+        nlevel = stim_norm["nlevel"]
+
+        data = RegressionData(
+            tstart=self.tstart,
+            tstop=self.tstop,
+            nlevel=nlevel,
+            baseline=getattr(self, "_stim_baseline", None),
+            scaling=getattr(self, "_stim_scaling", None),
+            stim_is_single=getattr(self, "_stim_is_single", None),
+            gaussian_fwhm=self.gaussian_fwhm,
+        )
+
+        for meg, stim in zip(meg_all, stim_all):
+            if not in_place:
+                if isinstance(stim, (list, tuple)):
+                    stim = [s.copy() for s in stim]
+                else:
+                    stim = stim.copy()
+            data.add_data(meg, stim)
+
+        if do_post_normalization:
+            data.post_normalization()
+
+        data._prewhiten(whitening_filter)
+        data._precompute()
+
+        # Validate meg size and shapes
+        if not hasattr(self, "megmeta") or self.megmeta is None:
+            raise ValueError("self.megmeta is missing.")
+        if "meglen" not in self.megmeta or "meg_shapes" not in self.megmeta:
+            raise ValueError('self.megmeta must contain "meglen" and "meg_shapes".')
+
+        expected_meglen = self.megmeta["meglen"]
+        expected_shapes = self.megmeta["meg_shapes"]
+
+        if len(data.meg) != expected_meglen:
+            raise ValueError("Processed MEG size mismatch")
+
+        if len(expected_shapes) != expected_meglen:
+            raise ValueError("self.megmeta['meg_shapes'] length mismatch.")
+
+        for i, meg_proc in enumerate(data.meg):
+            got = tuple(meg_proc.shape)
+            exp = tuple(expected_shapes[i])
+            if got != exp:
+                raise ValueError(f"Processed MEG shape mismatch at run {i}")
+
+        # Validate explained variance
+        if not hasattr(self, "explained_var"):
+            raise ValueError("self.explained_var is missing.")
+
+        ev_orig = float(self.explained_var)
+        ev_recon = float(self.compute_explained_variance(data))
+
+        if np.allclose(ev_recon, ev_orig, rtol=1e-10, atol=1e-8):
+            print("Explained Variance Checked Successfully!")
+        else:
+            diff = abs(ev_recon - ev_orig)
+            raise ValueError(f"Explained variance mismatch! diff={diff}")
+
+        if attach:
+            self._data = data
+            print("Reconstructed Data attached successfully!")
+
+        return data
+
     def _construct_f(self, data):
         """creates instances of objective function and its gradient to be passes to the FASTA algorithm
 

@@ -19,6 +19,14 @@ def test_ncrf():
     # 1 stimulus
     model = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=3, n_iterc=3,
                      n_iterf=10, do_post_normalization=False)
+    # check reduce
+    model.reduce_data()
+    assert model._data is None
+    assert getattr(model, "megmeta", None) is not None
+    # check reconstruct
+    model.reconstruct_data(meg, stim, attach=True)
+    assert model._data is not None
+
     # check residual and explained var
     np.testing.assert_allclose(model.explained_var, 0.00641890144769941, rtol=0.001)
     np.testing.assert_allclose(model.voxelwise_explained_variance.sum(), 0.08261162457414245, rtol=0.001)
