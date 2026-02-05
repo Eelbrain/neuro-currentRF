@@ -935,7 +935,7 @@ class NCRF:
             self,
             meg: Sequence[object],
             stim: Sequence[object],
-            attach: bool=False,
+            attach: bool = False,
     ):
         """
         Reconstruct RegressionData
@@ -982,13 +982,13 @@ class NCRF:
             got = tuple(meg_proc.shape)
             exp = tuple(expected_shapes[i])
             if got != exp:
-                raise ValueError(f"MEG shape (channel count or timepoints) mismatches with metadata.")
+                raise ValueError("MEG shape (channel count or timepoints) mismatches with metadata.")
 
         # Validate explained variance
         ev_orig = float(self.explained_var)
         ev_recon = float(self.compute_explained_variance(data))
         if not np.allclose(ev_recon, ev_orig, rtol=1e-10, atol=1e-8):
-            raise ValueError(f"Explained variance mismatch! ")
+            raise ValueError("Explained variance mismatch! ")
 
         if attach:
             self._data = data
