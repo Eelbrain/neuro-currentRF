@@ -22,7 +22,7 @@ def test_ncrf():
     # check reduce
     model.reduce_data()
     assert model._data is None
-    assert getattr(model, "megmeta", None) is not None
+    assert model._reducemeta is not None
     # check reconstruct
     model.reconstruct_data(meg, stim, attach=True)
     assert model._data is not None

@@ -909,123 +909,89 @@ class NCRF:
 
     def reduce_data(self):
         """
-        Reduce model size and save meta data in model.megmeta.
+        Reduce the model size for storage.
+
+        This method removes the cached training data stored in 'self._data' to reduce
+        the size of the model when saving to disk (for example with pickle).
+        A small amount of metadata needed for later reconstruction is stored in
+        'self._reducemeta' including meg_shape and nlevel.
         """
-        if getattr(self, "_data", None) is None:
-            raise ValueError("self._data is None.")
+        if self._data is None:
+            raise RuntimeError("Model is already reduced (self._data is None).")
 
-        if not hasattr(self._data, "meg"):
-            raise ValueError("self._data.meg is missing.")
-
-        if not hasattr(self, "megmeta") or self.megmeta is None:
-            self.megmeta = {}
-
+        self._reducemeta = {}
         meglen = len(self._data.meg)
         meg_shapes = []
         for i in range(meglen):
             meg_i = self._data.meg[i]
-            if not hasattr(meg_i, "shape"):
-                raise TypeError(f"self._data.meg[{i}] has no .shape attribute.")
             meg_shapes.append(tuple(meg_i.shape))
 
-        self.megmeta["meglen"] = meglen
-        self.megmeta["meg_shapes"] = meg_shapes
-
-        self._stim_normalization = {
-            "s_normalization": self._stim_normalization,
-            "nlevel": self._data.nlevel,
-        }
+        self._reducemeta["meg_shapes"] = meg_shapes
+        self._reducemeta["nlevel"] = self._data.nlevel
 
         self._data = None
-        print("Data removed from model successfully!")
-        return
 
     def reconstruct_data(
             self,
-            meg_all,
-            stim_all,
-            in_place=False,
-            do_post_normalization=True,
-            attach=False,
+            meg: Sequence[object],
+            stim: Sequence[object],
+            attach: bool=False,
     ):
         """
         Reconstruct RegressionData
-        in_place = False : meg and stim data will not change.
+        meg : sequence of meg same as the one used for fitting
+        stim : sequence of stim same as the one used for fitting
+        attach=True : reconstructed data will be added to model._data
+
+        Returns data : RegressionData
 
         """
-        if len(meg_all) != len(stim_all):
+        if len(meg) != len(stim):
             raise ValueError("Meg size and stim size do not match.")
-
-        whitening_filter = getattr(self, "_whitening_filter", None)
-        if whitening_filter is None:
-            raise ValueError("self._whitening_filter is None.")
-
-        stim_norm = getattr(self, "_stim_normalization", None)
-        if not isinstance(stim_norm, dict) or "nlevel" not in stim_norm:
-            raise ValueError("self._stim_normalization invalid")
-        nlevel = stim_norm["nlevel"]
 
         data = RegressionData(
             tstart=self.tstart,
             tstop=self.tstop,
-            nlevel=nlevel,
-            baseline=getattr(self, "_stim_baseline", None),
-            scaling=getattr(self, "_stim_scaling", None),
-            stim_is_single=getattr(self, "_stim_is_single", None),
+            nlevel=self._reducemeta["nlevel"],
+            baseline=self._stim_baseline,
+            scaling=self._stim_scaling,
+            stim_is_single=self._stim_is_single,
             gaussian_fwhm=self.gaussian_fwhm,
         )
 
-        for meg, stim in zip(meg_all, stim_all):
-            if not in_place:
-                if isinstance(stim, (list, tuple)):
-                    stim = [s.copy() for s in stim]
-                else:
-                    stim = stim.copy()
-            data.add_data(meg, stim)
+        for meg_i, stim_i in zip(meg, stim):
+            meg_i = meg_i.copy()
+            if isinstance(stim_i, (list, tuple)):
+                stim_i = [s.copy() for s in stim_i]
+            else:
+                stim_i = stim_i.copy()
+            data.add_data(meg_i, stim_i)
 
-        if do_post_normalization:
-            data.post_normalization()
-
-        data._prewhiten(whitening_filter)
+        data.post_normalization()
+        data._prewhiten(self._whitening_filter)
         data._precompute()
 
         # Validate meg size and shapes
-        if not hasattr(self, "megmeta") or self.megmeta is None:
-            raise ValueError("self.megmeta is missing.")
-        if "meglen" not in self.megmeta or "meg_shapes" not in self.megmeta:
-            raise ValueError('self.megmeta must contain "meglen" and "meg_shapes".')
-
-        expected_meglen = self.megmeta["meglen"]
-        expected_shapes = self.megmeta["meg_shapes"]
+        expected_shapes = self._reducemeta["meg_shapes"]
+        expected_meglen = len(expected_shapes)
 
         if len(data.meg) != expected_meglen:
-            raise ValueError("Processed MEG size mismatch")
-
-        if len(expected_shapes) != expected_meglen:
-            raise ValueError("self.megmeta['meg_shapes'] length mismatch.")
+            raise ValueError(" Input MEG List-size mismatches with metadata.")
 
         for i, meg_proc in enumerate(data.meg):
             got = tuple(meg_proc.shape)
             exp = tuple(expected_shapes[i])
             if got != exp:
-                raise ValueError(f"Processed MEG shape mismatch at run {i}")
+                raise ValueError(f"MEG shape (channel count or timepoints) mismatches with metadata.")
 
         # Validate explained variance
-        if not hasattr(self, "explained_var"):
-            raise ValueError("self.explained_var is missing.")
-
         ev_orig = float(self.explained_var)
         ev_recon = float(self.compute_explained_variance(data))
-
-        if np.allclose(ev_recon, ev_orig, rtol=1e-10, atol=1e-8):
-            print("Explained Variance Checked Successfully!")
-        else:
-            diff = abs(ev_recon - ev_orig)
-            raise ValueError(f"Explained variance mismatch! diff={diff}")
+        if not np.allclose(ev_recon, ev_orig, rtol=1e-10, atol=1e-8):
+            raise ValueError(f"Explained variance mismatch! ")
 
         if attach:
             self._data = data
-            print("Reconstructed Data attached successfully!")
 
         return data
 
