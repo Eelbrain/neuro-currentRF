@@ -271,8 +271,8 @@ if ncrf_file.exists():
 else:
     model = fit_ncrf(
         meg, [stim1, stim2], lf, noise_cov, tstart=0, tstop=0.5,
-        # mu=0.000197542704429464, n_iter=5,
-        mu='auto', n_iter=5,
+        mu=4.958456130470556e-06, n_iter=5,
+        # mu='auto', n_iter=5,
     )
     eelbrain.save.pickle(model, ncrf_file)
 model
