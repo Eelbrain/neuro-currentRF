@@ -31,8 +31,29 @@ data_path = mne.datasets.brainstorm.bst_auditory.data_path()
 raw_fname = data_path / 'MEG' / 'bst_auditory' / 'S01_AEF_20131218_01.ds'
 raw = mne.io.read_raw_ctf(raw_fname, preload=False)
 
+eog_proj_fname = data_path / 'MEG' / 'bst_auditory' / 'bst_auditory-eog-proj.fif'
+eog_proj = mne.read_proj(eog_proj_fname)
+
 # We mark a set of bad channels that seem noisier than others. 
 raw.info['bads'] = ['MLO52-4408', 'MRT51-4408', 'MLO42-4408', 'MLO43-4408']
+
+# For noise reduction, a set of bad segments have been identified and stored in
+# csv files. The bad segments are later used to reject epochs that overlap with
+# them. We use pandas to read the data from the csv files.
+
+csv_fname = data_path / 'MEG' / 'bst_auditory' / 'events_bad_01.csv'
+annotations_df = pd.read_csv(csv_fname, header=None,
+                    names=['onset', 'duration', 'id', 'label'])
+print('Events from run 1:')
+print(annotations_df)
+
+# Conversion from samples to times:
+onsets = annotations_df['onset'].values / raw.info['sfreq']
+durations = annotations_df['duration'].values / raw.info['sfreq']
+descriptions = annotations_df['label'].values
+
+annotations = mne.Annotations(onsets, durations, descriptions)
+raw.set_annotations(annotations)
 
 ###############################################################################
 # Event preprocessing: In this dataset, triggers can be adjusted by using a recording of the audio that was presented.
@@ -54,7 +75,7 @@ print(f'Trigger delay removed (μ ± σ): {diffs.mean():.1f} ± {diffs.std():.1f
 # Since event onsets are stored in samples
 event_sfreq = raw.info['sfreq']
 
-# DataFram for sound events
+# DataFrame for sound events
 sound_events = pd.DataFrame({
     'onset': onsets,
     'time': onsets / event_sfreq,
@@ -65,14 +86,31 @@ sound_events = pd.DataFrame({
 sound_events
 
 ###############################################################################
+# Visualize the event related fields (ERFs) for the two types of stimuli
+# (frequent and infrequent beeps). This is just to get a quick impression of
+# the data, and to check if the event timing is correct.
+
+events[:, 0] = onsets  # Adjust event onsets
+event_id = dict(frequent=1, infrequent=2)
+reject = dict(mag=4e-12)
+epochs = mne.Epochs(raw.copy().load_data().filter(1, 25.0), events, event_id, reject=reject, picks='mag', reject_by_annotation=True, preload=True)
+epochs.add_proj(eog_proj)  # Add EOG projectors to epochs
+epochs.apply_proj()  # Apply projectors to epochs
+evoked_ndvar = [eelbrain.load.mne.epochs_ndvar(epochs[name], data='mag', name=name).mean('case')
+                for name in ('frequent', 'infrequent')]
+evoked_ndvar.append((evoked_ndvar[1] - evoked_ndvar[0]).copy('contrast'))
+p = eelbrain.plot.TopoButterfly(evoked_ndvar, t=.190, ylabel=False, vmax=300e-15)
+
+###############################################################################
 # Preprocess MEG Data: low pass filtering, power line attenuation, downsampling, etc.
 
+raw.add_proj(eog_proj).apply_proj()  # Add EOG projectors to raw data
 # Notch filter for power line artifact
 raw.load_data()
 raw.notch_filter(np.arange(60, 181, 60), fir_design='firwin')
 
 # Band pass filtering 1-8 Hz
-raw.filter(1.0, 8.0, fir_design='firwin')
+raw.filter(1.0, 20.0, fir_design='firwin')
 
 # Crop relative to sound events
 tmin = sound_events['time'].min() - 0.2
@@ -118,7 +156,7 @@ stim1[sound_events['time'].values] = 1.  # [Common]
 # respectively
 stim2 = stim1.copy('contrast')
 frequent_index = sound_events['label'] == 'frequent'
-stim2[sound_events['time'].values[frequent_index]] = -1.  # [Contrast]
+stim2[sound_events['time'].values[frequent_index]] = -1  # [Contrast]
 
 # Visualize the predictors
 p = eelbrain.plot.UTS([stim1, stim2], color='black', stem=True, frame='none',
@@ -133,9 +171,11 @@ noise_path = data_path / 'MEG' / 'bst_auditory' / 'S01_Noise_20131218_01.ds'
 raw_empty_room = mne.io.read_raw_ctf(noise_path, preload=True)
 
 # Apply the same pre-processing steps to empty room data
+raw_empty_room.add_proj(eog_proj)
+
 raw_empty_room.notch_filter(np.arange(60, 181, 60), fir_design='firwin')
 
-raw_empty_room.filter(1.0, 8.0, fir_design='firwin')
+raw_empty_room.filter(1.0, 20.0, fir_design='firwin')
 
 raw_empty_room.resample(100, npad="auto")
 
@@ -174,7 +214,11 @@ else:
     mne.write_source_spaces(srcfile, src, overwrite=True)  # needed for smoothing
 
 # Visualize the source space
-fig = mne.viz.plot_bem(subject, subjects_dir, 'coronal', brain_surfaces='white', src=src)
+fig = mne.viz.plot_bem(subject,
+                       subjects_dir,
+                       'coronal',
+                       brain_surfaces='white',
+                       src=src)
 
 ###############################################################################
 # Compute the forward solution:
@@ -227,7 +271,8 @@ if ncrf_file.exists():
 else:
     model = fit_ncrf(
         meg, [stim1, stim2], lf, noise_cov, tstart=0, tstop=0.5,
-        mu=0.000197542704429464, n_iter=5,
+        # mu=0.000197542704429464, n_iter=5,
+        mu='auto', n_iter=5,
     )
     eelbrain.save.pickle(model, ncrf_file)
 model
@@ -251,8 +296,8 @@ model.h
 #    Since the estimates are sparse over cortical locations, smoothing the NCRFs
 #    over sources makes the visualization more intuitive.
 
-hs = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
-p = eelbrain.plot.Butterfly([h.norm('space') for h in hs],
+hs_orig = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
+p = eelbrain.plot.Butterfly([h.norm('space') for h in hs_orig],
                             axtitle=['Common', 'Contrast'], rows=1)
 
 ##############################################################################
@@ -284,15 +329,15 @@ def morph_to_fsaverage(h):
                                       time.tmin, time.tstep, subject)
     stc_fsaverage = morph.apply(stc)
     return eelbrain.load.mne.stc_ndvar(stc_fsaverage, 'fsaverage', 'vol-5')
-hs = [morph_to_fsaverage(h) for h in hs]
+hs = [morph_to_fsaverage(h) for h in hs_orig]
 
 ###############################################################################
 # Now, the following code plots the anatomical localization.
 # First, we locate the sources that are involved in the prominent early
 # peaks in the Common stimulus code.
 
-times = (0.090, 0.150, 0.200)
-vmax = 3e-11
+times = (0.1, 0.150, 0.200)
+vmax = 5e-11
 # vmax = hs[0].norm('space').max()  # alternative: vmax based on data
 bf = eelbrain.plot.Butterfly(hs[0].norm('space'), axtitle='common', h=2,
                              vmax=vmax, ylabel='Amplitude')
@@ -320,7 +365,9 @@ bs = [eelbrain.plot.GlassBrain(
 ###############################################################################
 # Finally, we can reconstruct the response to frequent and infrequent stimuli
 # as :math:`[Common - Contrast]` amd :math:`[Common + Contrast]` respectively.
-times = (0.19,)
+vmax = 7e-11
+times = (0.2,)
+
 # Frequent
 h = hs[0] - hs[1]
 bf = eelbrain.plot.Butterfly(h.norm('space'), h=2, vmax=vmax,
@@ -335,8 +382,8 @@ bs = [eelbrain.plot.GlassBrain(
 
 # Infrequent
 h = hs[0] + hs[1]
-bf = eelbrain.plot.Butterfly(h.norm('space'), axtitle='infrequent',
-                             h=2, vmax=vmax, ylabel='Amplitude')
+bf = eelbrain.plot.Butterfly(h.norm('space'), title='infrequent',
+                             h=2, vmax=vmax, frame=None, ylabel='Amplitude')
 for time in times:
     bf.add_vline(time, color='k', linestyle='--')
 
