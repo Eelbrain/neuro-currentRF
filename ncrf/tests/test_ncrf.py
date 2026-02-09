@@ -26,6 +26,7 @@ def test_ncrf():
     # check reconstruct
     model.reconstruct_data(meg, stim, attach=True)
     assert model._data is not None
+    assert len(model._reducemeta["meg_shapes"]) == len(meg), "Attempting to reconstruct with wrong meg data."
 
     # check residual and explained var
     np.testing.assert_allclose(model.explained_var, 0.00641890144769941, rtol=0.001)
