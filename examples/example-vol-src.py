@@ -334,9 +334,10 @@ hs = [morph_to_fsaverage(h) for h in hs_orig]
 ###############################################################################
 # Now, the following code plots the anatomical localization.
 # First, we locate the sources that are involved in the prominent early
-# peaks in the Common stimulus code.
+# peaks in the Common stimulus code: P50: 50ms, N100: 95ms, P200: 170ms.
+# They correspond to auditory response in both conditions.
 
-times = (0.1, 0.150, 0.200)
+times = (0.05, 0.095, 0.170,)
 vmax = 5e-11
 # vmax = hs[0].norm('space').max()  # alternative: vmax based on data
 bf = eelbrain.plot.Butterfly(hs[0].norm('space'), axtitle='common', h=2,
@@ -349,7 +350,12 @@ bs = [eelbrain.plot.GlassBrain(
       ) for time in times]
 
 ###############################################################################
-# Next, we do the same with NCRFs to the `Contrast` predictor.
+# Next, we do the same with NCRFs to the `Contrast` predictor. Note that the
+# peaks in the contrast condition are later than those in the common condition,
+# and emphasizes known temporal dynamics of mismatch negativity (MMN) response.
+# We locate the sources that are involved in the prominent MMN peak around
+# 190ms. Note that the dircetion of activation is opposite to that of early
+# peaks in the common condition.
 
 times = (0.190,)
 bf = eelbrain.plot.Butterfly(hs[1].norm('space'), axtitle='contrast',
@@ -365,8 +371,12 @@ bs = [eelbrain.plot.GlassBrain(
 ###############################################################################
 # Finally, we can reconstruct the response to frequent and infrequent stimuli
 # as :math:`[Common - Contrast]` amd :math:`[Common + Contrast]` respectively.
+# Here, we locate the sources that are involved in the prominent peaks around
+# 450ms, which are stronger for infrequent stimuli, to the left motor cortex.
+# This aligns with the expected neural response to the motor task: the subject
+# presses a button when detecting a deviant with the right index finger.
 vmax = 7e-11
-times = (0.2,)
+times = (0.45,)
 
 # Frequent
 h = hs[0] - hs[1]
