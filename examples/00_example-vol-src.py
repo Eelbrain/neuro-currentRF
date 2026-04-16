@@ -109,7 +109,7 @@ raw.add_proj(eog_proj).apply_proj()  # Add EOG projectors to raw data
 raw.load_data()
 raw.notch_filter(np.arange(60, 181, 60), fir_design='firwin')
 
-# Band pass filtering 1-8 Hz
+# Band pass filtering 1-20 Hz
 raw.filter(1.0, 20.0, fir_design='firwin')
 
 # Crop relative to sound events
