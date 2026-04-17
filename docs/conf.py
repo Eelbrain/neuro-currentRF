@@ -7,6 +7,7 @@ from datetime import date
 
 import eelbrain
 from intersphinx_registry import get_intersphinx_mapping
+from sphinx_gallery.sorting import FileNameSortKey
 
 import ncrf
 
@@ -131,6 +132,7 @@ sphinx_gallery_conf = {
     'filename_pattern': '/',
     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output
     'reset_modules': ('matplotlib', use_pyplot),
+    "within_subsection_order": FileNameSortKey,
 }
 
 

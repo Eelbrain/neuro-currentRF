@@ -1,6 +1,6 @@
 """
-Oddball Tones Example
-=====================
+Surface source Example
+======================
 Estimate NCRFs for standard and oddball tones.
 
 For this tutorial, we use the auditory Brainstorm tutorial dataset :cite:`Brainstorm` that is available as a part of the Brainstorm software.
@@ -260,8 +260,8 @@ model.h
 # .. note::
 #    Since the estimates are sparse over cortical locations, smoothing the NCRFs over sources to make the visualization more intuitive.
 
-h = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
-p = eelbrain.plot.Butterfly(h)
+hs = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
+p = eelbrain.plot.Butterfly(hs)
 
 ###############################################################################
 # The following code for plotting the anatomical localization
@@ -290,3 +290,9 @@ p = eelbrain.plot.Butterfly(h)
 # plots with :func:`eelbrain.plot.brain.butterfly`:
 
 # brain, butterfly = eelbrain.plot.brain.butterfly(h0)
+
+###############################################################################
+# Finally, we can reconstruct the response to frequent and infrequent stimuli
+# as :math:`[Common - Contrast]` amd :math:`[Common + Contrast]` respectively.
+h_recon = (hs[0] - hs[1], hs[0] + hs[1])
+p = eelbrain.plot.Butterfly(h_recon, frame=None)
