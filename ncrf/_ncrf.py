@@ -2,8 +2,7 @@
 
 This module is the public entrypoint for the library. It normalizes the
 different supported input layouts, derives stimulus scaling metadata, prepares
-:class:`ncrf._model.RegressionData`, and then delegates optimization to
-:class:`ncrf._model.NCRF`.
+:class:`RegressionData`, and then delegates optimization to :class:`NCRF`.
 """
 # Authors: Proloy Das <email:proloyd94@gmail.com>
 #          Christian Brodbeck <email:brodbecc@mcmaster.ca>
@@ -166,7 +165,7 @@ def fit_ncrf(
 
     Returns
     -------
-    :class:`ncrf.NCRF`
+    :class:`NCRF`
         Fitted model instance.
 
     Examples
