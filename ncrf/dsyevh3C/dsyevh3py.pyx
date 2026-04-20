@@ -1,3 +1,7 @@
+# cython: boundscheck=False, wraparound=False
+# cython: profile=False
+# distutils: language = c++
+# Author: Proloy Das <proloy@umd.edu>
 """Cython bridge for 3x3 eigendecomposition and Gamma updates in NCRF.
 
 This module keeps the small dense linear-algebra kernels used inside the
@@ -25,11 +29,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
 USA
 """
 
-# cython: boundscheck=False, wraparound=False
-# cython: profile=False
-# distutils: language = c++
-# optimized functions
-# Author: Proloy Das <proloy@umd.edu>
 cimport cython
 cimport numpy as cnp
 from libc.math cimport sqrt
