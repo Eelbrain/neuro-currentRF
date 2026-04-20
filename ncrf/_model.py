@@ -62,7 +62,7 @@ def gaussian_basis(
 
     Returns
     -------
-    basis
+    ndarray
         Array whose columns contain the basis atoms.
     """
     logger = logging.getLogger(__name__)
@@ -219,7 +219,7 @@ def _compute_gamma_i(z: FloatArray, x: FloatArray) -> FloatArray:
 
     Returns
     -------
-    gamma
+    ndarray
         Updated block covariance matrix.
     """
     [e, v] = linalg.eig(z)
@@ -463,7 +463,7 @@ class RegressionData:
 
         Returns
         -------
-        data
+        :class:`RegressionData`
             A new dataset containing the requested time slice.
         """
         obj = type(self).__new__(self.__class__)
@@ -1052,7 +1052,7 @@ class NCRF:
 
         Returns
         -------
-        value
+        float or tuple of float
             Objective value, or a tuple with the weighted L2 term when
             ``return_wl2`` is true.
         """
@@ -1229,7 +1229,7 @@ class NCRF:
 
         Returns
         -------
-        metric
+        float
             Estimation-stability score.
         """
         Y = []
@@ -1274,7 +1274,7 @@ class NCRF:
 
         Returns
         -------
-        cvfunc
+        callable
             Callable that evaluates one regularization value and returns the
             cross-validation metrics.
         """

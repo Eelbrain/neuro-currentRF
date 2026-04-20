@@ -137,7 +137,7 @@ def crossvalidate(
 
     Returns
     -------
-    results
+    list
         Cross-validation results.
     """
     prog = tqdm(total=len(mus), desc="Crossvalidation", unit='mu', unit_scale=True)
