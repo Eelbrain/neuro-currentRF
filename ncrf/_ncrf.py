@@ -166,7 +166,7 @@ def fit_ncrf(
 
     Returns
     -------
-    The fitted :class:`ncrf._model.NCRF` instance.
+    The fitted :class:`NCRF` instance.
 
     Examples
     --------
