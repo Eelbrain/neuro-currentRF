@@ -16,6 +16,8 @@ ncrf/dsyevh3C/__pycache__/
 ncrf/opt.c
 ncrf/dsyevh3C/*.pxd
 ncrf/dsyevh3C/*.cpp
+ncrf/dsyevh3C/dsyevh3py.c
+ncrf-testing-data
 *.html
 ncrf_data
 .pytest_cache
