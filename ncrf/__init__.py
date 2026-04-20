@@ -5,5 +5,5 @@ coordinates input normalization and model fitting, while :class:`NCRF` and
 :class:`RegressionData` expose the lower-level object-oriented workflow.
 """
 
-from ._model import NCRF, RegressionData, gaussian_basis
+from ._model import NCRF, RegressionData
 from ._ncrf import fit_ncrf

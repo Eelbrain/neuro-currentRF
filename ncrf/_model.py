@@ -500,7 +500,7 @@ class RegressionData:
 
 
 class NCRF:
-    """The object-based API for cortical TRF localization.
+    """Result container and object-based API for NCRF.
 
     Parameters
     ----------

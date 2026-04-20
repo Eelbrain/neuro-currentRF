@@ -173,7 +173,7 @@ def fit_ncrf(
     MEG data ``y`` with dimensions (case, sensor, time) and predictor ``x``
     with dimensions (case, time)::
 
-        ncrf(y, x, fwd, cov)
+        fit_ncrf(y, x, fwd, cov)
 
     ``x`` can always also have an additional predictor dimension, for example,
     if ``x`` represents a spectrogram: (case, frequency, time). The case
@@ -185,16 +185,16 @@ def fit_ncrf(
     modeling simultaneous responses to an attended and an unattended stimulus
     with ``x_attended`` and ``x_unattended``::
 
-        ncrf(y, [x_attended, x_unattended], fwd, cov)
+        fit_ncrf(y, [x_attended, x_unattended], fwd, cov)
 
     Multiple data segments can also be specified as list. E.g., if ``y1`` and
     ``y2`` are responses to stimuli ``x1`` and ``x2``, respoectively::
 
-        ncrf([y1, y2], [x1, x2], fwd, cov)
+        fit_ncrf([y1, y2], [x1, x2], fwd, cov)
 
     And with multiple predictors::
 
-        ncrf([y1, y2], [[x1_attended, x1_unattended], [x2_attended, x2_unattended]], fwd, cov)
+        fit_ncrf([y1, y2], [[x1_attended, x1_unattended], [x2_attended, x2_unattended]], fwd, cov)
 
     References
     ----------
