@@ -1,19 +1,30 @@
+"""Cross-validation helpers used by the NCRF estimator.
+
+The core model owns fitting and scoring logic, while this module supplies the
+execution machinery for sweeping regularization values and splitting time-series
+data into train/test windows.
+"""
+
+from __future__ import annotations
+
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
-from __future__ import annotations
 
 import os
 from math import ceil
 from multiprocessing import Process, Queue
 import queue
-from typing import TYPE_CHECKING, List, Sequence
+from typing import TYPE_CHECKING, Callable, Iterator, List, Sequence
 
 from eelbrain._config import CONFIG
 import numpy as np
+import numpy.typing as npt
 from tqdm import tqdm
 
 if TYPE_CHECKING:
     from ._model import NCRF, RegressionData
+
+FloatArray = npt.NDArray[np.float64]
 
 
 class CVResult:
@@ -47,8 +58,15 @@ class CVResult:
         self.l2_error = l2_error
 
 
-def naive_worker(fun, data, n_split, tol, job_q, result_q):
-    """Worker function"""
+def naive_worker(
+        fun: Callable[[RegressionData, int, float, float], CVResult],
+        data: RegressionData,
+        n_split: int,
+        tol: float,
+        job_q: Queue,
+        result_q: Queue,
+) -> None:
+    """Consume regularization values from the shared queue and score them."""
     # myname = current_process().name
     if CONFIG['nice']:
         os.nice(CONFIG['nice'])
@@ -64,8 +82,16 @@ def naive_worker(fun, data, n_split, tol, job_q, result_q):
             return
 
 
-def start_workers(fun, data, n_split, tol, shared_job_q, shared_result_q, nprocs):
-    """sets up workers"""
+def start_workers(
+        fun: Callable[[RegressionData, int, float, float], CVResult],
+        data: RegressionData,
+        n_split: int,
+        tol: float,
+        shared_job_q: Queue,
+        shared_result_q: Queue,
+        nprocs: int,
+) -> list[Process]:
+    """Start worker processes for the current cross-validation sweep."""
     procs = []
     for i in range(nprocs):
         p = Process(
@@ -84,7 +110,7 @@ def crossvalidate(
         n_splits: int,
         n_workers: int = None,
 ) -> List[CVResult]:
-    """used to perform cross-validation of cTRF model
+    """Perform cross-validation over a set of regularization values.
 
     This function assumes `model` class has method _get_cvfunc(data, n_splits)
     which returns a callable. It calls that object with different
@@ -111,7 +137,7 @@ def crossvalidate(
 
     Returns
     -------
-    results : List[CVResult]
+    results
         Cross-validation results.
     """
     prog = tqdm(total=len(mus), desc="Crossvalidation", unit='mu', unit_scale=True)
@@ -148,12 +174,15 @@ def crossvalidate(
 
 
 class TimeSeriesSplit:
-    def __init__(self, r=0.05, p=5, d=100):
+    """Split contiguous time indices into ordered train/test windows."""
+
+    def __init__(self, r: float = 0.05, p: int = 5, d: int = 100):
         self.ratio = r
         self.p = p
         self.d = d
 
-    def _iter_part_masks(self, X):
+    def _iter_part_masks(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Yield boolean masks for each backward-moving validation split."""
         n_v = ceil(self.ratio / (1 + self.ratio) * len(X))
         for i in range(self.p, 0, -1):
             test_mask = np.zeros(len(X), dtype=bool)
@@ -163,9 +192,10 @@ class TimeSeriesSplit:
                 test_mask[-i * n_v:] = True
             else:
                 test_mask[-i * n_v:-(i - 1) * n_v] = True
-            yield (train_mask, test_mask)
+            yield train_mask, test_mask
 
-    def split(self, X):
+    def split(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        """Yield integer index arrays for each validation split."""
         indices = np.arange(len(X))
         for (train_mask, test_mask) in self._iter_part_masks(X):
             train_index = indices[train_mask]

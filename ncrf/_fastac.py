@@ -1,15 +1,31 @@
+"""FASTA proximal-optimization implementation used inside the NCRF solver.
+
+The higher-level NCRF model constructs the objective for each outer iteration,
+and this module handles the inner forward-backward optimization step that
+updates the temporal response coefficients.
+"""
+
+from __future__ import annotations
+
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
-"""Module implementing the FASTA algorithm"""
 
-import numpy as np
 from math import sqrt
 import time
+from typing import Callable
 
 import logging
 
+import numpy as np
+import numpy.typing as npt
 
-def _next_stepsize(deltax, deltaF):
+FloatArray = npt.NDArray[np.float64]
+ObjectiveFunction = Callable[[FloatArray], float]
+GradientFunction = Callable[[FloatArray], FloatArray]
+ProximalOperator = Callable[[FloatArray, float], FloatArray]
+
+
+def _next_stepsize(deltax: FloatArray, deltaF: FloatArray) -> float:
     """A variation of spectral descent step-size selection: 'adaptive' BB method.
 
     Reference:
@@ -19,10 +35,11 @@ def _next_stepsize(deltax, deltaF):
 
     parameters
     ----------
-    deltax: ndarray
-        difference between coefs_current and coefs_next
-    deltaF: ndarray
-        difference between grad operator evaluated at coefs_current and coefs_next
+    deltax
+        Difference between the current and next coefficient estimates.
+    deltaF
+        Difference between the gradient evaluated at the current and next
+        coefficient estimates.
 
     returns
     -------
@@ -48,8 +65,8 @@ def _next_stepsize(deltax, deltaF):
             return tau_s - 0.5 * tau_m
 
 
-def _compute_residual(deltaf, sg):
-    """Computes residuals"""
+def _compute_residual(deltaf: FloatArray, sg: FloatArray) -> tuple[float, float]:
+    """Compute absolute and relative residuals for the current FASTA step."""
     res = sqrt(((deltaf + sg) ** 2).sum())
     a = sqrt((deltaf ** 2).sum())
     b = sqrt((sg ** 2).sum())
@@ -57,31 +74,40 @@ def _compute_residual(deltaf, sg):
     return res, res_r
 
 
-def _update_coefs(x, tau, gradfx, prox, f, g, beta, fk):
+def _update_coefs(
+        x: FloatArray,
+        tau: float,
+        gradfx: FloatArray,
+        prox: ProximalOperator,
+        f: ObjectiveFunction,
+        g: ObjectiveFunction,
+        beta: float,
+        fk: float,
+) -> tuple[FloatArray, float, FloatArray, float, int]:
     """Non-monotone line search
 
     parameters
     ----------
-    x: ndarray
-        current coefficients
-    tau: float
+    x
+        Current coefficients.
+    tau
         step size
-    gradfx: ndarry
-        gradient operator evaluated at current coefficients
-    prox: function handle
+    gradfx
+        Gradient evaluated at the current coefficients.
+    prox
         proximal operator of :math:`g(x)`
-    f: callable
+    f
         smooth differentiable function, :math:`f(x)`
-    g: callable
+    g
         non-smooth function, :math:`g(x)`
-    beta: float
+    beta
         backtracking parameter
-    fk: float
+    fk
         maximum of previous function values
 
     returns
     -------
-    z: ndarray
+    z
         next coefficients
     """
     x_hat = x - tau * gradfx
@@ -110,41 +136,38 @@ class Fasta:
 
     Parameters
     ----------
-    f: function handle
+    f
         smooth differentiable function, :math:`f(x)`
-    g: function handle
+    g
         non-smooth convex function, :math:`g(x)`
-    gradf: function handle
+    gradf
         gradient of smooth differentiable function, :math:`\\nabla f(x)`
-    proxg: function handle
+    proxg
         proximal operator of non-smooth convex function
-     :math:`proxg(v, \\lambda) = argmin g(x) + \\frac{1}{2*\\lambda}\|x-v\|^2`
-    beta: float, optional
+        :math:`proxg(v, \\lambda) = argmin g(x) + \\frac{1}{2*\\lambda}\|x-v\|^2`
+    beta
         backtracking parameter
         default is 0.5
-    n_iter: int, optional
+    n_iter
         number of iterations
         default is 1000
 
     Attributes
     ----------
-    coefs: ndvar
-        learned coefficients
-    objective_value: float
-        optimum objective value
-    residuals: list
-        residual values at each iteration
-    initial_stepsize: float, optional
-        created only with verbose=1 option
-    objective: list, optional
-        objective values at each iteration
-        created only with verbose=1 option
-    stepsizes: list, optional
-        stepsizes at each iteration
-        created only with verbose=1 option
-    backtracks: list, optional
-        number of backtracking steps
-        created only with verbose=1 option
+    coefs
+        Learned coefficients.
+    objective_value
+        Optimum objective value.
+    residuals
+        Residual values at each iteration.
+    initial_stepsize
+        Initial step size, created only with ``verbose=1``.
+    objective
+        Objective values at each iteration, created only with ``verbose=1``.
+    stepsizes
+        Step sizes at each iteration, created only with ``verbose=1``.
+    backtracks
+        Number of backtracking steps, created only with ``verbose=1``.
 
     Notes
     -----
@@ -168,39 +191,41 @@ class Fasta:
     >>> lsq.learn(x0, verbose=1)
     """
 
-    def __init__(self, f, g, gradf, proxg, beta=0.5, n_iter=1000):
+    def __init__(
+            self,
+            f: ObjectiveFunction,
+            g: ObjectiveFunction,
+            gradf: GradientFunction,
+            proxg: ProximalOperator,
+            beta: float = 0.5,
+            n_iter: int = 1000,
+    ):
         self.f = f
         self.g = g
         self.grad = gradf
         self.prox = proxg
         self.beta = beta
         self.n_iter = n_iter
-        self.residuals = []
-        self._funcValues = []
-        self.coefs_ = None
+        self.residuals: list[float] = []
+        self._funcValues: list[float] = []
+        self.coefs_: FloatArray | None = None
 
-    def __str__(self):
-        return "Fast adaptive shrinkage/thresholding Algorithm instance"
+    def __str__(self) -> str:
+        return "<Fast adaptive shrinkage/thresholding Algorithm instance>"
 
-    def learn(self, coefs_init, tol=1e-2, verbose=True):
-        """fits the model using FASTA algorithm
+    def learn(self, coefs_init: FloatArray, tol: float = 1e-2, verbose: bool = True) -> Fasta:
+        """Fit the coefficients using the FASTA algorithm.
 
-        parameters
+        Parameters
         ----------
-        coefs_init: ndarray
+        coefs_init
             initial guess
-
-        tol: float, optional
+        tol
             tolerance parameter
             default is 1e-8
-
-        verbose: {0,1}
+        verbose
             verbosity of the method : 1 will display informations while 0 will display nothing
             default = 0
-
-        returns
-        -------
-        self
         """
         logger = logging.getLogger("FASTA")
         coefs_current = np.copy(coefs_init)
@@ -260,4 +285,4 @@ class Fasta:
         self.coefs_ = coefs_current
         self.objective_value = objective_next + self.g(coefs_current)
         if verbose:
-            logger.debug(f"total time elapsed : {end - start}s")
+            logger.debug(f"total time elapsed : {end - start:.3f} s")
