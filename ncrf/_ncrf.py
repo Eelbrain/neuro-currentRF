@@ -101,7 +101,8 @@ def fit_ncrf(
         Observed data. A single contiguous segment can be passed as an
         :class:`eelbrain.NDVar` with ``sensor`` and ``time`` dimensions, equal-length
         trials can be packed into an NDVar with a ``case`` dimension, and unequal-length
-        segments can be supplied as a sequence (e.g., :class:`list` of :class:`NDVar`).
+        segments can be supplied as a sequence (e.g., :class:`list` of
+        :class:`eelbrain.NDVar`).
     stim
         One or more predictors corresponding to each item in ``meg``. Predictors can
         be supplied as one NDVar per segment or as nested sequences when each segment
@@ -165,8 +166,7 @@ def fit_ncrf(
 
     Returns
     -------
-    trf
-        The result of the model fit.
+    The fitted :class:`ncrf._model.NCRF` instance.
 
     Examples
     --------
