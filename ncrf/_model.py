@@ -165,9 +165,6 @@ def _inv_sqrtm(m, return_eig=False):
     e = e.real
     tol = _R_tol * e.max()
     ind = (e > tol)
-    zero_empty_room_ch = ind == 0
-    if zero_empty_room_ch.any():
-        raise ValueError("Empty room data contains flat channels")
     y = np.zeros((e.shape[0], 1))
     y[ind, 0] = 1 / e[ind]
     if return_eig:
