@@ -196,6 +196,11 @@ def fit_ncrf(
 
         fit_ncrf([y1, y2], [[x1_attended, x1_unattended], [x2_attended, x2_unattended]], fwd, cov)
 
+    For complete workflows, see the gallery examples
+    :ref:`Volume Source Example <sphx_glr_auto_examples_00_example-vol-src.py>`
+    and
+    :ref:`Surface source Example <sphx_glr_auto_examples_01_example-surf-src.py>`.
+
     References
     ----------
     .. bibliography::
