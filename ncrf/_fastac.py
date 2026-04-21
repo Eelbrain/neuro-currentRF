@@ -33,7 +33,7 @@ def _next_stepsize(deltax: FloatArray, deltaF: FloatArray) -> float:
     B. Zhou, L. Gao, and Y.H. Dai, 'Gradient methods with adaptive step-sizes,'
     Comput. Optim. Appl., vol. 35, pp. 69-86, Sept. 2006
 
-    parameters
+    Parameters
     ----------
     deltax
         Difference between the current and next coefficient estimates.
@@ -41,10 +41,10 @@ def _next_stepsize(deltax: FloatArray, deltaF: FloatArray) -> float:
         Difference between the gradient evaluated at the current and next
         coefficient estimates.
 
-    returns
+    Returns
     -------
     float
-        adaptive step-size
+        Adaptive step-size.
     """
     n_deltax = (deltax ** 2).sum()  # linalg.norm(deltax, 'fro') ** 2
     n_deltaF = (deltaF ** 2).sum()  # linalg.norm(deltaF, 'fro') ** 2
@@ -86,7 +86,7 @@ def _update_coefs(
 ) -> tuple[FloatArray, float, FloatArray, float, int]:
     """Non-monotone line search
 
-    parameters
+    Parameters
     ----------
     x
         Current coefficients.
@@ -105,10 +105,12 @@ def _update_coefs(
     fk
         maximum of previous function values
 
-    returns
+    Returns
     -------
-    z
-        next coefficients
+    tuple
+        Tuple ``(z, fz, sg, tau, count)`` containing the updated coefficients,
+        objective value, subgradient term, accepted step size, and number of
+        backtracking steps.
     """
     x_hat = x - tau * gradfx
     z = prox(x_hat, tau)

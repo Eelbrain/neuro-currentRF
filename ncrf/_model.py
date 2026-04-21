@@ -131,20 +131,20 @@ def covariate_from_stim(
 ) -> list[FloatArray]:
     """Form lagged covariate matrices from one or more stimulus NDVars.
 
-    parameters
+    Parameters
     ----------
     stims
         Predictor variables. Each predictor must provide a ``time`` axis and may have
         at most one additional feature dimension before time.
     Ms
         Filter lengths, in samples, for each expanded predictor channel.
-    start
+    starts
         Start offsets, in samples, for each expanded predictor channel.
 
-    returns
+    Returns
     -------
-    x
-        Covariate matrices.
+    list
+        Covariate matrices, one per expanded predictor channel.
     """
     ws = []
     for stim in stims:
@@ -550,7 +550,7 @@ class NCRF:
     3. Initialize :class:`NCRF` instance with desired properties
     4. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
        estimate the cortical TRFs.
-    5. Access the cortical TRFs in :attr:`NCRF.h`.
+    5. Access the cortical TRFs in the ``NCRF.h`` attribute.
     """
     _name = 'cTRFs estimator'
     _cv_results = None
@@ -995,7 +995,7 @@ class NCRF:
         """Build the smooth objective and gradient passed to FASTA.
 
         Parameters
-        ---------
+        ----------
         data
             Prepared regression data.
         """
@@ -1046,15 +1046,15 @@ class NCRF:
         """Evaluate the current objective value on a dataset.
 
         Parameters
-        ---------
+        ----------
         data
             Dataset on which to evaluate the objective.
 
         Returns
         -------
-        float or tuple of float
-            Objective value, or a tuple with the weighted L2 term when
-            ``return_wl2`` is true.
+        float | tuple[float, float]
+            Objective value, or a pair containing the objective value and the
+            weighted L2 term when ``return_wl2`` is true.
         """
         ll2 = 0
         logdet = 0
@@ -1265,7 +1265,7 @@ class NCRF:
         ----------
         data
             Dataset object compatible with model fitting and exposing
-            :meth:`timeslice` for train/test partitioning.
+            :meth:`ncrf.RegressionData.timeslice` for train/test partitioning.
         n_splits
             number of folds for cross-validation, If None, it will use values
             specified in config.py.

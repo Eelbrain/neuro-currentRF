@@ -132,7 +132,7 @@ def compute_gamma_c(FLOAT64[:, :] zpy, FLOAT64[:, :] xpy, FLOAT64[:, :] gamma):
                    = V(E)**(-1/2)V' * ( V (UDU') V')** (1/2) * V(E)**(-1/2)V'
                    = V (E)**(-1/2) U (D)**(1/2) U' (E)**(-1/2) V'
 
-    parameters
+    Parameters
     ----------
     z: ndarray
         array of shape (dc, dc)
@@ -142,7 +142,7 @@ def compute_gamma_c(FLOAT64[:, :] zpy, FLOAT64[:, :] xpy, FLOAT64[:, :] gamma):
         array of shape (dc, dc)
         auxiliary variable, x_i
 
-    returns
+    Returns
     -------
     ndarray
     array of shape (dc, dc)

@@ -122,7 +122,7 @@ def fit_ncrf(
         specifies one stop time per predictor.
     nlevels
         Decides the density of Gabor atoms. Bigger nlevel -> less dense basis.
-        By default it is set to `1`. `nlevesl > 2` should be used with caution.
+        By default it is set to ``1``. ``nlevel > 2`` should be used with caution.
     n_iter
         Number of outer iterations of the algorithm, by default set to 10.
     n_iterc
