@@ -165,9 +165,6 @@ def _inv_sqrtm(m, return_eig=False):
     e = e.real
     tol = _R_tol * e.max()
     ind = (e > tol)
-    zero_empty_room_ch = ind == 0
-    if zero_empty_room_ch.any():
-        raise ValueError("Empty room data contains flat channels")
     y = np.zeros((e.shape[0], 1))
     y[ind, 0] = 1 / e[ind]
     if return_eig:
@@ -359,7 +356,7 @@ class RegressionData:
         ch_var = np.var(y, axis=1)
         zero_var = ch_var == 0
         if zero_var.any():
-            flat_channels = self.sensor_dim.names[np.flatnonzero(zero_var)]
+            flat_channels = self.sensor_dim.names[zero_var]
             raise ValueError(f"{meg=}: data contains flat channels ({', '.join(flat_channels)})")
         self.meg.append(y / sqrt(y.shape[1]))  # Mind the normalization
 
@@ -600,6 +597,10 @@ class NCRF:
 
     def _prewhiten(self):
         wf = _inv_sqrtm(self.noise_covariance)
+        wf_var = np.var(wf, axis=1)
+        zero_var_wf = wf_var == 0
+        if zero_var_wf.any():
+            raise ValueError("Empty room data contains flat channels")
         self._whitening_filter = wf
         self.lead_field = np.dot(wf, self.lead_field)
         # self.noise_covariance = np.eye(self.lead_field.shape[0], dtype=np.float64)
