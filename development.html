@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Contributing &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=d2d258e8" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=f9605279" />
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="References" href="references.html" />
+    <link rel="prev" title="Changes" href="changes.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="contributing">
+<h1>Contributing<a class="headerlink" href="#contributing" title="Link to this heading">¶</a></h1>
+<p>Clone the GitHub repository and change the working directory:</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">clone</span> <span class="pre">https://github.com/proloyd/neuro-currentRF.git</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">cd</span> <span class="pre">neuro-currentRF</span></code></p>
+<p>Create an environment with the necessary dependencies (this assumes <a class="reference external" href="https://conda-forge.org/download/">Mamba</a> is already installed):</p>
+<p><code class="docutils literal notranslate"><span class="pre">mamba</span> <span class="pre">env</span> <span class="pre">create</span> <span class="pre">--file=env-dev.yml</span></code></p>
+<p>Then, install <em class="xref py py-obj">neuro-currentRF</em> in development model using pip:</p>
+<p><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">-e</span> <span class="pre">.</span></code></p>
+<p>Using a <em class="xref py py-obj">-e</em> installation, changes in <em class="xref py py-obj">*.py</em> files will be automatically reflected when you <em class="xref py py-obj">import ncrf</em>.
+Because Python caches imports, you may need to restart the kernel if you make changes after import.
+Changes in compiled files (<em class="xref py py-obj">*.pyx</em>, <em class="xref py py-obj">*.c</em>, …) will not be automatically reflects.
+These require re-compilation (by running <em class="xref py py-obj">pip install -e .</em> from the repository root folder).</p>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changes.html">Changes</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">References</a></li>
+</ul>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="changes.html" title="previous chapter">Changes</a></li>
+      <li>Next: <a href="references.html" title="next chapter">References</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/development.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
