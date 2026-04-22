@@ -1,3 +1,5 @@
+"""End-to-end tests for the public ``fit_ncrf()`` workflow and model outputs."""
+
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 import pickle
