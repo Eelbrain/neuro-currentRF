@@ -1,6 +1,14 @@
+"""Core data structures and optimization logic for NCRF estimation.
+
+``RegressionData`` turns Eelbrain objects into normalized numeric arrays with a
+stable internal layout, and :class:`NCRF` consumes that prepared data to run
+the alternating Bayesian/source-estimation procedure.
+"""
 # Authors: Proloy Das <email:proloyd94@gmail.com>
 #          Christian Brodbeck <email:brodbecc@mcmaster.ca>
 # License: BSD (3-clause)
+from __future__ import annotations
+
 import time
 import copy
 import collections
@@ -8,10 +16,11 @@ from functools import cached_property
 from math import sqrt, log10
 from multiprocessing import current_process
 from operator import attrgetter
-from typing import Iterator, Sequence, Union
+from typing import Any, Callable, Iterator, Literal, Sequence
 
-from eelbrain import fmtxt, UTS, NDVar
+from eelbrain import NDVar, UTS, fmtxt
 import numpy as np
+import numpy.typing as npt
 from scipy import linalg
 from scipy.signal import find_peaks
 from tqdm import tqdm
@@ -25,26 +34,39 @@ import logging
 
 
 _R_tol = np.finfo(np.float64).eps * 1e2
-MuArg = Union[float, Sequence[float], str]
-MusArg = Union[Sequence[float], str]
+FloatArray = npt.NDArray[np.float64]
+IndexArray = npt.NDArray[np.int64]
+TrialData = tuple[FloatArray, FloatArray]
+ObjectiveFunction = Callable[[FloatArray], float]
+GradientFunction = Callable[[FloatArray], FloatArray]
+MuArg = float | Sequence[float] | Literal["auto"]
+MusArg = Sequence[float] | Literal["auto"] | None
 
 
-def gaussian_basis(nlevel, span, stds=8.5):
+def gaussian_basis(
+        nlevel: int,
+        span: npt.ArrayLike,
+        stds: float = 8.5,
+) -> FloatArray:
     """Construct Gabor basis for the TRFs.
 
     Parameters
     ----------
-    nlevel: int
+    nlevel
         number of atoms
-    span: ndarray
-        the span to cover by the atoms
+    span
+        One-dimensional sample locations covered by the basis functions.
+    stds
+        Standard deviation of each Gaussian atom, expressed in the same units
+        as ``span``.
 
     Returns
     -------
-        ndarray (Gabor atoms)
+    ndarray
+        Array whose columns contain the basis atoms.
     """
     logger = logging.getLogger(__name__)
-    x = span
+    x = np.asarray(span, dtype=np.float64)
     means = np.linspace(x[0] + x[-1] / nlevel, x[-1] * (1 - 1 / nlevel), num=nlevel - 1)
     logger.info(f'Using gaussian std = {stds}')
     W = []
@@ -57,23 +79,23 @@ def gaussian_basis(nlevel, span, stds=8.5):
     return W.T / np.max(W)
 
 
-def g(x, mu):
-    """vector l1-norm penalty"""
+def g(x: FloatArray, mu: float) -> float:
+    """Vector l1-norm penalty."""
     return mu * np.sum(np.abs(x))
 
 
-def proxg(x, mu, tau):
-    """proximal operator for l1-norm penalty"""
+def proxg(x: FloatArray, mu: float, tau: float) -> FloatArray:
+    """Proximal operator for the l1-norm penalty."""
     return shrink(x, mu * tau)
 
 
-def shrink(x, mu):
-    """Soft theresholding function"""
+def shrink(x: FloatArray, mu: float) -> FloatArray:
+    """Soft-thresholding operator."""
     return np.multiply(np.sign(x), np.maximum(np.abs(x) - mu, 0))
 
 
-def g_group(x, mu):
-    r"""group (l12) norm  penalty:
+def g_group(x: FloatArray, mu: float) -> float:
+    r"""group (l12) norm penalty:
 
             gg(x) = \sum ||x_s_{i,t}||
 
@@ -86,7 +108,7 @@ def g_group(x, mu):
     return val
 
 
-def proxg_group_opt(z, mu):
+def proxg_group_opt(z: FloatArray, mu: float) -> FloatArray:
     """proximal operator for gg(x):
 
             prox_{mu gg}(x) = min  gg(z) + 1/ (2 * mu) ||x-z|| ** 2
@@ -102,22 +124,27 @@ def proxg_group_opt(z, mu):
     return z
 
 
-def covariate_from_stim(stims, Ms, starts):
-    """Form covariate matrix from stimulus
+def covariate_from_stim(
+        stims: Sequence[NDVar] | NDVar,
+        Ms: Sequence[int] | npt.ArrayLike,
+        starts: Sequence[int] | npt.ArrayLike,
+) -> list[FloatArray]:
+    """Form lagged covariate matrices from one or more stimulus NDVars.
 
-    parameters
+    Parameters
     ----------
-    stims : list of NDVar
-        Predictor variables.
-    Ms : list of int
-        Order of filters.
-    start : list of int
-        Starting times for TRFs (in samples)
+    stims
+        Predictor variables. Each predictor must provide a ``time`` axis and may have
+        at most one additional feature dimension before time.
+    Ms
+        Filter lengths, in samples, for each expanded predictor channel.
+    starts
+        Start offsets, in samples, for each expanded predictor channel.
 
-    returns
+    Returns
     -------
-    x : list of ndarray
-        Covariate matrices.
+    list
+        Covariate matrices, one per expanded predictor channel.
     """
     ws = []
     for stim in stims:
@@ -150,8 +177,8 @@ def covariate_from_stim(stims, Ms, starts):
     return Y
 
 
-def _myinv(x):
-    """Computes inverse"""
+def _myinv(x: FloatArray) -> FloatArray:
+    """Compute a tolerance-aware elementwise reciprocal."""
     x = np.real(np.array(x))
     tol = _R_tol * x.max()
     ind = (x > tol)
@@ -160,7 +187,10 @@ def _myinv(x):
     return y
 
 
-def _inv_sqrtm(m, return_eig=False):
+def _inv_sqrtm(
+        m: FloatArray,
+        return_eig: bool = False,
+) -> FloatArray | tuple[FloatArray, FloatArray]:
     e, v = linalg.eigh(m)
     e = e.real
     tol = _R_tol * e.max()
@@ -172,7 +202,7 @@ def _inv_sqrtm(m, return_eig=False):
     return np.sqrt(y) * v.T.conj()
 
 
-def _compute_gamma_i(z, x):
+def _compute_gamma_i(z: FloatArray, x: FloatArray) -> FloatArray:
     """Computes Gamma_i
 
     Gamma_i = Z**(-1/2) * ( Z**(1/2) X X' Z**(1/2)) ** (1/2) * Z**(-1/2)
@@ -182,14 +212,15 @@ def _compute_gamma_i(z, x):
 
     Parameters
     ----------
-    z: ndarray
-        auxiliary variable,  z_i
-    x: ndarray
-        auxiliary variable, x_i
+    z
+        Auxiliary matrix for one source block.
+    x
+        Auxiliary coefficients for the same source block.
 
     Returns
     -------
-        ndarray
+    ndarray
+        Updated block covariance matrix.
     """
     [e, v] = linalg.eig(z)
     e = e.real
@@ -205,7 +236,7 @@ def _compute_gamma_i(z, x):
     return np.array(np.real(np.dot(temp * d, temp.conj().T)))
 
 
-def _compute_gamma_ip(z, x, gamma):
+def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
     """Wrapper function of Cython function 'compute_gamma_c'
 
     Computes Gamma_i = Z**(-1/2) * ( Z**(1/2) X X' Z**(1/2)) ** (1/2) * Z**(-1/2)
@@ -215,13 +246,12 @@ def _compute_gamma_ip(z, x, gamma):
 
     Parameters
     ----------
-    z : ndarray
-        array of shape (dc, dc)
-        auxiliary variable,  z_i
-    x : ndarray
-        auxiliary variable, x_i
-    gamma : ndarray
-        place where Gamma_i is updated
+    z
+        Auxiliary square matrix for one source block, usually of shape ``(dc, dc)``.
+    x
+        Auxiliary coefficients for the same source block.
+    gamma
+        Output array that is updated in place with the new block covariance.
     """
     assert x.shape[0] == 3
     a = np.dot(x, x.T)
@@ -230,35 +260,42 @@ def _compute_gamma_ip(z, x, gamma):
 
 
 class RegressionData:
-    """Data Container for regression problem
+    """Prepared regression dataset for NCRF fitting.
 
     Parameters
     ----------
     tstart
-        Start of the TRF in seconds. Can define multiple tstarts for more than 1 predictor.
+        Start of the TRF in seconds. A scalar applies to all predictors; a sequence
+        specifies one start time per predictor.
     tstop
-        Stop of the TRF in seconds. Can define multiple tstops for more than 1 predictor.
+        Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
+        specifies one stop time per predictor.
     nlevel
         Decides the density of Gabor atoms. Bigger nlevel -> less dense basis.
-        By default it is set to 1. ``nlevel > 2`` should be used with caution.
+        By default, it is set to 1. ``nlevel > 2`` should be used with caution.
     baseline
-        Mean that will be subtracted from ``stim``.
+        Per-predictor means to subtract from ``stim`` before covariate construction.
     scaling
-        Scale by which ``stim`` was divided.
+        Per-predictor scaling factors applied after baseline subtraction.
+    stim_is_single
+        Records whether the original stimulus input was passed as a single predictor
+        per segment or as an explicit collection of predictors.
+    gaussian_fwhm
+        Full width at half maximum of the Gaussian basis functions, in milliseconds.
     """
     _n_predictor_variables = 1
     _prewhitened = None
 
     def __init__(
             self,
-            tstart: Union[float, list[float]],
-            tstop: Union[float, list[float]],
-            nlevel: int = 1,
-            baseline: list[float] = None,
-            scaling: list[float] = None,
-            stim_is_single: bool = None,
+            tstart: float | Sequence[float],
+            tstop: float | Sequence[float],
+            nlevel: int,
+            baseline: Sequence[NDVar | float] | None,
+            scaling: Sequence[NDVar | float] | None,
+            stim_is_single: bool,
             gaussian_fwhm: float = 20.0,
-    ):
+    ) -> None:
         self.tstart = tstart if isinstance(tstart, collections.abc.Sequence) else [tstart]
         self.tstop = tstop if isinstance(tstop, collections.abc.Sequence) else [tstop]
         self.nlevel = nlevel
@@ -277,17 +314,24 @@ class RegressionData:
         self.sensor_dim = None
         self.gaussian_fwhm = gaussian_fwhm
 
-    def add_data(self, meg, stim):
-        """Add sensor measurements and predictor variables for one trial
+    def add_data(
+            self,
+            meg: NDVar,
+            stim: Sequence[NDVar] | NDVar,
+    ) -> None:
+        """Add sensor measurements and predictor variables for one trial.
 
         Call this function repeatedly to add data for multiple trials/recordings
 
         Parameters
         ----------
-        meg : NDVar  (sensor, UTS)
-            MEG Measurements.
-        stim : list of NDVar  ([...,] UTS)
-            One or more predictor variable. The time axis needs to match ``y``.
+        meg
+            MEG measurements for one contiguous segment, with ``sensor`` and ``time``
+            dimensions.
+        stim
+            One or more predictor variables whose ``time`` axis matches ``meg``.
+            Each predictor can be one-dimensional over time or carry one feature
+            dimension before time.
         """
         if self.sensor_dim is None:
             self.sensor_dim = meg.get_dim('sensor')
@@ -381,8 +425,8 @@ class RegressionData:
         x = np.concatenate(covariates, axis=1).astype(np.float64)
         self.covariates.append(x)
 
-    def _prewhiten(self, whitening_filter):
-        """Called by NCRF instance"""
+    def _prewhiten(self, whitening_filter: FloatArray) -> None:
+        """Apply the model's whitening filter to all stored MEG segments."""
         if self._prewhitened is None:
             for i, (meg, _) in enumerate(self):
                 self.meg[i] = np.dot(whitening_filter, meg)
@@ -390,8 +434,8 @@ class RegressionData:
         else:
             pass
 
-    def _precompute(self):
-        """Called by NCRF instance"""
+    def _precompute(self) -> None:
+        """Cache quadratic forms reused during repeated objective evaluation."""
         self._bbt = []
         self._bE = []
         self._EtE = []
@@ -400,24 +444,27 @@ class RegressionData:
             self._bE.append(np.dot(b, E))
             self._EtE.append(np.dot(E.T, E))
 
-    def __iter__(self) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    def __iter__(self) -> Iterator[TrialData]:
         return zip(self.meg, self.covariates)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.meg)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return 'Regression data'
 
-    def timeslice(self, idx):
-        """gets a time slice (used for cross-validation)
+    def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
+        """Return a new dataset restricted to selected time indices.
 
         Parameters
         ----------
-        idx : kfold splits
+        idx
+            Integer indices selecting the time samples to retain.
+
         Returns
         -------
-            REG_Data instance
+        :class:`RegressionData`
+            A new dataset containing the requested time slice.
         """
         obj = type(self).__new__(self.__class__)
         # take care of the copied values from the old_obj
@@ -437,7 +484,8 @@ class RegressionData:
 
         return obj
 
-    def post_normalization(self):
+    def post_normalization(self) -> None:
+        """Equalize covariate scales across predictor blocks after construction."""
         n_vars = sum(len(dim) if dim else 1 for dim in self._stim_dims)
         if n_vars > 1:
             start = 0
@@ -452,44 +500,44 @@ class RegressionData:
 
 
 class NCRF:
-    """The object-based API for cortical TRF localization.
+    """Result container and object-based API for NCRF.
 
     Parameters
     ----------
-    lead_field : eelbrain.NDVar
-        forward solution a.k.a. lead_field matrix.
-    noise_covariance : np.ndarray
-        noise covariance matrix, use empty-room recordings to generate noise covariance
-        matrix at sensor space.
-    n_iter : int
+    lead_field
+        Forward solution a.k.a. lead-field matrix, with ``sensor`` and ``source``
+        dimensions and an optional ``space`` dimension for free orientation.
+    noise_covariance
+        Noise covariance matrix in sensor space, typically estimated from empty-room
+        recordings.
+    n_iter
         Number of out iterations of the algorithm, by default set to 10.
-    n_iterc : int
+    n_iterc
         Number of Champagne iterations within each outer iteration, by default set to 30.
-    n_iterf : int
+    n_iterf
         Number of FASTA iterations within each outer iteration, by default set to 100.
 
     Attributes
     ----------
-    h : NDVar | tuple of NDVar
-        the neuro-current response function. Whether ``h`` is an NDVar or a tuple of
-        NDVars depends on whether the ``x`` parameter to :func:`ncrf` was
-        an NDVar or a sequence of NDVars.
-    explained_var: float
-        fraction of total variance explained by ncrfs
-    voxelwise_explained_variance: NDVar
-        fractions of total variance explained by individual voxel ncrf
-    Gamma: list
-        individual source covariance matrices
-    sigma_b: list of ndarray
-        data covariances under the model
-    theta: ndarray
-        ncrf coefficients over Gabor basis.
-    residual : float | NDVar
+    h
+        The neuro-current response function. It is one NDVar when fitting a single
+        predictor and a sequence of NDVars when fitting multiple predictors.
+    explained_var
+        Fraction of total variance explained by the fitted NCRFs.
+    voxelwise_explained_variance
+        Source-wise contributions to explained variance.
+    Gamma
+        Individual source covariance matrices.
+    sigma_b
+        Data covariance estimates under the model.
+    theta
+        NCRF coefficients over the Gabor basis.
+    residual
         The fit error, i.e. the result of the ``eval_obj`` error function on the
         final fit.
-    stim_baseline: NDVar| float| list | None
+    stim_baseline
         Mean that was subtracted from ``stim``.
-    stim_scaling: NDVar| float| list | None
+    stim_scaling
         Scale by which ``stim`` was divided.
 
     Notes
@@ -502,7 +550,7 @@ class NCRF:
     3. Initialize :class:`NCRF` instance with desired properties
     4. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
        estimate the cortical TRFs.
-    5. Access the cortical TRFs in :attr:`NCRF.h`.
+    5. Access the cortical TRFs in the ``NCRF.h`` attribute.
     """
     _name = 'cTRFs estimator'
     _cv_results = None
@@ -525,7 +573,14 @@ class NCRF:
     theta = None
     gaussian_fwhm = None
 
-    def __init__(self, lead_field, noise_covariance, n_iter=30, n_iterc=10, n_iterf=100):
+    def __init__(
+            self,
+            lead_field: NDVar,
+            noise_covariance: FloatArray,
+            n_iter: int = 30,
+            n_iterc: int = 10,
+            n_iterf: int = 100,
+    ) -> None:
         if lead_field.has_dim('space'):
             g = lead_field.get_data(dims=('sensor', 'source', 'space')).astype(np.float64)
             self.lead_field = g.reshape(g.shape[0], -1)
@@ -545,15 +600,15 @@ class NCRF:
         # self._init_vars()
         self._whitening_filter = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self.space:
             orientation = 'free'
         else:
             orientation = 'fixed'
-        out = "<[%s orientation] %s on %r>" % (orientation, self._name, self.source)
-        return out
+        return f"<[{orientation} orientation] {self._name} on {self.source!r}>"
 
-    def __copy__(self):
+    def __copy__(self) -> NCRF:
+        """Create a shallow copy with configuration but without fit results."""
         obj = type(self).__new__(self.__class__)
         copy_keys = ['lead_field', 'lead_field_scaling', 'source', 'space', 'sensor', '_whitening_filter',
                      'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'gaussian_fwhm']
@@ -567,10 +622,12 @@ class NCRF:
                      'residual', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop', 'gaussian_fwhm',
                      '_stim_normalization', '_whitening_filter')
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
+        """Serialize the fitted model state needed for pickling."""
         return {k: getattr(self, k) for k in self._PICKLE_ATTRS}
 
-    def __setstate__(self, state):
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore pickled state while keeping compatibility with older versions."""
         for k in self._PICKLE_ATTRS:
             setattr(self, k, state.get(k, None))
         # make compatible with one tstop case
@@ -595,7 +652,8 @@ class NCRF:
         if self.gaussian_fwhm is None:
             self.gaussian_fwhm = 20.0  # the default value
 
-    def _prewhiten(self):
+    def _prewhiten(self) -> None:
+        """Prewhiten the lead field and noise model before fitting."""
         wf = _inv_sqrtm(self.noise_covariance)
         wf_var = np.var(wf, axis=1)
         zero_var_wf = wf_var == 0
@@ -614,7 +672,8 @@ class NCRF:
         # sigma_b = self.noise_covariance + self.eta * np.dot(self.lead_field, self.lead_field.T)
         # self.init_sigma_b = sigma_b
 
-    def _init_from_mne(self, data):
+    def _init_from_mne(self, data: RegressionData) -> None:
+        """Seed source variances from a minimum-norm style initialization."""
         eta = []
         sigma_b = []
         dc = len(self.space) if self.space else 1
@@ -627,7 +686,8 @@ class NCRF:
         self.eta = eta
         self.init_sigma_b = sigma_b
 
-    def _init_iter(self, data):
+    def _init_iter(self, data: RegressionData) -> None:
+        """Initialize solver state for a new value of the regularization parameter."""
         if self.space:
             dc = len(self.space)
         else:
@@ -646,22 +706,29 @@ class NCRF:
         l = sum([basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data._stim_dims)])
         self.theta = np.zeros((len(self.source) * dc, l), dtype=np.float64)
 
-    def _set_mu(self, mu, data):
+    def _set_mu(self, mu: float, data: RegressionData) -> None:
+        """Reset the solver state for the requested regularization value."""
         self.mu = mu
         self._init_iter(data)
         data._precompute()
         if mu == 0.0:
             self._solve(data, self.theta, n_iterc=30)
 
-    def _solve(self, data, theta, idx=slice(None, None), n_iterc=None):
+    def _solve(
+            self,
+            data: RegressionData,
+            theta: FloatArray,
+            idx: slice | IndexArray = slice(None, None),
+            n_iterc: int | None = None,
+    ) -> None:
         """Champagne steps implementation
 
         Parameters
         ----------
-        data : RegressionData
-            regression data to fit.
-        theta : ndarray
-            co-effecients of the TRFs over Gabor atoms.
+        data
+            Prepared regression data to fit.
+        theta
+            Coefficients of the TRFs over the Gabor basis.
 
         Notes
         -----
@@ -766,8 +833,8 @@ class NCRF:
             n_splits: int = None,
             n_workers: int = None,
             compute_explained_variance: bool = False,
-    ):
-        """Fit NCRF model to data
+    ) -> None:
+        """Fit the NCRF model to prepared regression data.
 
         Estimate both TRFs and source variance from the observed MEG data by solving
         the Bayesian optimization problem formulated in :cite:`das2020neuro`.
@@ -778,7 +845,7 @@ class NCRF:
             M/EEG data and the corresponding stimulus variables.
         mu
             Regularization parameter; promote sparsity and guard against over-fitting
-        do_crossvalidation : bool
+        do_crossvalidation
             if True, from a wide range of regularizing parameters, the one resulting in
             the least generalization error in a k-fold cross-validation procedure is chosen.
             Unless specified the range and k is chosed from cofig.py. The user can also pass
@@ -786,8 +853,7 @@ class NCRF:
         tol
             tolerence parameter. Decides when to stop outer iterations.
         verbose
-            If set True prints intermediate values of the cost functions.
-            by Default it is set to be False
+            If set True prints intermediate values of the cost functions (default ``False``).
         use_ES
             use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016`
             to choose the best ``mu`` (default ``False``).
@@ -911,8 +977,8 @@ class NCRF:
             self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
         self._data = data  # save the data for further use
 
-    def _copy_from_data(self, data):
-        "copies relevant fields from data"
+    def _copy_from_data(self, data: RegressionData) -> None:
+        """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
         self._stim_is_single = data._stim_is_single
         self._stim_dims = data._stim_dims
         self._stim_names = data._stim_names
@@ -925,13 +991,13 @@ class NCRF:
         self.tstop = data.tstop
         self.gaussian_fwhm = data.gaussian_fwhm
 
-    def _construct_f(self, data):
-        """creates instances of objective function and its gradient to be passes to the FASTA algorithm
+    def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
+        """Build the smooth objective and gradient passed to FASTA.
 
         Parameters
-        ---------
-        data : RegressionData
-            Data.
+        ----------
+        data
+            Prepared regression data.
         """
         leadfields = []
         bEs = []
@@ -972,17 +1038,23 @@ class NCRF:
 
         return funct, grad_funct
 
-    def eval_obj(self, data, return_wl2=False):
-        """evaluates objective function
+    def eval_obj(
+            self,
+            data: RegressionData,
+            return_wl2: bool = False,
+    ) -> float | tuple[float, float]:
+        """Evaluate the current objective value on a dataset.
 
         Parameters
-        ---------
-        data : RegressionData
-            Data.
+        ----------
+        data
+            Dataset on which to evaluate the objective.
 
         Returns
         -------
-            float
+        float | tuple[float, float]
+            Objective value, or a pair containing the objective value and the
+            weighted L2 term when ``return_wl2`` is true.
         """
         ll2 = 0
         logdet = 0
@@ -1017,17 +1089,8 @@ class NCRF:
             return (ll2 + logdet) / len(data), ll2 / len(data)
         return (ll2 + logdet) / len(data)
 
-    def eval_l2(self, data):
-        """evaluates Theta cross-validation metric (used by CV only)
-
-        Parameters
-        ---------
-        data : REG_Data instance
-
-        Returns
-        -------
-            float
-        """
+    def eval_l2(self, data: RegressionData) -> float:
+        """Evaluate the unweighted L2 prediction error used in CV."""
         l2 = 0
         for key, (meg, covariate) in enumerate(data):
             y = meg - np.dot(np.dot(self.lead_field, self.theta), covariate.T)
@@ -1035,17 +1098,8 @@ class NCRF:
 
         return l2 / len(data)
 
-    def compute_explained_variance(self, data):
-        """evaluates explained_variance
-
-        Parameters
-        ---------
-        data : REG_Data instance
-
-        Returns
-        -------
-            float
-        """
+    def compute_explained_variance(self, data: RegressionData) -> float:
+        """Compute the global explained-variance score for a fitted model."""
         logger = logging.getLogger('NCRF: Explained Variance')
         temp = 0
         for key, (meg, covariate) in enumerate(data):
@@ -1061,18 +1115,8 @@ class NCRF:
         logger.debug(f'{self.mu}: {1 - temp / len(data)}')
         return 1 - temp / len(data)
 
-    def _compute_voxelwise_explained_variance(self, data: RegressionData):
-        """evaluates explained_variance
-
-        Parameters
-        ---------
-        data
-            Regression data.
-
-        Returns
-        -------
-            float
-        """
+    def _compute_voxelwise_explained_variance(self, data: RegressionData) -> FloatArray:
+        """Compute each source's contribution to explained variance."""
         temp = np.zeros(len(self.source))
         theta = self.theta.copy()
         for key, (meg, covariate) in enumerate(data):
@@ -1097,16 +1141,16 @@ class NCRF:
         return temp / len(data)
 
     @cached_property
-    def voxelwise_explained_variance(self):
-        """voxelwise_explained_variance"""
+    def voxelwise_explained_variance(self) -> NDVar | None:
+        """Voxelwise explained variance expressed on the source dimension."""
         if self._voxelwise_explained_variance is None:
             return None
         else:
             return NDVar(self._voxelwise_explained_variance, self.source)
 
     @cached_property
-    def h_scaled(self):
-        """h with original stimulus scale restored"""
+    def h_scaled(self) -> NDVar | list[NDVar]:
+        """Return ``h`` with the original stimulus scaling restored."""
         if self._stim_scaling is None:
             return self.h
         elif self._stim_is_single:
@@ -1115,8 +1159,8 @@ class NCRF:
             return [h * s for h, s in zip(self.h, self._stim_scaling)]
 
     @cached_property
-    def h(self):
-        """The spatio-temporal response function as (list of) NDVar"""
+    def h(self) -> NDVar | list[NDVar]:
+        """Return the spatio-temporal response function as Eelbrain NDVars."""
         n_vars = sum(len(dim) if dim else 1 for dim in self._stim_dims)
         if self.space:
             _shared_dims = (self.source, self.space)
@@ -1159,7 +1203,7 @@ class NCRF:
             return h
 
     @staticmethod
-    def _residual(theta0, theta1):
+    def _residual(theta0: FloatArray, theta1: FloatArray) -> float:
         diff = theta1 - theta0
         num = diff ** 2
         den = theta0 ** 2
@@ -1169,8 +1213,8 @@ class NCRF:
             return sqrt(num.sum() / den.sum())
 
     @staticmethod
-    def compute_ES_metric(models, data):
-        """Computes estimation stability metric
+    def compute_ES_metric(models: Sequence[NCRF], data: RegressionData) -> float:
+        """Compute the estimation-stability metric across cross-validation folds.
 
         Details can be found at:
         Lim, Chinghway, and Bin Yu. "Estimation stability with cross-validation (ESCV)."
@@ -1178,12 +1222,15 @@ class NCRF:
 
         Parameters
         ----------
-        models : DstRf instances
-        data : REG_Data instances
+        models
+            Fitted models from different cross-validation folds.
+        data
+            Dataset used to compare their predictions.
 
         Returns
         -------
-            float (estimation stability metric)
+        float
+            Estimation-stability score.
         """
         Y = []
         for model in models:
@@ -1199,29 +1246,37 @@ class NCRF:
         else:
             return VarY / (Y_bar ** 2).sum()
 
-    def cvfunc(self, data, n_splits, tol, mu):
+    def cvfunc(self, data: RegressionData, n_splits: int, tol: float, mu: float) -> CVResult:
         cvfun = self._get_cvfunc(data, n_splits, tol)
         return cvfun(mu)
 
-    def _get_cvfunc(self, data, n_splits, tol):
-        """Method for creating function for crossvalidation
+    def _get_cvfunc(
+            self,
+            data: RegressionData,
+            n_splits: int,
+            tol: float,
+    ) -> Callable[[float], CVResult]:
+        """Create the callable executed by cross-validation workers.
 
         In the cross-validation phase the workers will call this function for
-        for different regularizer parameters.
+        different regularizer parameters.
 
         Parameters
         ----------
-        data : object
-            the instance should be compatible for fitting the model. In addition to
-            that it shall have a timeslice method compatible to kfold objects.
-        n_splits : int
+        data
+            Dataset object compatible with model fitting and exposing
+            :meth:`ncrf.RegressionData.timeslice` for train/test partitioning.
+        n_splits
             number of folds for cross-validation, If None, it will use values
             specified in config.py.
-        tol : float
+        tol
             tolerence parameter. Decides when to stop outer iterations.
+
         Returns
         -------
-            callable, return the cross-validation metrics
+        callable
+            Callable that evaluates one regularization value and returns the
+            cross-validation metrics.
         """
         models_ = [copy.copy(self) for _ in range(n_splits)]
         # from sklearn.model_selection import KFold
@@ -1254,7 +1309,8 @@ class NCRF:
 
         return cvfunc
 
-    def _auto_mu(self, data, p=99.0):
+    def _auto_mu(self, data: RegressionData, p: float = 99.0) -> FloatArray:
+        """Infer a candidate regularization grid from the gradient magnitudes."""
         self._set_mu(0.0, data)
         _, grad_funct = self._construct_f(data)
         if self.space:
@@ -1270,7 +1326,8 @@ class NCRF:
         lo = hi - 2
         return np.logspace(lo, hi, 7)
 
-    def cv_info(self):
+    def cv_info(self) -> fmtxt.Table:
+        """Summarize stored cross-validation scores in a table."""
         if self._cv_results is None:
             raise ValueError("CV: no cross-validation was performed. Use mu='auto' to perform cross-validation.")
         cv_results = sorted(self._cv_results, key=attrgetter('mu'))
@@ -1298,12 +1355,12 @@ class NCRF:
             table.caption(f"Warnings: {'; '.join(warnings)}")
         return table
 
-    def cv_mu(self, criterion='cross-fit'):
+    def cv_mu(self, criterion: str = 'cross-fit') -> float:
         """Retrieve best mu based on cross-validation
 
         Parameters
         ----------
-        criterion : str
+        criterion
             Criterion for best fit. Possible values:
 
             - ``'cross-fit'``: The smallest cross-fit value (default)
@@ -1328,18 +1385,14 @@ class NCRF:
 
 
 # Functions used for initialize \Gamma
-def find_mu(s, y, eta=1, tol=1e-8, max_iter=1000):
-    """
-
-    :param s: singular values
-    :param y: data whitened by left eigen matrix of svd of L
-            y |-> u.T @ y
-    :param eta: SNR
-        if prewhitened use 1.
-    :param tol:
-    :param max_iter:
-    :return: mu, float
-    """
+def find_mu(
+        s: FloatArray,
+        y: FloatArray,
+        eta: float = 1,
+        tol: float = 1e-8,
+        max_iter: int = 1000,
+) -> float:
+    """Solve for the empirical-Bayes noise parameter used in initialization."""
     logger = logging.getLogger(__name__)
     e = s ** 2
     z = y ** 2
@@ -1366,7 +1419,13 @@ def find_mu(s, y, eta=1, tol=1e-8, max_iter=1000):
     return mu
 
 
-def wls(y, l, w, return_ecov=False):
+def wls(
+        y: FloatArray,
+        l: FloatArray,
+        w: FloatArray,
+        return_ecov: bool = False,
+) -> tuple[FloatArray, float] | tuple[FloatArray, float, FloatArray]:
+    """Solve the weighted least-squares problem used for NCRF initialization."""
     w = np.squeeze(w)
     if w.ndim == 1:
         lw = l * w[None, :]
@@ -1401,7 +1460,13 @@ def wls(y, l, w, return_ecov=False):
     return im @ yw, mu
 
 
-def mne_initialization(y, l, use_depth_prior=True, exp=0.8):
+def mne_initialization(
+        y: FloatArray,
+        l: FloatArray,
+        use_depth_prior: bool = True,
+        exp: float = 0.8,
+) -> tuple[FloatArray, FloatArray]:
+    """Build the initial Gamma and sensor covariance from an MNE-style estimate."""
     N, M = l.shape
     T = y.shape[1]
 

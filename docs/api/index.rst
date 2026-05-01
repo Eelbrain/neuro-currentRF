@@ -9,3 +9,5 @@ The ``ncrf`` module provide functions for fitting NCRFs from data.
     :toctree: generated/
 
     fit_ncrf
+    NCRF
+    RegressionData

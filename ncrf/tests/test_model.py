@@ -1,3 +1,5 @@
+"""Tests for low-level stimulus-to-covariate preparation in the NCRF stack."""
+
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 import numpy as np

@@ -1,15 +1,15 @@
 # cython: boundscheck=False, wraparound=False
 # cython: profile=False
 # distutils: language = c++
-# optimized functions
 # Author: Proloy Das <proloy@umd.edu>
-""" optimized functions for group-prox calculation and 3x3 eigval decomposition
+"""Cython bridge for 3x3 eigendecomposition and Gamma updates in NCRF.
 
+This module keeps the small dense linear-algebra kernels used inside the
+Champagne updates close to compiled code so the Python solver can stay focused
+on orchestration.
 
 Contains code from 'Efficient numerical diagonalization of hermitian 3x3 matrices'
 governed by following license ( GNU LESSER GENERAL PUBLIC LICENSE Version 2.1)
-
-
 Copyright (C) 2008 Joachim Kopp
 All rights reserved.
 
@@ -28,6 +28,7 @@ License along with this library; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301
 USA
 """
+
 cimport cython
 cimport numpy as cnp
 from libc.math cimport sqrt
@@ -131,7 +132,7 @@ def compute_gamma_c(FLOAT64[:, :] zpy, FLOAT64[:, :] xpy, FLOAT64[:, :] gamma):
                    = V(E)**(-1/2)V' * ( V (UDU') V')** (1/2) * V(E)**(-1/2)V'
                    = V (E)**(-1/2) U (D)**(1/2) U' (E)**(-1/2) V'
 
-    parameters
+    Parameters
     ----------
     z: ndarray
         array of shape (dc, dc)
@@ -141,7 +142,7 @@ def compute_gamma_c(FLOAT64[:, :] zpy, FLOAT64[:, :] xpy, FLOAT64[:, :] gamma):
         array of shape (dc, dc)
         auxiliary variable, x_i
 
-    returns
+    Returns
     -------
     ndarray
     array of shape (dc, dc)

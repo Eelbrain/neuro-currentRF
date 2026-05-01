@@ -1,3 +1,5 @@
+"""Test-data download and loading helpers for the NCRF regression suite."""
+
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 import os
@@ -9,6 +11,7 @@ import logging
 
 from pathlib import Path
 from shutil import rmtree
+from typing import Any
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +31,8 @@ folder_name = "ncrf-testing-data"
 _NAMES = ('meg', 'stim', 'fwd_sol', 'emptyroom')
 
 
-def fetch_dataset(force_download=False):
+def fetch_dataset(force_download: bool = False) -> Path:
+    """Ensure the versioned test dataset is available locally and return its path."""
     # manage local storage
     root_dir = Path(os.path.realpath(os.path.join(__file__, '..', '..', '..')))
     final_path = root_dir / folder_name
@@ -96,7 +100,8 @@ def fetch_dataset(force_download=False):
     return final_path
 
 
-def load(name):
+def load(name: str) -> Any:
+    """Load one of the packaged regression-test fixtures by name."""
     folder_name = fetch_dataset()
     if name in _NAMES:
         fname = os.path.join(folder_name, f"{name}.pickled")
