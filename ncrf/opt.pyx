@@ -1,5 +1,7 @@
+"""Cython kernels for the group-sparsity proximal operator used by NCRF."""
+
 # Author: Proloy Das <proloy@umd.edu>
-# License: BSD (3-clause) 
+# License: BSD (3-clause)
 
 #cython: boundscheck=False, wraparound=False
 # cython: profile=False

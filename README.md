@@ -3,14 +3,14 @@
 
 ![test-windows](https://github.com/proloyd/neuro-currentRF/actions/workflows/test-windows.yml/badge.svg)
 
-# Wanna try ncRFs for your data???
-
-Tutorial on real dataset is now available [here](https://github.com/proloyd/neuro-currentRF/wiki/NCRF-tutorial).
 
 # NCRF   
 The magnetoencephalography (MEG) response to continuous auditory stimuli, such as speech, is commonly described using a linear filter, the auditory temporal response function (TRF). Though components of the sensor level TRFs have been well characterized, the cortical distributions of  the underlying neural responses are not well-understood. In our recent work, we provide a unified framework for determining the TRFs of neural sources directly from the MEG data, by integrating the TRF and distributed forward  source models into one, and casting the joint estimation task as a Bayesian optimization problem. Though the resulting  problem emerges as non-convex, we propose efficient solutions that leverage recent advances in evidence maximization. For more details please refer to [1], [2].
 
-This repository contains the implementation of our direct TRF estimation algorithm in python (version 3.6 and above). 
+This repository contains the implementation of our direct TRF estimation algorithm in Python.
+
+For code examples using real datasets, see the [Example gallery](https://eelbrain.github.io/neuro-currentRF/auto_examples/index.html).
+
 
 ## How to use:
 run
