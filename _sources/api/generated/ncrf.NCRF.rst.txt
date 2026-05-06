@@ -1,0 +1,26 @@
+﻿ncrf.NCRF
+=========
+
+.. currentmodule:: ncrf
+
+.. autoclass:: NCRF
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRF.compute_ES_metric
+   ~NCRF.compute_explained_variance
+   ~NCRF.cv_info
+   ~NCRF.cv_mu
+   ~NCRF.cvfunc
+   ~NCRF.eval_l2
+   ~NCRF.eval_obj
+   ~NCRF.fit
+

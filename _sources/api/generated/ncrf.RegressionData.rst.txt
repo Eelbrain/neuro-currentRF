@@ -1,0 +1,21 @@
+﻿ncrf.RegressionData
+===================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: RegressionData
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~RegressionData.add_data
+   ~RegressionData.post_normalization
+   ~RegressionData.timeslice
+

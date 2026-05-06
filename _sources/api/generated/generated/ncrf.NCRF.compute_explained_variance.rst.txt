@@ -1,0 +1,6 @@
+ncrf.NCRF.compute\_explained\_variance
+======================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.compute_explained_variance

@@ -1,0 +1,6 @@
+ncrf.NCRF.eval\_obj
+===================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.eval_obj

@@ -1,0 +1,6 @@
+ncrf.NCRF.cv\_mu
+================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.cv_mu

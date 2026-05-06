@@ -1,0 +1,6 @@
+ncrf.NCRF.compute\_ES\_metric
+=============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.compute_ES_metric

@@ -1,0 +1,6 @@
+ncrf.RegressionData.add\_data
+=============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.add_data

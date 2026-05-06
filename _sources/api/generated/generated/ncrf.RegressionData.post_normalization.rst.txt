@@ -1,0 +1,6 @@
+ncrf.RegressionData.post\_normalization
+=======================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.post_normalization
