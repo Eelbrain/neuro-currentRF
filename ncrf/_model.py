@@ -322,7 +322,7 @@ class RegressionData:
     ) -> None:
         """Add sensor measurements and predictor variables for one trial.
 
-        Call this function repeatedly to add data for multiple trials/recordings.
+        Call this method repeatedly to add data for multiple trials/recordings.
 
         Parameters
         ----------
@@ -344,20 +344,21 @@ class RegressionData:
             raise NotImplementedError('combining data segments with different sensors is not supported')
 
         # check stim dimensions
-        meg_time = meg.get_dim('time')
+        meg_time: UTS = meg.get_dim('time')
         stims = (stim,) if isinstance(stim, NDVar) else stim
         stim_dims = []
         for x in stims:
             if x.get_dim('time') != meg_time:
-                raise ValueError(f"stim={stim!r}: time axis incompatible with meg")
+                raise ValueError(f"{stim=}: time axis incompatible with meg")
             elif x.ndim == 1:
                 stim_dims.append(None)
             elif x.ndim == 2:
                 dim, _ = x.get_dims((None, 'time'))
                 stim_dims.append(dim)
             else:
-                raise ValueError(f"stim={stim}: stimulus with more than 2 dimensions")
+                raise ValueError(f"{stim=}: stimulus with more than 2 dimensions")
 
+        # Initialize TRF lag range
         if len(self.tstart) == 1:
             self.tstart = self.tstart * len(stim_dims)
         if len(self.tstop) == 1:
@@ -395,20 +396,22 @@ class RegressionData:
             self._stim_dims = stim_dims
             self._stim_names = [x.name for x in stims]
         elif meg_time.tstep != self.tstep:
-            raise ValueError(f"meg={meg!r}: incompatible time-step with previously added data")
+            raise ValueError(f"{meg=}: incompatible time-step with previously added data")
         else:
             # check stimuli dimensions
             if stim_dims != self._stim_dims:
-                raise ValueError(f"stim={stim!r}: dimensions incompatible with previously added data")
+                raise ValueError(f"{stim=}: dimensions incompatible with previously added data")
 
         # add meg data
         m = max([basis.shape[0] for basis in self.basis])
         y = meg.get_data(('sensor', 'time'))
+        # Drop MEG samples for which we don't have a complete stimulus history
         y_ = y[:, m - 1:].astype(np.float64)
         if in_place or y_.base is None:
             y = y_
         else:
             y = y_.copy()
+        # Check for flat channels
         ch_var = np.var(y, axis=1)
         zero_var = ch_var == 0
         if zero_var.any():
