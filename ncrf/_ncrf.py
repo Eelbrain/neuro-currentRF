@@ -135,8 +135,9 @@ def fit_ncrf(
         or the mean absolute value (when ``normalize='l1'``). By default,
         ``normalize=False`` leaves ``stim`` data untouched.
     in_place
-        With ``in_place=False`` (default) the original ``meg`` and ``stims`` are left untouched;
-        use ``in_place=True`` to save memory by using the original ``meg`` and ``stim``.
+        By default, ``meg`` and ``stim`` are copied to make them independent of the
+        objects supplied to the function. Set to ``True`` to skip the copy and
+        modify them in place, saving memory when working with large datasets.
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
@@ -206,10 +207,6 @@ def fit_ncrf(
     .. bibliography::
         :cited:
     """
-    # data copy?
-    if not isinstance(in_place, bool):
-        raise TypeError(f"{in_place=}, need bool")
-
     # make meg/stim representation uniform:
     meg_trials = []  # [trial_1, trial_2, ...]
     stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
@@ -265,9 +262,7 @@ def fit_ncrf(
     # Call `REG_Data.add_data` once for each contiguous segment of MEG data
     ds = RegressionData(tstart, tstop, nlevels, s_baseline, s_scale, stim_is_single, gaussian_fwhm)
     for r, ss in zip(meg_trials, stim_trials):
-        if not in_place:
-            ss = [s.copy() for s in ss]
-        ds.add_data(r, ss)
+        ds.add_data(r, ss, in_place=in_place)
 
     if do_post_normalization:
         ds.post_normalization()
