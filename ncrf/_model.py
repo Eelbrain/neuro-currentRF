@@ -406,7 +406,7 @@ class RegressionData:
         m = max([basis.shape[0] for basis in self.basis])
         y = meg.get_data(('sensor', 'time'))
         # Drop MEG samples for which we don't have a complete stimulus history
-        y_ = y[:, m - 1:].astype(np.float64)
+        y_ = y[:, m - 1:].astype(np.float64, copy=False)
         if in_place or y_.base is None:
             y = y_
         else:
