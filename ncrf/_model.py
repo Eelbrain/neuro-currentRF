@@ -318,10 +318,11 @@ class RegressionData:
             self,
             meg: NDVar,
             stim: Sequence[NDVar] | NDVar,
+            in_place: bool = False,
     ) -> None:
         """Add sensor measurements and predictor variables for one trial.
 
-        Call this function repeatedly to add data for multiple trials/recordings
+        Call this method repeatedly to add data for multiple trials/recordings.
 
         Parameters
         ----------
@@ -332,6 +333,10 @@ class RegressionData:
             One or more predictor variables whose ``time`` axis matches ``meg``.
             Each predictor can be one-dimensional over time or carry one feature
             dimension before time.
+        in_place
+            By default, ``meg`` and ``stim`` are copied to make them independent of the
+            objects supplied to the method. Set to ``True`` to skip the copy and
+            modify them in place, saving memory when working with large datasets.
         """
         if self.sensor_dim is None:
             self.sensor_dim = meg.get_dim('sensor')
@@ -339,20 +344,21 @@ class RegressionData:
             raise NotImplementedError('combining data segments with different sensors is not supported')
 
         # check stim dimensions
-        meg_time = meg.get_dim('time')
+        meg_time: UTS = meg.get_dim('time')
         stims = (stim,) if isinstance(stim, NDVar) else stim
         stim_dims = []
         for x in stims:
             if x.get_dim('time') != meg_time:
-                raise ValueError(f"stim={stim!r}: time axis incompatible with meg")
+                raise ValueError(f"{stim=}: time axis incompatible with meg")
             elif x.ndim == 1:
                 stim_dims.append(None)
             elif x.ndim == 2:
                 dim, _ = x.get_dims((None, 'time'))
                 stim_dims.append(dim)
             else:
-                raise ValueError(f"stim={stim}: stimulus with more than 2 dimensions")
+                raise ValueError(f"{stim=}: stimulus with more than 2 dimensions")
 
+        # Initialize TRF lag range
         if len(self.tstart) == 1:
             self.tstart = self.tstart * len(stim_dims)
         if len(self.tstop) == 1:
@@ -361,14 +367,17 @@ class RegressionData:
         assert len(self.tstop) == len(stim_dims)
 
         # stim normalization
+        if not in_place:
+            stims = [s.copy() for s in stims]
+
         if self.s_baseline is not None:
             if len(self.s_baseline) != len(stims):
-                raise ValueError(f"stim={stim!r}: incompatible with baseline={self.s_baseline!r}")
+                raise ValueError(f"{stim=}: incompatible with baseline={self.s_baseline!r}")
             for s, m in zip(stims, self.s_baseline):
                 s -= m
         if self.s_scaling is not None:
             if len(self.s_scaling) != len(stims):
-                raise ValueError(f"stim={stim!r}: incompatible with scaling={self.s_scaling!r}")
+                raise ValueError(f"{stim=}: incompatible with scaling={self.s_scaling!r}")
             for s, scale in zip(stims, self.s_scaling):
                 s /= scale
 
@@ -387,22 +396,29 @@ class RegressionData:
             self._stim_dims = stim_dims
             self._stim_names = [x.name for x in stims]
         elif meg_time.tstep != self.tstep:
-            raise ValueError(f"meg={meg!r}: incompatible time-step with previously added data")
+            raise ValueError(f"{meg=}: incompatible time-step with previously added data")
         else:
             # check stimuli dimensions
             if stim_dims != self._stim_dims:
-                raise ValueError(f"stim={stim!r}: dimensions incompatible with previously added data")
+                raise ValueError(f"{stim=}: dimensions incompatible with previously added data")
 
         # add meg data
         m = max([basis.shape[0] for basis in self.basis])
         y = meg.get_data(('sensor', 'time'))
-        y = y[:, m - 1:].astype(np.float64)
+        # Drop MEG samples for which we don't have a complete stimulus history
+        y_ = y[:, m - 1:].astype(np.float64, copy=False)
+        if in_place or y_.base is None:
+            y = y_
+        else:
+            y = y_.copy()
+        # Check for flat channels
         ch_var = np.var(y, axis=1)
         zero_var = ch_var == 0
         if zero_var.any():
             flat_channels = self.sensor_dim.names[zero_var]
             raise ValueError(f"{meg=}: data contains flat channels ({', '.join(flat_channels)})")
-        self.meg.append(y / sqrt(y.shape[1]))  # Mind the normalization
+        y /= sqrt(y.shape[1])  # Mind the normalization
+        self.meg.append(y)
 
         if self._norm_factor is None:
             self._norm_factor = sqrt(y.shape[1])
