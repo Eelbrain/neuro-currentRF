@@ -612,9 +612,7 @@ class NCRF:
         self.n_iter = n_iter
         self.n_iterc = n_iterc
         self.n_iterf = n_iterf
-
-        # self._init_vars()
-        self._whitening_filter = None
+        self._prewhiten()
 
     def __repr__(self) -> str:
         if self.space:
@@ -626,26 +624,42 @@ class NCRF:
     def __copy__(self) -> NCRF:
         """Create a shallow copy with configuration but without fit results."""
         obj = type(self).__new__(self.__class__)
-        copy_keys = ['lead_field', 'lead_field_scaling', 'source', 'space', 'sensor', '_whitening_filter',
-                     'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'gaussian_fwhm']
+        copy_keys = ['lead_field', '_whitened_lead_field', 'lead_field_scaling', 'source', 'space', 'sensor',
+                     '_whitening_filter', 'noise_covariance', '_whitened_noise_covariance',
+                     'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'gaussian_fwhm']
         for key in copy_keys:
             obj.__dict__.update({key: self.__dict__.get(key, None)})
         return obj
 
-    _PICKLE_ATTRS = ('_basis', '_cv_results', 'mu',  '_name', '_stim_is_single', '_stim_dims', '_stim_names',
-                     'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data', 'explained_var',
-                     '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling', 'lead_field_scaling',
-                     'residual', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop', 'gaussian_fwhm',
-                     '_stim_normalization', '_whitening_filter')
+    # Primary attributes are sufficient to reconstruct the full object.  Derived
+    # attributes (_whitening_filter, _whitened_lead_field, lead_field_scaling,
+    # _whitened_noise_covariance) are recomputed by _prewhiten() and not stored.
+    _PRIMARY_ATTRS = (
+        '_basis', '_cv_results', 'mu', '_name', '_stim_is_single', '_stim_dims', '_stim_names',
+        'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
+        'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
+        'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
+        'gaussian_fwhm', '_stim_normalization',
+    )
 
     def __getstate__(self) -> dict[str, Any]:
         """Serialize the fitted model state needed for pickling."""
-        return {k: getattr(self, k) for k in self._PICKLE_ATTRS}
+        return {k: getattr(self, k) for k in self._PRIMARY_ATTRS}
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled state while keeping compatibility with older versions."""
-        for k in self._PICKLE_ATTRS:
+        for k in self._PRIMARY_ATTRS:
             setattr(self, k, state.get(k, None))
+        if '_whitening_filter' in state:
+            # Old pickle: noise_covariance was already whitened and lead_field may also
+            # have been whitened+scaled.  Restore derived attrs directly.
+            self._whitening_filter = state['_whitening_filter']
+            self.lead_field_scaling = state.get('lead_field_scaling')
+            self._whitened_noise_covariance = self.noise_covariance
+            wlf = state.get('_whitened_lead_field')
+            self._whitened_lead_field = wlf if wlf is not None else self.lead_field
+        else:
+            self._prewhiten()
         # make compatible with one tstop case
         if self._stim_dims is not None:
             self.tstop = self.tstop if isinstance(self.tstop, collections.abc.Sequence) else [self.tstop]
@@ -669,24 +683,20 @@ class NCRF:
             self.gaussian_fwhm = 20.0  # the default value
 
     def _prewhiten(self) -> None:
-        """Prewhiten the lead field and noise model before fitting."""
-        wf = _inv_sqrtm(self.noise_covariance)
-        wf_var = np.var(wf, axis=1)
-        zero_var_wf = wf_var == 0
-        if zero_var_wf.any():
-            raise ValueError("Empty room data contains flat channels")
-        self._whitening_filter = wf
-        self.lead_field = np.dot(wf, self.lead_field)
-        # self.noise_covariance = np.eye(self.lead_field.shape[0], dtype=np.float64)
-        self.noise_covariance = wf.dot(self.noise_covariance).dot(wf.T)
-        self.lead_field_scaling = linalg.norm(self.lead_field, 2)
-        self.lead_field /= self.lead_field_scaling
+        """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.
 
-        # pre compute some necessary initializations
-        # self.eta = (self.lead_field.shape[0] / np.sum(self.lead_field ** 2)) * 1e-2
-        # # model data covariance
-        # sigma_b = self.noise_covariance + self.eta * np.dot(self.lead_field, self.lead_field.T)
-        # self.init_sigma_b = sigma_b
+        Writes to ``_whitening_filter``, ``_whitened_lead_field``,
+        ``lead_field_scaling``, and ``_whitened_noise_covariance``.
+        Neither ``lead_field`` nor ``noise_covariance`` is modified.
+        """
+        wf = _inv_sqrtm(self.noise_covariance)
+        if (np.var(wf, axis=1) == 0).any():
+            raise ValueError("Noise covariance data contains flat channels")
+        self._whitening_filter = wf
+        self._whitened_lead_field = np.dot(wf, self.lead_field)
+        self._whitened_noise_covariance = wf.dot(self.noise_covariance).dot(wf.T)
+        self.lead_field_scaling = linalg.norm(self._whitened_lead_field, 2)
+        self._whitened_lead_field /= self.lead_field_scaling
 
     def _init_from_mne(self, data: RegressionData) -> None:
         """Seed source variances from a minimum-norm style initialization."""
@@ -695,10 +705,10 @@ class NCRF:
         dc = len(self.space) if self.space else 1
         for y, _ in data:
             t = y.shape[1]
-            Gamma, data_cov = mne_initialization(y * (t ** 0.5), self.lead_field)
+            Gamma, data_cov = mne_initialization(y * (t ** 0.5), self._whitened_lead_field)
             Gamma = np.reshape(Gamma, (-1, dc))
             eta.append([np.diag(g) for g in Gamma])
-            sigma_b.append(self.noise_covariance + data_cov)
+            sigma_b.append(self._whitened_noise_covariance + data_cov)
         self.eta = eta
         self.init_sigma_b = sigma_b
 
@@ -770,7 +780,7 @@ class NCRF:
             start = time.time()
             meg = meg[idx]
             covariates = covariates[idx]
-            y = meg - np.dot(np.dot(self.lead_field, theta), covariates.T)
+            y = meg - np.dot(np.dot(self._whitened_lead_field, theta), covariates.T)
             Cb = np.dot(y, y.T)  # empirical data covariance
 
             try:
@@ -794,15 +804,15 @@ class NCRF:
                 # pre-compute some useful matrices
                 try:
                     Lc = linalg.cholesky(sigma_b, lower=True)
-                    lhat = linalg.solve(Lc, self.lead_field)
+                    lhat = linalg.solve(Lc, self._whitened_lead_field)
                     ytilde = linalg.solve(Lc, yhat)
                 except np.linalg.LinAlgError:
                     Lc = _inv_sqrtm(sigma_b)
-                    lhat = np.dot(Lc, self.lead_field)
+                    lhat = np.dot(Lc, self._whitened_lead_field)
                     ytilde = np.dot(Lc, yhat)
 
                 # compute sigma_b for the next iteration
-                sigma_b[:] = self.noise_covariance[:]
+                sigma_b[:] = self._whitened_noise_covariance[:]
                 # tempx = lhat.T @ ytilde
 
                 for i in range(len(self.source)):
@@ -829,8 +839,8 @@ class NCRF:
                         gamma[i] = _compute_gamma_i(z, x)
 
                     # update sigma_b for next iteration
-                    sigma_b += np.dot(self.lead_field[:, i * dc:(i + 1) * dc],
-                                      np.dot(gamma[i], self.lead_field[:, i * dc:(i + 1) * dc].T))
+                    sigma_b += np.dot(self._whitened_lead_field[:, i * dc:(i + 1) * dc],
+                                      np.dot(gamma[i], self._whitened_lead_field[:, i * dc:(i + 1) * dc].T))
 
             self.Gamma[key] = gamma
             self.Sigma_b[key] = sigma_b
@@ -884,10 +894,7 @@ class NCRF:
         compute_explained_variance
             Compute voxel-wise explained variance.
         """
-        # pre-whiten the object itself
         logger = logging.getLogger(__name__)
-        if self._whitening_filter is None:
-            self._prewhiten()
         # pre-whiten data
         if isinstance(data, RegressionData):
             data._prewhiten(self._whitening_filter)
@@ -1022,12 +1029,12 @@ class NCRF:
             try:
                 raise np.linalg.LinAlgError
                 L = linalg.cholesky(self.Sigma_b[i], lower=True)
-                leadfields.append(linalg.solve(L, self.lead_field))
+                leadfields.append(linalg.solve(L, self._whitened_lead_field))
                 bEs.append(linalg.solve(L, data._bE[i]))
                 bbts.append(np.trace(linalg.solve(L, linalg.solve(L, data._bbt[i]).T)))
             except np.linalg.LinAlgError:
                 Linv = _inv_sqrtm(self.Sigma_b[i])
-                leadfields.append(np.dot(Linv, self.lead_field))
+                leadfields.append(np.dot(Linv, self._whitened_lead_field))
                 bEs.append(np.dot(Linv, data._bE[i]))
                 bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data._bbt[i]).T)))
 
@@ -1075,7 +1082,7 @@ class NCRF:
         ll2 = 0
         logdet = 0
         for key, (meg, covariate) in enumerate(data):
-            y = meg - np.dot(np.dot(self.lead_field, self.theta), covariate.T)
+            y = meg - np.dot(np.dot(self._whitened_lead_field, self.theta), covariate.T)
             Cb = np.dot(y, y.T)  # empirical data covariance
             try:
                 yhat = linalg.cholesky(Cb, lower=True)
@@ -1109,7 +1116,7 @@ class NCRF:
         """Evaluate the unweighted L2 prediction error used in CV."""
         l2 = 0
         for key, (meg, covariate) in enumerate(data):
-            y = meg - np.dot(np.dot(self.lead_field, self.theta), covariate.T)
+            y = meg - np.dot(np.dot(self._whitened_lead_field, self.theta), covariate.T)
             l2 += 0.5 * (y ** 2).sum()  # + np.log(np.diag(L)).sum()
 
         return l2 / len(data)
@@ -1121,9 +1128,9 @@ class NCRF:
         for key, (meg, covariate) in enumerate(data):
             # W = _inv_sqrtm(self.Sigma_b[key])
             # W_meg = W @ meg
-            # W_leadfield = W @ self.lead_field
+            # W_leadfield = W @ self._whitened_lead_field
             W_meg = meg
-            W_leadfield = self.lead_field
+            W_leadfield = self._whitened_lead_field
             y = W_meg - np.dot(np.dot(W_leadfield, self.theta), covariate.T)
             # temp += (y * y).sum() / (W_meg * W_meg).sum()  # + np.log(np.diag(L)).sum()
             temp += np.nansum(np.var(y, axis=1) / np.var(W_meg, axis=1)) / y.shape[0]
@@ -1138,9 +1145,9 @@ class NCRF:
         for key, (meg, covariate) in enumerate(data):
             # W = _inv_sqrtm(self.Sigma_b[key])
             # W_meg = W @ meg
-            # W_leadfield = W @ self.lead_field
+            # W_leadfield = W @ self._whitened_lead_field
             W_meg = meg
-            W_leadfield = self.lead_field
+            W_leadfield = self._whitened_lead_field
             total_var = np.var(W_meg, axis=1)
             y = W_meg - np.dot(np.dot(W_leadfield, theta), covariate.T)
             explained_variance = np.var(y, axis=1)
@@ -1252,7 +1259,7 @@ class NCRF:
         for model in models:
             y = np.empty(0)
             for trial in range(len(data)):
-                y = np.append(y, np.dot(np.dot(model.lead_field, model.theta), data.covariates[trial].T))
+                y = np.append(y, np.dot(np.dot(model._whitened_lead_field, model.theta), data.covariates[trial].T))
             Y.append(y)
         Y = np.array(Y)
         Y_bar = Y.mean(axis=0)
