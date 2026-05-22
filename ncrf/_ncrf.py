@@ -259,13 +259,11 @@ def fit_ncrf(
     else:
         raise TypeError(f"{normalize=}, need bool or str")
 
-    # Call `REG_Data.add_data` once for each contiguous segment of MEG data
-    ds = RegressionData(tstart, tstop, nlevels, s_baseline, s_scale, stim_is_single, gaussian_fwhm)
-    for r, ss in zip(meg_trials, stim_trials):
-        ds.add_data(r, ss, in_place=in_place)
-
-    if do_post_normalization:
-        ds.post_normalization()
+    ds = RegressionData.from_data(
+        meg_trials, stim_trials, tstart, tstop, nlevels,
+        s_baseline, s_scale, stim_is_single, gaussian_fwhm,
+        in_place=in_place, post_normalize=do_post_normalization,
+    )
 
     # noise covariance
     noise_cov = _handle_noise_channels(noise, ds.sensor_dim)
