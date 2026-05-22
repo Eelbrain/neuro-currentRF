@@ -18,7 +18,8 @@ from multiprocessing import current_process
 from operator import attrgetter
 from typing import Any, Callable, Iterator, Literal, Sequence
 
-from eelbrain import NDVar, UTS, fmtxt
+from eelbrain import NDVar, Sensor, UTS, fmtxt
+from eelbrain._data_obj import Dimension
 import numpy as np
 import numpy.typing as npt
 from scipy import linalg
@@ -272,18 +273,18 @@ class RegressionData:
             norm_factor: float,
             *,
             basis: list[FloatArray],
-            filter_length,
+            filter_length: npt.NDArray[np.intp],
             tstart: list[float],
             tstep: float,
             tstop: list[float],
             stim_is_single: bool,
-            stim_dims: list,
+            stim_dims: list[Dimension | None],
             stim_names: list[str],
-            baseline,
-            scaling,
-            normalization: list,
+            baseline: Sequence[NDVar | float] | None,
+            scaling: Sequence[NDVar | float] | None,
+            normalization: list[list[float]],
             gaussian_fwhm: float,
-            sensor_dim,
+            sensor_dim: Sensor,
             n_predictor_variables: int,
             bbt: list[FloatArray] | None = None,
             bE: list[FloatArray] | None = None,
