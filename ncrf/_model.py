@@ -284,7 +284,6 @@ class RegressionData:
         Full width at half maximum of the Gaussian basis functions, in milliseconds.
     """
     _n_predictor_variables = 1
-    _prewhitened = None
 
     def __init__(
             self,
@@ -441,24 +440,35 @@ class RegressionData:
         x = np.concatenate(covariates, axis=1).astype(np.float64)
         self.covariates.append(x)
 
-    def _prewhiten(self, whitening_filter: FloatArray) -> None:
-        """Apply the model's whitening filter to all stored MEG segments."""
-        if self._prewhitened is None:
-            for i, (meg, _) in enumerate(self):
-                self.meg[i] = np.dot(whitening_filter, meg)
-            self._prewhitened = True
-        else:
-            pass
+    def whitened(self, whitening_filter: FloatArray) -> RegressionData:
+        """Return a new dataset with MEG whitened and quadratic forms precomputed.
 
-    def _precompute(self) -> None:
-        """Cache quadratic forms reused during repeated objective evaluation."""
-        self._bbt = []
-        self._bE = []
-        self._EtE = []
-        for b, E in self:
-            self._bbt.append(np.dot(b, b.T))
-            self._bE.append(np.dot(b, E))
-            self._EtE.append(np.dot(E.T, E))
+        The original dataset is not modified.
+
+        Parameters
+        ----------
+        whitening_filter
+            Whitening matrix, typically :attr:`NCRF._whitening_filter`.
+
+        Returns
+        -------
+        :class:`RegressionData`
+            New dataset whose MEG arrays are ``whitening_filter @ meg`` and
+            whose ``_bbt``, ``_bE``, ``_EtE`` quadratic forms are ready for
+            use by the solvers.
+        """
+        obj = type(self).__new__(self.__class__)
+        copy_keys = [
+            '_n_predictor_variables', 'basis', 'filter_length', 'tstart', 'tstep', 'tstop',
+            '_stim_is_single', '_stim_dims', '_stim_names', 's_baseline', 's_scaling',
+            'gaussian_fwhm', 's_normalization', '_norm_factor', 'sensor_dim', 'covariates',
+        ]
+        obj.__dict__.update({key: self.__dict__[key] for key in copy_keys})
+        obj.meg = [np.dot(whitening_filter, m) for m in self.meg]
+        obj._bbt = [np.dot(b, b.T) for b in obj.meg]
+        obj._bE = [np.dot(b, E) for b, E in zip(obj.meg, obj.covariates)]
+        obj._EtE = [np.dot(E.T, E) for E in obj.covariates]
+        return obj
 
     def __iter__(self) -> Iterator[TrialData]:
         return zip(self.meg, self.covariates)
@@ -485,7 +495,7 @@ class RegressionData:
         obj = type(self).__new__(self.__class__)
         # take care of the copied values from the old_obj
         copy_keys = ['_n_predictor_variables', 'basis', 'filter_length', 'tstart', 'tstep', 'tstop', '_stim_is_single',
-                     '_stim_dims', '_stim_names', 's_baseline', 's_scaling', '_prewhitened', 'gaussian_fwhm', 's_normalization']
+                     '_stim_dims', '_stim_names', 's_baseline', 's_scaling', 'gaussian_fwhm', 's_normalization']
         obj.__dict__.update({key: self.__dict__[key] for key in copy_keys})
         # keep track of the normalization
         obj._norm_factor = sqrt(len(idx))
@@ -736,7 +746,6 @@ class NCRF:
         """Reset the solver state for the requested regularization value."""
         self.mu = mu
         self._init_iter(data)
-        data._precompute()
         if mu == 0.0:
             self._solve(data, self.theta, n_iterc=30)
 
@@ -895,18 +904,16 @@ class NCRF:
             Compute voxel-wise explained variance.
         """
         logger = logging.getLogger(__name__)
-        # pre-whiten data
-        if isinstance(data, RegressionData):
-            data._prewhiten(self._whitening_filter)
+        whitened = data.whitened(self._whitening_filter)
 
         logger.info('Initiating from mne sol, please wait...')
-        self._init_from_mne(data)
+        self._init_from_mne(whitened)
         logger.info('Thanks for waiting...')
 
         # take care of cross-validation
         if do_crossvalidation:
             if mus == 'auto':
-                mus = self._auto_mu(data)
+                mus = self._auto_mu(whitened)
             logger.info('Crossvalidation initiated!')
             cv_results = crossvalidate(self, data, mus, tol, n_splits, n_workers)
             best_cv = min(cv_results, key=attrgetter('cross_fit'))
@@ -951,7 +958,7 @@ class NCRF:
             if mu is None:
                 raise ValueError('mu needs mu to be specified if not \'auto\'')
 
-        self._set_mu(mu, data)
+        self._set_mu(mu, whitened)
 
         if self.space:
             def g_funct(x): return g_group(x, self.mu)
@@ -974,7 +981,7 @@ class NCRF:
         logger.debug('process:iteration \t objective value \t %% change')
         # run iterations
         for i in iter_o:
-            funct, grad_funct = self._construct_f(data)
+            funct, grad_funct = self._construct_f(whitened)
             logger.debug(f"Before FASTA:{funct(self.theta)}")
             Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.n_iterf)
             Theta.learn(theta)
@@ -987,18 +994,18 @@ class NCRF:
             if self.err[-1] < tol:
                 break
 
-            self._solve(data, theta)
+            self._solve(whitened, theta)
 
-            self.objective_vals.append(self.eval_obj(data))
+            self.objective_vals.append(self.eval_obj(whitened))
 
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
-        self.residual = self.eval_obj(data)
+        self.residual = self.eval_obj(whitened)
         self._copy_from_data(data)
-        self.explained_var = self.compute_explained_variance(data)
+        self.explained_var = self.compute_explained_variance(whitened)
         if compute_explained_variance:
-            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
-        self._data = data  # save the data for further use
+            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(whitened)
+        self._data = data  # save the original data for further use
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
