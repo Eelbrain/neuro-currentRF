@@ -263,8 +263,7 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
 class RegressionData:
     """Prepared dataset for NCRF fitting.
 
-    All parameters are stored as instance attributes; where the attribute
-    name differs from the parameter name the attribute name is noted.
+    All parameters are stored as same-named instance attributes.
     Use :meth:`from_data` to construct from raw MEG and stimulus
     :class:`~eelbrain.NDVar` objects.
 
@@ -278,8 +277,7 @@ class RegressionData:
         ``(n_times, n_basis_cols)``.
     norm_factor
         ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
-        to rescale sub-segments consistently.  Stored as
-        ``self._norm_factor``.
+        to rescale sub-segments consistently.
     basis
         Gaussian basis matrices, one per predictor variable, each shaped
         ``(filter_length, n_basis)``.
@@ -293,43 +291,41 @@ class RegressionData:
     tstop
         TRF stop time in seconds, one value per predictor.
     stim_is_single
-        ``True`` when the original stimulus input had a single predictor
-        per segment.  Stored as ``self._stim_is_single``.
+        ``True`` when the original stimulus input contained a single
+        predictor per segment rather than a list; controls whether
+        :attr:`NCRF.h` returns a bare NDVar or a list.
     stim_dims
         Feature dimension for each predictor: ``None`` for scalar
         predictors, an eelbrain :class:`~eelbrain._data_obj.Dimension`
-        for multi-feature predictors.  Stored as ``self._stim_dims``.
+        for multi-feature predictors.
     stim_names
-        Name of each predictor variable.  Stored as
-        ``self._stim_names``.
+        Name of each predictor variable.
     baseline
         Per-predictor centering values subtracted before covariate
-        construction, or ``None`` if no centering was applied.  Stored
-        as ``self.s_baseline``.
+        construction, or ``None`` if no centering was applied.
     scaling
         Per-predictor scale factors applied after centering, or ``None``
-        if no scaling was applied.  Stored as ``self.s_scaling``.
-    normalization
+        if no scaling was applied.
+    stim_normalization
         Spectral norms of each predictor block before post-normalization,
-        one inner list per segment.  Stored as ``self.s_normalization``.
+        one inner list per segment.
     gaussian_fwhm
         Full width at half maximum of the Gaussian basis functions in ms.
     sensor_dim
         Sensor dimension shared by all MEG segments.
     n_predictor_variables
         Total number of scalar predictor columns after expanding
-        multi-feature predictors.  Stored as
-        ``self._n_predictor_variables``.
+        multi-feature predictors.
     bbt
         Per-segment ``B @ B.T`` matrices where ``B`` is a whitened MEG
         array; precomputed by :meth:`whitened` for the inner solver loop.
-        When provided, stored as ``self._bbt``.
+        ``None`` on unwhitened datasets.
     bE
         Per-segment ``B @ E`` cross-product matrices; precomputed by
-        :meth:`whitened`.  When provided, stored as ``self._bE``.
+        :meth:`whitened`.  ``None`` on unwhitened datasets.
     EtE
         Per-segment ``E.T @ E`` covariate Gram matrices; precomputed by
-        :meth:`whitened`.  When provided, stored as ``self._EtE``.
+        :meth:`whitened`.  ``None`` on unwhitened datasets.
     """
 
     def __init__(
@@ -348,7 +344,7 @@ class RegressionData:
             stim_names: list[str],
             baseline: Sequence[NDVar | float] | None,
             scaling: Sequence[NDVar | float] | None,
-            normalization: list[list[float]],
+            stim_normalization: list[list[float]],
             gaussian_fwhm: float,
             sensor_dim: Sensor,
             n_predictor_variables: int,
@@ -358,25 +354,24 @@ class RegressionData:
     ) -> None:
         self.meg = meg
         self.covariates = covariates
-        self._norm_factor = norm_factor
+        self.norm_factor = norm_factor
         self.basis = basis
         self.filter_length = filter_length
         self.tstart = tstart
         self.tstep = tstep
         self.tstop = tstop
-        self._stim_is_single = stim_is_single
-        self._stim_dims = stim_dims
-        self._stim_names = stim_names
-        self.s_baseline = baseline
-        self.s_scaling = scaling
-        self.s_normalization = normalization
+        self.stim_is_single = stim_is_single
+        self.stim_dims = stim_dims
+        self.stim_names = stim_names
+        self.baseline = baseline
+        self.scaling = scaling
+        self.stim_normalization = stim_normalization
         self.gaussian_fwhm = gaussian_fwhm
         self.sensor_dim = sensor_dim
-        self._n_predictor_variables = n_predictor_variables
-        if bbt is not None:
-            self._bbt = bbt
-            self._bE = bE
-            self._EtE = EtE
+        self.n_predictor_variables = n_predictor_variables
+        self.bbt = bbt
+        self.bE = bE
+        self.EtE = EtE
 
     @classmethod
     def from_data(
@@ -388,7 +383,7 @@ class RegressionData:
             nlevel: int,
             baseline: Sequence[NDVar | float] | None,
             scaling: Sequence[NDVar | float] | None,
-            stim_is_single: bool,
+            stim_is_single: bool = False,
             gaussian_fwhm: float = 20.0,
             in_place: bool = False,
             post_normalize: bool = True,
@@ -553,9 +548,9 @@ class RegressionData:
             meg_arrays, covariate_arrays, norm_factor,
             basis=basis, filter_length=filter_length,
             tstart=tstart, tstep=tstep, tstop=tstop,
-            stim_is_single=stim_is_single, stim_dims=stim_dims,
-            stim_names=stim_names, baseline=baseline, scaling=scaling,
-            normalization=s_normalization, gaussian_fwhm=gaussian_fwhm,
+            stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=stim_names,
+            baseline=baseline, scaling=scaling,
+            stim_normalization=s_normalization, gaussian_fwhm=gaussian_fwhm,
             sensor_dim=sensor_dim, n_predictor_variables=n_predictor_variables,
         )
 
@@ -570,15 +565,15 @@ class RegressionData:
             Whitening matrix, typically :attr:`NCRF._whitening_filter`.
         """
         meg = [np.dot(whitening_filter, m) for m in self.meg]
-        return type(self)(
-            meg, self.covariates, self._norm_factor,
+        return RegressionData(
+            meg, self.covariates, self.norm_factor,
             basis=self.basis, filter_length=self.filter_length,
             tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
-            stim_is_single=self._stim_is_single, stim_dims=self._stim_dims,
-            stim_names=self._stim_names, baseline=self.s_baseline,
-            scaling=self.s_scaling, normalization=self.s_normalization,
+            stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
+            stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
+            stim_normalization=self.stim_normalization,
             gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
-            n_predictor_variables=self._n_predictor_variables,
+            n_predictor_variables=self.n_predictor_variables,
             bbt=[np.dot(b, b.T) for b in meg],
             bE=[np.dot(b, E) for b, E in zip(meg, self.covariates)],
             EtE=[np.dot(E.T, E) for E in self.covariates],
@@ -602,18 +597,18 @@ class RegressionData:
             Integer indices selecting the time samples to retain.
         """
         norm_factor = sqrt(len(idx))
-        mul = self._norm_factor / norm_factor
-        return type(self)(
+        mul = self.norm_factor / norm_factor
+        return RegressionData(
             [m[:, idx] * mul for m in self.meg],
             [c[idx, :] * mul for c in self.covariates],
             norm_factor,
             basis=self.basis, filter_length=self.filter_length,
             tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
-            stim_is_single=self._stim_is_single, stim_dims=self._stim_dims,
-            stim_names=self._stim_names, baseline=self.s_baseline,
-            scaling=self.s_scaling, normalization=self.s_normalization,
+            stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
+            stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
+            stim_normalization=self.stim_normalization,
             gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
-            n_predictor_variables=self._n_predictor_variables,
+            n_predictor_variables=self.n_predictor_variables,
         )
 
 
@@ -831,7 +826,7 @@ class NCRF:
             self.Sigma_b.append(s.copy())
 
         # initializing \Theta
-        l = sum([basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data._stim_dims)])
+        l = sum([basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data.stim_dims)])
         self.theta = np.zeros((len(self.source) * dc, l), dtype=np.float64)
 
     def _set_mu(self, mu: float, data: RegressionData) -> None:
@@ -1101,12 +1096,12 @@ class NCRF:
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
-        self._stim_is_single = data._stim_is_single
-        self._stim_dims = data._stim_dims
-        self._stim_names = data._stim_names
-        self._stim_baseline = data.s_baseline
-        self._stim_scaling = data.s_scaling
-        self._stim_normalization = data.s_normalization
+        self._stim_is_single = data.stim_is_single
+        self._stim_dims = data.stim_dims
+        self._stim_names = data.stim_names
+        self._stim_baseline = data.baseline
+        self._stim_scaling = data.scaling
+        self._stim_normalization = data.stim_normalization
         self._basis = data.basis
         self.tstart = data.tstart
         self.tstep = data.tstep
@@ -1129,13 +1124,13 @@ class NCRF:
                 raise np.linalg.LinAlgError
                 L = linalg.cholesky(self.Sigma_b[i], lower=True)
                 leadfields.append(linalg.solve(L, self._whitened_lead_field))
-                bEs.append(linalg.solve(L, data._bE[i]))
-                bbts.append(np.trace(linalg.solve(L, linalg.solve(L, data._bbt[i]).T)))
+                bEs.append(linalg.solve(L, data.bE[i]))
+                bbts.append(np.trace(linalg.solve(L, linalg.solve(L, data.bbt[i]).T)))
             except np.linalg.LinAlgError:
                 Linv = _inv_sqrtm(self.Sigma_b[i])
                 leadfields.append(np.dot(Linv, self._whitened_lead_field))
-                bEs.append(np.dot(Linv, data._bE[i]))
-                bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data._bbt[i]).T)))
+                bEs.append(np.dot(Linv, data.bE[i]))
+                bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data.bbt[i]).T)))
 
         def f(L, x, bbt, bE, EtE):
             Lx = np.dot(L, x)
@@ -1149,13 +1144,13 @@ class NCRF:
         def funct(x):
             fval = 0.0
             for i in range(len(data)):
-                fval = fval + f(leadfields[i], x, bbts[i], bEs[i], data._EtE[i])
+                fval = fval + f(leadfields[i], x, bbts[i], bEs[i], data.EtE[i])
             return fval
 
         def grad_funct(x):
             grad = gradf(leadfields[0], x, bEs[0], data._EtE[0]).astype(np.float64)
             for i in range(1, len(data)):
-                grad += gradf(leadfields[i], x, bEs[i], data._EtE[i])
+                grad += gradf(leadfields[i], x, bEs[i], data.EtE[i])
             return grad
 
         return funct, grad_funct
