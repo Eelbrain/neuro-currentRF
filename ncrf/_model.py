@@ -261,9 +261,75 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
 
 
 class RegressionData:
-    """Prepared regression dataset for NCRF fitting.
+    """Prepared dataset for NCRF fitting.
 
-    Use :meth:`from_data` to construct from raw MEG and stimulus NDVars.
+    All parameters are stored as instance attributes; where the attribute
+    name differs from the parameter name the attribute name is noted.
+    Use :meth:`from_data` to construct from raw MEG and stimulus
+    :class:`~eelbrain.NDVar` objects.
+
+    Parameters
+    ----------
+    meg
+        MEG signal arrays, one per segment, each shaped
+        ``(n_sensors, n_times)``.
+    covariates
+        Basis-projected covariate matrices, one per segment, each shaped
+        ``(n_times, n_basis_cols)``.
+    norm_factor
+        ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
+        to rescale sub-segments consistently.  Stored as
+        ``self._norm_factor``.
+    basis
+        Gaussian basis matrices, one per predictor variable, each shaped
+        ``(filter_length, n_basis)``.
+    filter_length
+        Number of raw filter taps per predictor, derived from ``tstart``
+        and ``tstop``.
+    tstart
+        TRF start time in seconds, one value per predictor.
+    tstep
+        Sample spacing in seconds, shared by all segments.
+    tstop
+        TRF stop time in seconds, one value per predictor.
+    stim_is_single
+        ``True`` when the original stimulus input had a single predictor
+        per segment.  Stored as ``self._stim_is_single``.
+    stim_dims
+        Feature dimension for each predictor: ``None`` for scalar
+        predictors, an eelbrain :class:`~eelbrain._data_obj.Dimension`
+        for multi-feature predictors.  Stored as ``self._stim_dims``.
+    stim_names
+        Name of each predictor variable.  Stored as
+        ``self._stim_names``.
+    baseline
+        Per-predictor centering values subtracted before covariate
+        construction, or ``None`` if no centering was applied.  Stored
+        as ``self.s_baseline``.
+    scaling
+        Per-predictor scale factors applied after centering, or ``None``
+        if no scaling was applied.  Stored as ``self.s_scaling``.
+    normalization
+        Spectral norms of each predictor block before post-normalization,
+        one inner list per segment.  Stored as ``self.s_normalization``.
+    gaussian_fwhm
+        Full width at half maximum of the Gaussian basis functions in ms.
+    sensor_dim
+        Sensor dimension shared by all MEG segments.
+    n_predictor_variables
+        Total number of scalar predictor columns after expanding
+        multi-feature predictors.  Stored as
+        ``self._n_predictor_variables``.
+    bbt
+        Per-segment ``B @ B.T`` matrices where ``B`` is a whitened MEG
+        array; precomputed by :meth:`whitened` for the inner solver loop.
+        When provided, stored as ``self._bbt``.
+    bE
+        Per-segment ``B @ E`` cross-product matrices; precomputed by
+        :meth:`whitened`.  When provided, stored as ``self._bE``.
+    EtE
+        Per-segment ``E.T @ E`` covariate Gram matrices; precomputed by
+        :meth:`whitened`.  When provided, stored as ``self._EtE``.
     """
 
     def __init__(
