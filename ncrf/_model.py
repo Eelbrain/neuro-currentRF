@@ -425,17 +425,14 @@ class RegressionData:
         """
         if not meg:
             raise ValueError("meg is empty")
-
-        # Validate sensor consistency across segments
-        sensor_dim = meg[0].get_dim('sensor')
-        for m in meg[1:]:
-            if m.get_dim('sensor') != sensor_dim:
-                raise NotImplementedError('combining data segments with different sensors is not supported')
+        elif len(meg) != len(stim):
+            raise ValueError("meg and stim have different lengths")
 
         tstart = list(tstart) if isinstance(tstart, collections.abc.Sequence) else [tstart]
         tstop = list(tstop) if isinstance(tstop, collections.abc.Sequence) else [tstop]
 
-        # State initialized from the first segment
+        # State initialized from the first segment and compared to subsequent segments
+        sensor_dim = None
         stim_dims = None
         stim_names = None
         tstep = None
@@ -449,22 +446,37 @@ class RegressionData:
         norm_factor = None
         n_predictor_variables = 1
 
-        for m, ss in zip(meg, stim):
-            ss = list(ss)
+        for i_segment, (m, ss) in enumerate(zip(meg, stim)):
+            if in_place:
+                ss = list(ss)
+            else:
+                ss = [s.copy() for s in ss]
+
+            # Sensor dim
+            if sensor_dim is None:
+                sensor_dim = m.get_dim('sensor')
+            elif m.get_dim('sensor') != sensor_dim:
+                raise ValueError(f'{meg=}: combining data segments with different sensor configurations is not supported')
+
+            # Time dim
             meg_time: UTS = m.get_dim('time')
+            if tstep is None:
+                tstep = meg_time.tstep
+            elif meg_time.tstep != tstep:
+                raise ValueError(f"{meg=}: segment {i_segment} time-step incompatible with first segment")
 
             # Determine stim feature dims for this segment
             cur_stim_dims = []
             for x in ss:
                 if x.get_dim('time') != meg_time:
-                    raise ValueError(f"stim={x!r}: time axis incompatible with meg")
+                    raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
                 elif x.ndim == 1:
                     cur_stim_dims.append(None)
                 elif x.ndim == 2:
                     dim, _ = x.get_dims((None, 'time'))
                     cur_stim_dims.append(dim)
                 else:
-                    raise ValueError(f"stim={x!r}: more than 2 dimensions")
+                    raise ValueError(f"Segment {i_segment} stim {x!r}: more than 2 dimensions")
 
             if stim_dims is None:
                 # Initialize time/basis parameters from the first segment
@@ -476,7 +488,6 @@ class RegressionData:
                     tstop = tstop * len(stim_dims)
                 assert len(tstart) == len(stim_dims)
                 assert len(tstop) == len(stim_dims)
-                tstep = meg_time.tstep
                 start_samples = [int(round(ts / tstep)) for ts in tstart]
                 stop_samples = [int(round(te / tstep)) for te in tstop]
                 filter_length = np.subtract(stop_samples, start_samples) + 1
@@ -484,14 +495,10 @@ class RegressionData:
                 for ts, te, fl in zip(tstart, tstop, filter_length):
                     x = np.linspace(int(round(1000 * ts)), int(round(1000 * te)), fl)
                     basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x))
-            elif meg_time.tstep != tstep:
-                raise ValueError(f"meg={m!r}: incompatible time-step with first segment")
             elif cur_stim_dims != stim_dims:
-                raise ValueError(f"stim dimensions incompatible with first segment")
+                raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
             # Apply stim normalization
-            if not in_place:
-                ss = [s.copy() for s in ss]
             if baseline is not None:
                 if len(baseline) != len(ss):
                     raise ValueError(f"baseline length {len(baseline)} != number of predictors {len(ss)}")
@@ -510,7 +517,7 @@ class RegressionData:
             y = y_ if (in_place or y_.base is None) else y_.copy()
             flat = np.var(y, axis=1) == 0
             if flat.any():
-                raise ValueError(f"meg={m!r}: flat channels ({', '.join(sensor_dim.names[flat])})")
+                raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
             y /= sqrt(y.shape[1])
             meg_arrays.append(y)
             if norm_factor is None:
