@@ -561,10 +561,17 @@ class RegressionData:
             sensor_dim=sensor_dim, n_predictor_variables=n_predictor_variables,
         )
 
+    def __iter__(self) -> Iterator[TrialData]:
+        return zip(self.meg, self.covariates)
+
+    def __len__(self) -> int:
+        return len(self.meg)
+
+    def __repr__(self) -> str:
+        return 'Regression data'
+
     def whitened(self, whitening_filter: FloatArray) -> RegressionData:
         """Return a new dataset with MEG whitened and quadratic forms precomputed.
-
-        The original dataset is not modified.
 
         Parameters
         ----------
@@ -585,15 +592,6 @@ class RegressionData:
             bE=[np.dot(b, E) for b, E in zip(meg, self.covariates)],
             EtE=[np.dot(E.T, E) for E in self.covariates],
         )
-
-    def __iter__(self) -> Iterator[TrialData]:
-        return zip(self.meg, self.covariates)
-
-    def __len__(self) -> int:
-        return len(self.meg)
-
-    def __repr__(self) -> str:
-        return 'Regression data'
 
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
