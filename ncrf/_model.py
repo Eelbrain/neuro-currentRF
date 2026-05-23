@@ -1178,7 +1178,7 @@ class NCRF:
             return fval
 
         def grad_funct(x):
-            grad = gradf(leadfields[0], x, bEs[0], data._EtE[0]).astype(np.float64)
+            grad = gradf(leadfields[0], x, bEs[0], data.EtE[0]).astype(np.float64)
             for i in range(1, len(data)):
                 grad += gradf(leadfields[i], x, bEs[i], data.EtE[i])
             return grad
