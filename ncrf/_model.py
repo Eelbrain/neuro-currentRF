@@ -1045,10 +1045,8 @@ class NCRF:
                     else:
                         mu = best_es.mu
 
-        else:
-            # use the passed mu
-            if mu is None:
-                raise ValueError('mu needs mu to be specified if not \'auto\'')
+        elif mu is None:  # use the passed mu
+            raise TypeError(f'{mu=}: mu needs mu to be a number or "auto"')
 
         self._set_mu(mu, whitened)
 
