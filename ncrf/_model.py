@@ -1023,16 +1023,16 @@ class NCRF:
             Compute voxel-wise explained variance.
         """
         logger = logging.getLogger(__name__)
-        whitened_data = data.whiten(self._whitening_filter)
+        data = data.whiten(self._whitening_filter)
 
         logger.info('Initiating from mne sol, please wait...')
-        self._init_from_mne(whitened_data)
+        self._init_from_mne(data)
         logger.info('Thanks for waiting...')
 
         # take care of cross-validation
         if do_crossvalidation:
             if mus == 'auto':
-                mus = self._auto_mu(whitened_data)
+                mus = self._auto_mu(data)
             logger.info('Crossvalidation initiated!')
             cv_results = crossvalidate(self, data, mus, tol, n_splits, n_workers)
             best_cv = min(cv_results, key=attrgetter('cross_fit'))
@@ -1075,7 +1075,7 @@ class NCRF:
         elif mu is None:  # use the passed mu
             raise TypeError(f'{mu=}: mu needs mu to be a number or "auto"')
 
-        self._set_mu(mu, whitened_data)
+        self._set_mu(mu, data)
 
         if self.space:
             def g_funct(x): return g_group(x, self.mu)
@@ -1098,7 +1098,7 @@ class NCRF:
         logger.debug('process:iteration \t objective value \t %% change')
         # run iterations
         for i in iter_o:
-            funct, grad_funct = self._construct_f(whitened_data)
+            funct, grad_funct = self._construct_f(data)
             logger.debug(f"Before FASTA:{funct(self.theta)}")
             Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.n_iterf)
             Theta.learn(theta)
@@ -1111,17 +1111,17 @@ class NCRF:
             if self.err[-1] < tol:
                 break
 
-            self._solve(whitened_data, theta)
+            self._solve(data, theta)
 
-            self.objective_vals.append(self.eval_obj(whitened_data))
+            self.objective_vals.append(self.eval_obj(data))
 
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
-        self.residual = self.eval_obj(whitened_data)
-        self._copy_from_data(whitened_data)
-        self.explained_var = self.compute_explained_variance(whitened_data)
+        self.residual = self.eval_obj(data)
+        self._copy_from_data(data)
+        self.explained_var = self.compute_explained_variance(data)
         if compute_explained_variance:
-            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(whitened_data)
+            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
         self._data = data  # save the original data for further use
 
     def _copy_from_data(self, data: RegressionData) -> None:
