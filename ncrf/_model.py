@@ -318,14 +318,14 @@ class RegressionData:
         multi-feature predictors.
     bbt
         Per-segment ``B @ B.T`` matrices where ``B`` is a whitened MEG
-        array; precomputed by :meth:`whitened` for the inner solver loop.
+        array; precomputed by :meth:`whiten` for the inner solver loop.
         ``None`` on unwhitened datasets.
     bE
         Per-segment ``B @ E`` cross-product matrices; precomputed by
-        :meth:`whitened`.  ``None`` on unwhitened datasets.
+        :meth:`whiten`.  ``None`` on unwhitened datasets.
     EtE
         Per-segment ``E.T @ E`` covariate Gram matrices; precomputed by
-        :meth:`whitened`.  ``None`` on unwhitened datasets.
+        :meth:`whiten`.  ``None`` on unwhitened datasets.
     """
 
     def __init__(
@@ -570,14 +570,31 @@ class RegressionData:
     def __repr__(self) -> str:
         return 'Regression data'
 
-    def whitened(self, whitening_filter: FloatArray) -> RegressionData:
+    @property
+    def is_whitened(self) -> bool:
+        """Whether this dataset has been whitened (quadratic forms are precomputed)."""
+        return self.bbt is not None
+
+    def whiten(self, whitening_filter: FloatArray) -> RegressionData:
         """Return a new dataset with MEG whitened and quadratic forms precomputed.
 
         Parameters
         ----------
         whitening_filter
             Whitening matrix, typically :attr:`NCRF._whitening_filter`.
+
+        Notes
+        -----
+        Uses shallow copies of unmodified data.
+
+        Raises
+        ------
+        ValueError
+            If the dataset is already whitened. Whitening twice is not equivalent
+            to whitening once with the second filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
+        if self.is_whitened:
+            raise ValueError("Dataset is already whitened; cannot whiten twice")
         meg = [np.dot(whitening_filter, m) for m in self.meg]
         return RegressionData(
             meg, self.covariates, self.norm_factor,
@@ -596,6 +613,9 @@ class RegressionData:
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
 
+        If this dataset :attr:`is_whitened`, the quadratic forms are recomputed
+        for the slice so the returned dataset is also whitened.
+
         Parameters
         ----------
         idx
@@ -603,10 +623,16 @@ class RegressionData:
         """
         norm_factor = sqrt(len(idx))
         mul = self.norm_factor / norm_factor
+        meg = [m[:, idx] * mul for m in self.meg]
+        covariates = [c[idx, :] * mul for c in self.covariates]
+        if self.is_whitened:
+            bbt = [np.dot(b, b.T) for b in meg]
+            bE = [np.dot(b, E) for b, E in zip(meg, covariates)]
+            EtE = [np.dot(E.T, E) for E in covariates]
+        else:
+            bbt = bE = EtE = None
         return RegressionData(
-            [m[:, idx] * mul for m in self.meg],
-            [c[idx, :] * mul for c in self.covariates],
-            norm_factor,
+            meg, covariates, norm_factor,
             basis=self.basis, filter_length=self.filter_length,
             tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
             stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
@@ -614,6 +640,7 @@ class RegressionData:
             stim_normalization=self.stim_normalization,
             gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
             n_predictor_variables=self.n_predictor_variables,
+            bbt=bbt, bE=bE, EtE=EtE,
         )
 
 
@@ -996,16 +1023,16 @@ class NCRF:
             Compute voxel-wise explained variance.
         """
         logger = logging.getLogger(__name__)
-        whitened = data.whitened(self._whitening_filter)
+        whitened_data = data.whiten(self._whitening_filter)
 
         logger.info('Initiating from mne sol, please wait...')
-        self._init_from_mne(whitened)
+        self._init_from_mne(whitened_data)
         logger.info('Thanks for waiting...')
 
         # take care of cross-validation
         if do_crossvalidation:
             if mus == 'auto':
-                mus = self._auto_mu(whitened)
+                mus = self._auto_mu(whitened_data)
             logger.info('Crossvalidation initiated!')
             cv_results = crossvalidate(self, data, mus, tol, n_splits, n_workers)
             best_cv = min(cv_results, key=attrgetter('cross_fit'))
@@ -1048,7 +1075,7 @@ class NCRF:
         elif mu is None:  # use the passed mu
             raise TypeError(f'{mu=}: mu needs mu to be a number or "auto"')
 
-        self._set_mu(mu, whitened)
+        self._set_mu(mu, whitened_data)
 
         if self.space:
             def g_funct(x): return g_group(x, self.mu)
@@ -1071,7 +1098,7 @@ class NCRF:
         logger.debug('process:iteration \t objective value \t %% change')
         # run iterations
         for i in iter_o:
-            funct, grad_funct = self._construct_f(whitened)
+            funct, grad_funct = self._construct_f(whitened_data)
             logger.debug(f"Before FASTA:{funct(self.theta)}")
             Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.n_iterf)
             Theta.learn(theta)
@@ -1084,17 +1111,17 @@ class NCRF:
             if self.err[-1] < tol:
                 break
 
-            self._solve(whitened, theta)
+            self._solve(whitened_data, theta)
 
-            self.objective_vals.append(self.eval_obj(whitened))
+            self.objective_vals.append(self.eval_obj(whitened_data))
 
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
-        self.residual = self.eval_obj(whitened)
-        self._copy_from_data(data)
-        self.explained_var = self.compute_explained_variance(whitened)
+        self.residual = self.eval_obj(whitened_data)
+        self._copy_from_data(whitened_data)
+        self.explained_var = self.compute_explained_variance(whitened_data)
         if compute_explained_variance:
-            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(whitened)
+            self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(whitened_data)
         self._data = data  # save the original data for further use
 
     def _copy_from_data(self, data: RegressionData) -> None:
