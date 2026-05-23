@@ -544,7 +544,7 @@ class RegressionData:
             if n_vars > 1:
                 stim_lens = [len(d) if d else 1 for d in stim_dims]
                 bl_lengths = np.repeat([b.shape[1] for b in basis], stim_lens)
-                avg_norm = np.asanyarray(s_normalization).mean(axis=0)
+                avg_norm = np.array(s_normalization).mean(axis=0)
                 col = 0
                 for bl, norm in zip(bl_lengths, avg_norm):
                     for cov in covariate_arrays:
@@ -880,7 +880,7 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared regression data to fit.
+            Whitened regression data to fit.
         theta
             Coefficients of the TRFs over the Gabor basis.
 
@@ -1122,7 +1122,7 @@ class NCRF:
         self.explained_var = self.compute_explained_variance(data)
         if compute_explained_variance:
             self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
-        self._data = data  # save the original data for further use
+        self._data = data  # save the data for further use
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
