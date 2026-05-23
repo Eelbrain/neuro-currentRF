@@ -987,6 +987,7 @@ class NCRF:
             n_splits: int = None,
             n_workers: int = None,
             compute_explained_variance: bool = False,
+            accept_whitening: bool = False,
     ) -> None:
         """Fit the NCRF model to prepared regression data.
 
@@ -1021,9 +1022,16 @@ class NCRF:
             ``0`` to run without :mod:`multiprocessing`.
         compute_explained_variance
             Compute voxel-wise explained variance.
+        accept_whitening
+            Accept pre-whitened data. This is intended for internal workflows
+            that slice an already-whitened dataset, such as cross-validation.
         """
         logger = logging.getLogger(__name__)
-        data = data.whiten(self._whitening_filter)
+        if data.is_whitened:
+            if not accept_whitening:
+                raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
+        else:
+            data = data.whiten(self._whitening_filter)
 
         logger.info('Initiating from mne sol, please wait...')
         self._init_from_mne(data)
@@ -1439,7 +1447,7 @@ class NCRF:
             for model_, (train, test) in zip(models_, kf.split(data.meg[0][0])):
                 traindata = data.timeslice(train)
                 testdata = data.timeslice(test)
-                model_.fit(traindata, mu, tol=tol, verbose=False)
+                model_.fit(traindata, mu, tol=tol, verbose=False, accept_whitening=True)
                 obj, wl2 = model_.eval_obj(testdata, True)
                 ll.append(wl2)
                 ll1.append(obj)
