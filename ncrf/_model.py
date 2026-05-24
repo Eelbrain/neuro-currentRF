@@ -263,7 +263,7 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
 class RegressionData:
     """Prepared dataset for NCRF fitting.
 
-    All parameters are stored as same-named instance attributes.
+    Constructor parameters are stored as same-named instance attributes.
     Use :meth:`from_data` to construct from raw MEG and stimulus
     :class:`~eelbrain.NDVar` objects.
 
@@ -281,9 +281,6 @@ class RegressionData:
     basis
         Gaussian basis matrices, one per predictor variable, each shaped
         ``(filter_length, n_basis)``.
-    filter_length
-        Number of raw filter taps per predictor, derived from ``tstart``
-        and ``tstop``.
     tstart
         TRF start time in seconds, one value per predictor.
     tstep
@@ -313,19 +310,8 @@ class RegressionData:
         Full width at half maximum of the Gaussian basis functions in ms.
     sensor_dim
         Sensor dimension shared by all MEG segments.
-    n_predictor_variables
-        Total number of scalar predictor columns after expanding
-        multi-feature predictors.
-    bbt
-        Per-segment ``B @ B.T`` matrices where ``B`` is a whitened MEG
-        array; precomputed by :meth:`whiten` for the inner solver loop.
-        ``None`` on unwhitened datasets.
-    bE
-        Per-segment ``B @ E`` cross-product matrices; precomputed by
-        :meth:`whiten`.  ``None`` on unwhitened datasets.
-    EtE
-        Per-segment ``E.T @ E`` covariate Gram matrices; precomputed by
-        :meth:`whiten`.  ``None`` on unwhitened datasets.
+    is_whitened
+        Whether ``meg`` has already been transformed by a whitening filter.
     """
 
     def __init__(
@@ -334,7 +320,6 @@ class RegressionData:
             covariates: list[FloatArray],
             norm_factor: float,
             basis: list[FloatArray],
-            filter_length: npt.NDArray[np.intp],
             tstart: list[float],
             tstep: float,
             tstop: list[float],
@@ -346,16 +331,12 @@ class RegressionData:
             stim_normalization: list[list[float]],
             gaussian_fwhm: float,
             sensor_dim: Sensor,
-            n_predictor_variables: int,
-            bbt: list[FloatArray] | None = None,
-            bE: list[FloatArray] | None = None,
-            EtE: list[FloatArray] | None = None,
+            is_whitened: bool = False,
     ) -> None:
         self.meg = meg
         self.covariates = covariates
         self.norm_factor = norm_factor
         self.basis = basis
-        self.filter_length = filter_length
         self.tstart = tstart
         self.tstep = tstep
         self.tstop = tstop
@@ -367,10 +348,7 @@ class RegressionData:
         self.stim_normalization = stim_normalization
         self.gaussian_fwhm = gaussian_fwhm
         self.sensor_dim = sensor_dim
-        self.n_predictor_variables = n_predictor_variables
-        self.bbt = bbt
-        self.bE = bE
-        self.EtE = EtE
+        self.is_whitened = is_whitened
 
     @classmethod
     def from_data(
@@ -443,7 +421,6 @@ class RegressionData:
         covariate_arrays: list[FloatArray] = []
         s_normalization = []
         norm_factor = None
-        n_predictor_variables = 1
 
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
             if in_place:
@@ -533,7 +510,6 @@ class RegressionData:
                 l = len(d) if d else 1
                 covariates.extend([np.dot(x, b) / sqrt(y.shape[1]) for x in raw_covs[i:i + l]])
                 i += l
-            n_predictor_variables = len(covariates)
             s_normalization.append([linalg.norm(x, 2) for x in covariates])
             covariate_arrays.append(np.concatenate(covariates, axis=1).astype(np.float64))
 
@@ -552,12 +528,12 @@ class RegressionData:
 
         return cls(
             meg_arrays, covariate_arrays, norm_factor,
-            basis=basis, filter_length=filter_length,
+            basis=basis,
             tstart=tstart, tstep=tstep, tstop=tstop,
             stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=stim_names,
             baseline=baseline, scaling=scaling,
             stim_normalization=s_normalization, gaussian_fwhm=gaussian_fwhm,
-            sensor_dim=sensor_dim, n_predictor_variables=n_predictor_variables,
+            sensor_dim=sensor_dim,
         )
 
     def __iter__(self) -> Iterator[TrialData]:
@@ -569,13 +545,23 @@ class RegressionData:
     def __repr__(self) -> str:
         return 'Regression data'
 
-    @property
-    def is_whitened(self) -> bool:
-        """Whether this dataset has been whitened (quadratic forms are precomputed)."""
-        return self.bbt is not None
+    @cached_property
+    def bbt(self) -> list[FloatArray]:
+        """Per-segment ``B @ B.T`` matrices for stored MEG arrays."""
+        return [np.dot(b, b.T) for b in self.meg]
+
+    @cached_property
+    def bE(self) -> list[FloatArray]:
+        """Per-segment ``B @ E`` cross-product matrices."""
+        return [np.dot(b, E) for b, E in zip(self.meg, self.covariates)]
+
+    @cached_property
+    def EtE(self) -> list[FloatArray]:
+        """Per-segment ``E.T @ E`` covariate Gram matrices."""
+        return [np.dot(E.T, E) for E in self.covariates]
 
     def whiten(self, whitening_filter: FloatArray) -> RegressionData:
-        """Return a new dataset with MEG whitened and quadratic forms precomputed.
+        """Return a new dataset with MEG whitened.
 
         Parameters
         ----------
@@ -597,23 +583,20 @@ class RegressionData:
         meg = [np.dot(whitening_filter, m) for m in self.meg]
         return RegressionData(
             meg, self.covariates, self.norm_factor,
-            basis=self.basis, filter_length=self.filter_length,
+            basis=self.basis,
             tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
             stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
             stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
             stim_normalization=self.stim_normalization,
             gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
-            n_predictor_variables=self.n_predictor_variables,
-            bbt=[np.dot(b, b.T) for b in meg],
-            bE=[np.dot(b, E) for b, E in zip(meg, self.covariates)],
-            EtE=[np.dot(E.T, E) for E in self.covariates],
+            is_whitened=True,
         )
 
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
 
-        If this dataset :attr:`is_whitened`, the quadratic forms are recomputed
-        for the slice so the returned dataset is also whitened.
+        If this dataset :attr:`is_whitened`, the returned dataset is also
+        marked as whitened and quadratic forms are recomputed lazily.
 
         Parameters
         ----------
@@ -624,22 +607,15 @@ class RegressionData:
         mul = self.norm_factor / norm_factor
         meg = [m[:, idx] * mul for m in self.meg]
         covariates = [c[idx, :] * mul for c in self.covariates]
-        if self.is_whitened:
-            bbt = [np.dot(b, b.T) for b in meg]
-            bE = [np.dot(b, E) for b, E in zip(meg, covariates)]
-            EtE = [np.dot(E.T, E) for E in covariates]
-        else:
-            bbt = bE = EtE = None
         return RegressionData(
             meg, covariates, norm_factor,
-            basis=self.basis, filter_length=self.filter_length,
+            basis=self.basis,
             tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
             stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
             stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
             stim_normalization=self.stim_normalization,
             gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
-            n_predictor_variables=self.n_predictor_variables,
-            bbt=bbt, bE=bE, EtE=EtE,
+            is_whitened=self.is_whitened,
         )
 
 
