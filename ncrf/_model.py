@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 import copy
 import collections
+from dataclasses import dataclass
 from functools import cached_property
 from math import sqrt, log10
 from multiprocessing import current_process
@@ -260,11 +261,11 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
     return
 
 
+@dataclass(eq=False, repr=False)
 class RegressionData:
     """Prepared dataset for NCRF fitting.
 
-    Constructor parameters are stored as same-named instance attributes.
-    Use :meth:`from_data` to construct from raw MEG and stimulus
+    Use :meth:`from_data` to construct a dataset from raw MEG and stimulus
     :class:`~eelbrain.NDVar` objects.
 
     Parameters
@@ -314,43 +315,26 @@ class RegressionData:
         Whether ``meg`` has already been transformed by a whitening filter.
     """
 
-    def __init__(
-            self,
-            meg: list[FloatArray],  # (sensor, time)
-            covariates: list[FloatArray],  # (time, covariate)
-            norm_factor: float,
-            basis: list[FloatArray],  # (filter_time, covariate)
-            tstart: list[float],
-            tstep: float,
-            tstop: list[float],
-            stim_is_single: bool,
-            stim_dims: list[Dimension | None],
-            stim_names: list[str],
-            baseline: Sequence[NDVar | float] | None,
-            scaling: Sequence[NDVar | float] | None,
-            stim_normalization: list[list[float]],  # (segment, expanded covariate)
-            gaussian_fwhm: float,
-            sensor_dim: Sensor,
-            is_whitened: bool = False,
-    ) -> None:
-        if len({m.shape[1] for m in meg}) > 1:
-            raise NotImplementedError(f"Segments with unequal trial length")
-        self.meg = meg
-        self.covariates = covariates
-        self.norm_factor = norm_factor
-        self.basis = basis
-        self.tstart = tstart
-        self.tstep = tstep
-        self.tstop = tstop
-        self.stim_is_single = stim_is_single
-        self.stim_dims = stim_dims
-        self.stim_names = stim_names
-        self.baseline = baseline
-        self.scaling = scaling
-        self.stim_normalization = stim_normalization
-        self.gaussian_fwhm = gaussian_fwhm
-        self.sensor_dim = sensor_dim
-        self.is_whitened = is_whitened
+    meg: list[FloatArray]  # (sensor, time)
+    covariates: list[FloatArray]  # (time, covariate)
+    norm_factor: float
+    basis: list[FloatArray]  # (filter_time, covariate)
+    tstart: list[float]
+    tstep: float
+    tstop: list[float]
+    stim_is_single: bool
+    stim_dims: list[Dimension | None]
+    stim_names: list[str]
+    baseline: Sequence[NDVar | float] | None
+    scaling: Sequence[NDVar | float] | None
+    stim_normalization: list[list[float]]  # (segment, expanded covariate)
+    gaussian_fwhm: float
+    sensor_dim: Sensor
+    is_whitened: bool = False
+
+    def __post_init__(self) -> None:
+        if len({m.shape[1] for m in self.meg}) > 1:
+            raise NotImplementedError("Segments with unequal trial length")
 
     @classmethod
     def from_data(
