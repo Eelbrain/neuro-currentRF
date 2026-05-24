@@ -333,7 +333,6 @@ class RegressionData:
             meg: list[FloatArray],
             covariates: list[FloatArray],
             norm_factor: float,
-            *,
             basis: list[FloatArray],
             filter_length: npt.NDArray[np.intp],
             tstart: list[float],
@@ -689,13 +688,12 @@ class NCRF:
     -----
     Usage:
 
-    1. Initialize :class:`RegressionData` instance with desired properties
-    2. Call :meth:`RegressionData.add_data` once for each contiguous
-       segment of MEG data
-    3. Initialize :class:`NCRF` instance with desired properties
-    4. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
+    1. Use :meth:`RegressionData.from_data` to construct a prepared dataset
+       from MEG and stimulus segments.
+    2. Initialize :class:`NCRF` with the lead field and noise covariance.
+    3. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
        estimate the cortical TRFs.
-    5. Access the cortical TRFs in the ``NCRF.h`` attribute.
+    4. Access the cortical TRFs in the ``NCRF.h`` attribute.
     """
     _name = 'cTRFs estimator'
     _cv_results = None
