@@ -316,10 +316,10 @@ class RegressionData:
 
     def __init__(
             self,
-            meg: list[FloatArray],
-            covariates: list[FloatArray],
+            meg: list[FloatArray],  # (sensor, time)
+            covariates: list[FloatArray],  # (time, covariate)
             norm_factor: float,
-            basis: list[FloatArray],
+            basis: list[FloatArray],  # (filter_time, covariate)
             tstart: list[float],
             tstep: float,
             tstop: list[float],
@@ -328,11 +328,13 @@ class RegressionData:
             stim_names: list[str],
             baseline: Sequence[NDVar | float] | None,
             scaling: Sequence[NDVar | float] | None,
-            stim_normalization: list[list[float]],
+            stim_normalization: list[list[float]],  # (segment, expanded covariate)
             gaussian_fwhm: float,
             sensor_dim: Sensor,
             is_whitened: bool = False,
     ) -> None:
+        if len({m.shape[1] for m in meg}) > 1:
+            raise NotImplementedError(f"Segments with unequal trial length")
         self.meg = meg
         self.covariates = covariates
         self.norm_factor = norm_factor
@@ -415,11 +417,13 @@ class RegressionData:
         tstep = None
         basis = None
         filter_length = None
+        trim = None
         start_samples = None  # in-samples offsets, local to from_data
 
         meg_arrays: list[FloatArray] = []
         covariate_arrays: list[FloatArray] = []
         s_normalization = []
+        trial_length = None
         norm_factor = None
 
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
@@ -440,6 +444,10 @@ class RegressionData:
                 tstep = meg_time.tstep
             elif meg_time.tstep != tstep:
                 raise ValueError(f"{meg=}: segment {i_segment} time-step incompatible with first segment")
+            if trial_length is None:
+                trial_length = len(meg_time)
+            elif len(meg_time) != trial_length:
+                raise NotImplementedError(f"{meg=}: unequal trial length")
 
             # Determine stim feature dims for this segment
             cur_stim_dims = []
@@ -467,6 +475,8 @@ class RegressionData:
                 start_samples = [int(round(ts / tstep)) for ts in tstart]
                 stop_samples = [int(round(te / tstep)) for te in tstop]
                 filter_length = np.subtract(stop_samples, start_samples) + 1
+                trim = max(filter_length) - 1
+                norm_factor = sqrt(trial_length - trim)
                 basis = []
                 for ts, te, fl in zip(tstart, tstop, filter_length):
                     x = np.linspace(int(round(1000 * ts)), int(round(1000 * te)), fl)
@@ -487,17 +497,14 @@ class RegressionData:
                     s /= sc
 
             # Extract and normalize MEG array
-            m_max = max(b.shape[0] for b in basis)
             y = m.get_data(('sensor', 'time'))
-            y_ = y[:, m_max - 1:].astype(np.float64, copy=False)
+            y_ = y[:, trim:].astype(np.float64, copy=False)
             y = y_ if (in_place or y_.base is None) else y_.copy()
             flat = np.var(y, axis=1) == 0
             if flat.any():
                 raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
-            y /= sqrt(y.shape[1])
+            y /= norm_factor
             meg_arrays.append(y)
-            if norm_factor is None:
-                norm_factor = sqrt(y.shape[1])
 
             # Build basis-projected covariate matrix
             stim_lens = [len(d) if d else 1 for d in stim_dims]
