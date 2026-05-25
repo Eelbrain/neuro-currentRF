@@ -39,12 +39,12 @@ def test_ncrf():
     assert_dataobj_equal(model_2.h, model.h)
     assert_dataobj_equal(model_2.h_scaled, model.h_scaled)
     np.testing.assert_equal(model_2.residual, model.residual)
-    np.testing.assert_equal(model_2.gaussian_fwhm, model.gaussian_fwhm)
+    np.testing.assert_equal(model_2.basis_std, model.basis_std)
 
-    # test gaussian fwhm
+    # test Gaussian basis standard deviation
     model = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=1, n_iterc=1,
-                     n_iterf=1, gaussian_fwhm=50.0)
-    assert model.gaussian_fwhm == 50.0
+                     n_iterf=1, basis_std=0.050)
+    assert model.basis_std == 0.050
 
     # 2 stimuli, one of them 2-d, normalize='l2'
     diff = stim.diff('time')

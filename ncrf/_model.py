@@ -48,7 +48,7 @@ MusArg = Sequence[float] | Literal["auto"] | None
 def gaussian_basis(
         nlevel: int,
         span: npt.ArrayLike,
-        stds: float = 8.5,
+        basis_std: float = 0.0085,
 ) -> FloatArray:
     """Construct Gabor basis for the TRFs.
 
@@ -57,24 +57,26 @@ def gaussian_basis(
     nlevel
         number of atoms
     span
-        One-dimensional sample locations covered by the basis functions.
-    stds
+        One-dimensional sample locations covered by the basis functions,
+        shape ``(n_lags,)``.
+    basis_std
         Standard deviation of each Gaussian atom, expressed in the same units
         as ``span``.
 
     Returns
     -------
     ndarray
-        Array whose columns contain the basis atoms.
+        Array whose columns contain the basis atoms. Shape ``(n_lags, n_basis)``, with
+        ``n_basis = nlevel - 1``.
     """
     logger = logging.getLogger(__name__)
     x = np.asarray(span, dtype=np.float64)
     means = np.linspace(x[0] + x[-1] / nlevel, x[-1] * (1 - 1 / nlevel), num=nlevel - 1)
-    logger.info(f'Using gaussian std = {stds}')
+    logger.info(f'Using gaussian std = {basis_std}')
     W = []
 
     for mean in means:
-        W.append(np.exp(-(x - mean) ** 2 / (2 * stds ** 2)))
+        W.append(np.exp(-(x - mean) ** 2 / (2 * basis_std ** 2)))
 
     W = np.array(W)
 
@@ -307,8 +309,8 @@ class RegressionData:
     stim_normalization
         Spectral norms of each predictor block before post-normalization,
         one inner list per segment.
-    gaussian_fwhm
-        Full width at half maximum of the Gaussian basis functions in ms.
+    basis_std
+        Standard deviation of the Gaussian basis functions in seconds.
     sensor_dim
         Sensor dimension shared by all MEG segments.
     is_whitened
@@ -328,7 +330,7 @@ class RegressionData:
     baseline: Sequence[NDVar | float] | None
     scaling: Sequence[NDVar | float] | None
     stim_normalization: list[list[float]]  # (segment, expanded covariate)
-    gaussian_fwhm: float
+    basis_std: float
     sensor_dim: Sensor
     is_whitened: bool = False
 
@@ -343,11 +345,11 @@ class RegressionData:
             stim: list[Sequence[NDVar]],
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
-            nlevel: int,
-            baseline: Sequence[NDVar | float] | None,
-            scaling: Sequence[NDVar | float] | None,
+            nlevel: int = 1,
+            baseline: Sequence[NDVar | float] | None = None,
+            scaling: Sequence[NDVar | float] | None = None,
             stim_is_single: bool = False,
-            gaussian_fwhm: float = 20.0,
+            basis_std: float = 0.0085,
             in_place: bool = False,
             post_normalize: bool = True,
     ) -> RegressionData:
@@ -377,8 +379,8 @@ class RegressionData:
             Per-predictor scaling factors applied after baseline subtraction.
         stim_is_single
             Whether the original stimulus input was a single predictor per segment.
-        gaussian_fwhm
-            Full width at half maximum of the Gaussian basis functions, in ms.
+        basis_std
+            Standard deviation of the Gaussian basis functions in seconds.
         in_place
             If ``False`` (default), copies of ``stim`` are made before applying
             baseline subtraction or scaling. Set to ``True`` to modify in place.
@@ -463,8 +465,8 @@ class RegressionData:
                 norm_factor = sqrt(trial_length - trim)
                 basis = []
                 for ts, te, fl in zip(tstart, tstop, filter_length):
-                    x = np.linspace(int(round(1000 * ts)), int(round(1000 * te)), fl)
-                    basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x))
+                    x = np.linspace(ts, te, fl)
+                    basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x, basis_std))
             elif cur_stim_dims != stim_dims:
                 raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
@@ -523,7 +525,7 @@ class RegressionData:
             tstart=tstart, tstep=tstep, tstop=tstop,
             stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=stim_names,
             baseline=baseline, scaling=scaling,
-            stim_normalization=s_normalization, gaussian_fwhm=gaussian_fwhm,
+            stim_normalization=s_normalization, basis_std=basis_std,
             sensor_dim=sensor_dim,
         )
 
@@ -579,7 +581,7 @@ class RegressionData:
             stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
             stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
             stim_normalization=self.stim_normalization,
-            gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
+            basis_std=self.basis_std, sensor_dim=self.sensor_dim,
             is_whitened=True,
         )
 
@@ -605,7 +607,7 @@ class RegressionData:
             stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
             stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
             stim_normalization=self.stim_normalization,
-            gaussian_fwhm=self.gaussian_fwhm, sensor_dim=self.sensor_dim,
+            basis_std=self.basis_std, sensor_dim=self.sensor_dim,
             is_whitened=self.is_whitened,
         )
 
@@ -681,7 +683,7 @@ class NCRF:
     residual = None
     mu = None
     theta = None
-    gaussian_fwhm = None
+    basis_std = None
 
     def __init__(
             self,
@@ -720,7 +722,7 @@ class NCRF:
         obj = type(self).__new__(self.__class__)
         copy_keys = ['lead_field', '_whitened_lead_field', 'lead_field_scaling', 'source', 'space', 'sensor',
                      '_whitening_filter', 'noise_covariance', '_whitened_noise_covariance',
-                     'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'gaussian_fwhm']
+                     'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'basis_std']
         for key in copy_keys:
             obj.__dict__.update({key: self.__dict__.get(key, None)})
         return obj
@@ -733,7 +735,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'gaussian_fwhm', '_stim_normalization',
+        'basis_std', '_stim_normalization',
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -773,8 +775,9 @@ class NCRF:
                         for columns in items.T:
                             _cv_results.append(CVResult(*columns[[0, 1, 4, 2, 3]]))
                 setattr(self, '_cv_results', _cv_results)
-        if self.gaussian_fwhm is None:
-            self.gaussian_fwhm = 20.0  # the default value
+        if self.basis_std is None:
+            # Old bug: basis was always computed using std = 85 ms
+            self.basis_std = 0.0085
 
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.
@@ -1109,7 +1112,7 @@ class NCRF:
         self.tstart = data.tstart
         self.tstep = data.tstep
         self.tstop = data.tstop
-        self.gaussian_fwhm = data.gaussian_fwhm
+        self.basis_std = data.basis_std
 
     def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
         """Build the smooth objective and gradient passed to FASTA.
