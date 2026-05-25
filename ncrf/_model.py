@@ -46,22 +46,22 @@ MusArg = Sequence[float] | Literal["auto"] | None
 
 
 def gaussian_basis(
-        nlevel: int,
-        span: npt.ArrayLike,
+        n_atoms: int,
+        lags: npt.ArrayLike,
         basis_std: float = 0.0085,
 ) -> FloatArray:
     """Construct Gabor basis for the TRFs.
 
     Parameters
     ----------
-    nlevel
+    n_atoms
         number of atoms
-    span
-        One-dimensional sample locations covered by the basis functions,
+    lags
+        One-dimensional lag times covered by the basis functions,
         shape ``(n_lags,)``.
     basis_std
         Standard deviation of each Gaussian atom, expressed in the same units
-        as ``span``.
+        as ``lags``.
 
     Returns
     -------
@@ -70,17 +70,14 @@ def gaussian_basis(
         ``n_basis = nlevel - 1``.
     """
     logger = logging.getLogger(__name__)
-    x = np.asarray(span, dtype=np.float64)
-    means = np.linspace(x[0] + x[-1] / nlevel, x[-1] * (1 - 1 / nlevel), num=nlevel - 1)
-    logger.info(f'Using gaussian std = {basis_std}')
-    W = []
-
-    for mean in means:
-        W.append(np.exp(-(x - mean) ** 2 / (2 * basis_std ** 2)))
-
-    W = np.array(W)
-
-    return W.T / np.max(W)
+    logger.info(f'Using gaussian basis with {basis_std=}')
+    lags = np.asarray(lags, dtype=np.float64)
+    lag_start = lags[0]
+    lag_stop = lags[-1]
+    lag_step = (lag_stop - lag_start) / n_atoms
+    centers = np.linspace(lag_start + lag_step, lag_stop - lag_step, num=n_atoms - 1)
+    basis = np.exp(-((lags[:, None] - centers[None, :]) ** 2) / (2 * basis_std ** 2))
+    return basis / basis.max()
 
 
 def g(x: FloatArray, mu: float) -> float:

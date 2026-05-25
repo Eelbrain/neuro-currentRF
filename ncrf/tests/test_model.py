@@ -4,10 +4,18 @@
 # License: BSD (3-clause)
 import numpy as np
 
-from ncrf._model import covariate_from_stim
+from ncrf._model import covariate_from_stim, gaussian_basis
 from .fetch import load
 
 from eelbrain import Categorial, concatenate
+
+
+def test_gaussian_basis():
+    basis = gaussian_basis(5, np.linspace(0, 1, 11), 0.1)
+    shifted_basis = gaussian_basis(5, np.linspace(10, 11, 11), 0.1)
+
+    assert basis.shape == (11, 4)
+    np.testing.assert_allclose(basis, shifted_basis)
 
 
 def test_covariate_from_stim():
