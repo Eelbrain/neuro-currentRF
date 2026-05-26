@@ -6,7 +6,6 @@ import pickle
 
 from eelbrain import set_time, set_tmin
 import numpy as np
-import pytest
 
 from ncrf import fit_ncrf
 from ncrf.tests.fetch import load
@@ -85,10 +84,6 @@ def test_ncrf():
     assert_dataobj_equal(model_no_mp.h, model.h)
 
 
-@pytest.mark.xfail(
-    reason="fit_ncrf currently includes padded edge rows for shifted non-zero lags",
-    strict=True,
-)
 def test_ncrf_shifted_nonzero_lags():
     meg = load('meg').sub(case=0)
     stim = load('stim').sub(case=0)

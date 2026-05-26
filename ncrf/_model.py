@@ -402,6 +402,7 @@ class RegressionData:
         filter_length = None
         trim = None
         start_samples = None  # in-samples offsets, local to from_data
+        row_slice = None
 
         meg_arrays: list[FloatArray] = []
         covariate_arrays: list[FloatArray] = []
@@ -458,12 +459,19 @@ class RegressionData:
                 start_samples = [int(round(ts / tstep)) for ts in tstart]
                 stop_samples = [int(round(te / tstep)) for te in tstop]
                 filter_length = np.subtract(stop_samples, start_samples) + 1
+                # ``trim`` matches covariate_from_stim(): it drops the leading
+                # MEG rows that cannot have a complete filter-length history.
                 trim = max(filter_length) - 1
-                norm_factor = sqrt(trial_length - trim)
                 basis = []
                 for ts, te, fl in zip(tstart, tstop, filter_length):
                     x = np.linspace(ts, te, fl)
                     basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x, basis_std))
+                # ``row_slice`` removes rows introduced by rolling non-zero
+                # starts; those edge rows are padding, not observations.
+                drop_start = max(0, *start_samples)
+                drop_stop = max(0, *(-s for s in start_samples))
+                if drop_start or drop_stop:
+                    row_slice = slice(drop_start, -drop_stop if drop_stop else None)
             elif cur_stim_dims != stim_dims:
                 raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
@@ -483,17 +491,25 @@ class RegressionData:
             y = m.get_data(('sensor', 'time'))
             y_ = y[:, trim:].astype(np.float64, copy=False)
             y = y_ if (in_place or y_.base is None) else y_.copy()
-            flat = np.var(y, axis=1) == 0
-            if flat.any():
-                raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
-            y /= norm_factor
-            meg_arrays.append(y)
 
             # Build basis-projected covariate matrix
             stim_lens = [len(d) if d else 1 for d in stim_dims]
             fl_rep = np.repeat(np.asanyarray(filter_length), stim_lens)
             st_rep = np.repeat(np.asanyarray(start_samples), stim_lens)
             raw_covs = covariate_from_stim(ss, fl_rep, st_rep)
+
+            if row_slice is not None:
+                y = y[:, row_slice]
+                raw_covs = [x[row_slice] for x in raw_covs]
+            if not y.shape[1]:
+                raise ValueError(f"{meg=}: no samples remain after applying lag edge trimming")
+            flat = np.var(y, axis=1) == 0
+            if flat.any():
+                raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
+            norm_factor = sqrt(y.shape[1])
+            y /= norm_factor
+            meg_arrays.append(y)
+
             i = 0
             covariates = []
             for d, b in zip(stim_dims, basis):
