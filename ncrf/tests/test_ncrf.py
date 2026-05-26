@@ -64,15 +64,15 @@ def test_ncrf():
                      n_iterc=3, n_iterf=10, do_post_normalization=False)
 
     # check residual and explained var
-    np.testing.assert_allclose(model.explained_var, 0.02148945636352262, rtol=0.001)
-    np.testing.assert_allclose(model.residual, 176.953, rtol=0.001)
+    np.testing.assert_allclose(model.explained_var, 0.021442823238037034, rtol=0.001)
+    np.testing.assert_allclose(model.residual, 177.15021740565106, rtol=0.001)
     # check start and stop
     np.testing.assert_equal(model.tstart, tstart)
     np.testing.assert_equal(model.tstop, tstop)
     # check scaling
     np.testing.assert_equal(model._stim_baseline[0], stim.mean())
     np.testing.assert_equal(model._stim_scaling[0], stim.std())
-    np.testing.assert_allclose(model.h[0].norm('time').norm('source').norm('space'), 5.9598e-10, rtol=0.001)
+    np.testing.assert_allclose(model.h[0].norm('time').norm('source').norm('space'), 6.6065539e-10, rtol=0.001)
 
     # cross-validation
     model = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, do_post_normalization=False)
@@ -109,20 +109,18 @@ def test_ncrf_shifted_nonzero_lags():
     stim_positive = set_tmin(stim.sub(time=(segment_start, segment_stop + shift)), 0)
     meg_positive = set_time(set_tmin(meg, shift - segment_start), stim_positive)
 
-    # Negative lag fit: include ``shift`` extra predictor samples at the start.
-    # After dropping the last ``shift`` invalid design rows, this again uses the
-    # same predictor and MEG samples as the baseline fit.
-    stim_negative = set_tmin(stim.sub(time=(segment_start - shift, segment_stop)), 0)
-    meg_negative = set_time(set_tmin(meg, -segment_start), stim_negative)
+    # Negative lag fit: keep the predictor window fixed and shift the MEG labels.
+    # After dropping the last ``shift`` invalid design rows, the remaining rows
+    # use the same predictor and MEG samples as the baseline fit.
+    meg_negative = set_time(set_tmin(meg, -shift - segment_start), stim_segment)
 
     # Guard the test setup itself: all three fits should differ only in the
     # time labels/lag windows, not in the effective numeric samples.
     lag_samples = int(round(lag_stop / tstep))
     shift_samples = int(round(shift / tstep))
     np.testing.assert_array_equal(stim_positive.x[:-shift_samples], stim_segment.x)
-    np.testing.assert_array_equal(stim_negative.x[shift_samples:], stim_segment.x)
     np.testing.assert_array_equal(meg_positive.x[:, lag_samples + shift_samples:], meg_0.x[:, lag_samples:])
-    np.testing.assert_array_equal(meg_negative.x[:, lag_samples:-shift_samples], meg_0.x[:, lag_samples:])
+    np.testing.assert_array_equal(meg_negative.x[:, shift_samples:-shift_samples], meg_0.x[:, lag_samples:])
 
     fit_kwargs = dict(
         mu=0.001,
@@ -141,7 +139,7 @@ def test_ncrf_shifted_nonzero_lags():
         tstop=lag_stop + shift, **fit_kwargs,
     )
     model_negative = fit_ncrf(
-        meg_negative, stim_negative, fwd, emptyroom, tstart=-shift,
+        meg_negative, stim_segment, fwd, emptyroom, tstart=-shift,
         tstop=lag_stop - shift, **fit_kwargs,
     )
 

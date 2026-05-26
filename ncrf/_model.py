@@ -145,7 +145,9 @@ def covariate_from_stim(
     Returns
     -------
     list
-        Covariate matrices, one per expanded predictor channel.
+        Covariate matrices, one per expanded predictor channel. Each matrix has
+        one row per stimulus time sample; rows with incomplete stimulus history are
+        zero-padded.
     """
     ws = []
     for stim in stims:
@@ -158,14 +160,15 @@ def covariate_from_stim(
     ws = ws[0] if len(ws) == 1 else np.concatenate(ws, 0)
     assert len(ws) == len(Ms) == len(starts), f"Length of w ({len(ws)}), Ms ({len(Ms)}), and start ({len(starts)}) should be equal"
 
-    length = ws.shape[1]
+    n_times = ws.shape[1]
     Y = []
-    M_max = max(Ms)
     for w, start, M in zip(ws, starts, Ms):
-        X = np.array(
-            [w[i + M:i:-1] if i > -1 else w[i + M::-1]
-             for i in range(M_max - M - 1, length - M)]
-        )
+        X = np.zeros((n_times, M), dtype=w.dtype)
+        for i in range(n_times):
+            stop = i + 1
+            start_i = max(0, stop - M)
+            n = stop - start_i
+            X[i, :n] = w[start_i:stop][::-1]
         if start != 0:
             # -ve tstart -> shift covariate matrix left
             # +ve tstart -> shift covariate matrix right
@@ -349,6 +352,7 @@ class RegressionData:
             basis_std: float = 0.0085,
             in_place: bool = False,
             post_normalize: bool = True,
+            pad_stim: bool = False,
     ) -> RegressionData:
         """Construct a dataset from MEG and stimulus NDVars.
 
@@ -384,6 +388,10 @@ class RegressionData:
         post_normalize
             If ``True`` (default), equalize covariate scales across predictor
             blocks by dividing each block by its average spectral norm.
+        pad_stim
+            If ``False`` (default), keep only rows whose full lag window is inside
+            the stimulus time axis. If ``True``, retain edge rows with zero-padded
+            covariates.
         """
         if not meg:
             raise ValueError("meg is empty")
@@ -400,9 +408,8 @@ class RegressionData:
         tstep = None
         basis = None
         filter_length = None
-        trim = None
-        start_samples = None  # in-samples offsets, local to from_data
         row_slice = None
+        start_samples = None  # in-samples offsets, local to from_data
 
         meg_arrays: list[FloatArray] = []
         covariate_arrays: list[FloatArray] = []
@@ -459,19 +466,18 @@ class RegressionData:
                 start_samples = [int(round(ts / tstep)) for ts in tstart]
                 stop_samples = [int(round(te / tstep)) for te in tstop]
                 filter_length = np.subtract(stop_samples, start_samples) + 1
-                # ``trim`` matches covariate_from_stim(): it drops the leading
-                # MEG rows that cannot have a complete filter-length history.
-                trim = max(filter_length) - 1
                 basis = []
                 for ts, te, fl in zip(tstart, tstop, filter_length):
                     x = np.linspace(ts, te, fl)
                     basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x, basis_std))
-                # ``row_slice`` removes rows introduced by rolling non-zero
-                # starts; those edge rows are padding, not observations.
-                drop_start = max(0, *start_samples)
-                drop_stop = max(0, *(-s for s in start_samples))
-                if drop_start or drop_stop:
-                    row_slice = slice(drop_start, -drop_stop if drop_stop else None)
+                if not pad_stim:
+                    # covariate_from_stim() fills the full MEG axis with
+                    # zero-padded lag histories. ``row_slice`` keeps only samples
+                    # whose complete lag window lies inside the stimulus.
+                    drop_start = max(0, *stop_samples)
+                    drop_stop = max(0, *(-s for s in start_samples))
+                    if drop_start or drop_stop:
+                        row_slice = slice(drop_start, -drop_stop if drop_stop else None)
             elif cur_stim_dims != stim_dims:
                 raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
@@ -489,7 +495,7 @@ class RegressionData:
 
             # Extract and normalize MEG array
             y = m.get_data(('sensor', 'time'))
-            y_ = y[:, trim:].astype(np.float64, copy=False)
+            y_ = y.astype(np.float64, copy=False)
             y = y_ if (in_place or y_.base is None) else y_.copy()
 
             # Build basis-projected covariate matrix
@@ -502,7 +508,7 @@ class RegressionData:
                 y = y[:, row_slice]
                 raw_covs = [x[row_slice] for x in raw_covs]
             if not y.shape[1]:
-                raise ValueError(f"{meg=}: no samples remain after applying lag edge trimming")
+                raise ValueError(f"{meg=}: no samples remain after applying lag-validity crop")
             flat = np.var(y, axis=1) == 0
             if flat.any():
                 raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")

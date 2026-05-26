@@ -45,5 +45,5 @@ def test_covariate_from_stim():
     filter_lengths = np.subtract(stop, start) + 1
     covariates_shift = covariate_from_stim([stim], filter_lengths, start)
 
-    np.testing.assert_array_equal(covariates[0].T[:, 0:100], covariates_shift[0].T[:, 20:120])  # Beginning
-    np.testing.assert_array_equal(covariates[0].T[:, -120:-20], covariates_shift[0].T[:, -100:])  # End
+    assert covariates[0].shape[0] == len(stim.get_dim('time'))
+    np.testing.assert_array_equal(covariates[0][:-20], covariates_shift[0][20:])
