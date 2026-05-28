@@ -41,7 +41,13 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**.ipynb_checkpoints"]
 
 # Sphinx will warn about all references where the target cannot be found.
 nitpicky = True
-nitpick_ignore = [("py:obj", "optional"), ("py:obj", "NCRF")]
+nitpick_ignore = [
+    ("py:obj", "optional"),
+    ("py:obj", "NCRF"),
+    # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
+    # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
+    ("py:class", "numpy.float64"),
+]
 
 # A list of ignored prefixes for module index sorting.
 modindex_common_prefix = [f"{package}."]
@@ -76,7 +82,7 @@ napoleon_google_docstring = False
 napoleon_include_init_with_doc = True
 napoleon_include_special_with_doc = False
 napoleon_use_param = True
-napoleon_use_ivar = True
+napoleon_use_ivar = False
 napoleon_use_keyword = True
 napoleon_use_rtype = True
 

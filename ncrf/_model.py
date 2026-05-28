@@ -19,8 +19,7 @@ from multiprocessing import current_process
 from operator import attrgetter
 from typing import Any, Callable, Iterator, Literal, Sequence
 
-from eelbrain import NDVar, Sensor, UTS, fmtxt
-from eelbrain._data_obj import Dimension
+from eelbrain import Categorial, NDVar, Scalar, Sensor, Space, UTS, fmtxt
 import numpy as np
 import numpy.typing as npt
 from scipy import linalg
@@ -43,6 +42,7 @@ ObjectiveFunction = Callable[[FloatArray], float]
 GradientFunction = Callable[[FloatArray], FloatArray]
 MuArg = float | Sequence[float] | Literal["auto"]
 MusArg = Sequence[float] | Literal["auto"] | None
+StimDimensions = Categorial | Scalar | Space
 
 
 def gaussian_basis(
@@ -295,9 +295,7 @@ class RegressionData:
         predictor per segment rather than a list; controls whether
         :attr:`NCRF.h` returns a bare NDVar or a list.
     stim_dims
-        Feature dimension for each predictor: ``None`` for scalar
-        predictors, an eelbrain :class:`~eelbrain._data_obj.Dimension`
-        for multi-feature predictors.
+        Feature dimension for each predictor (``None`` for scalar predictors).
     stim_names
         Name of each predictor variable.
     baseline
@@ -325,7 +323,7 @@ class RegressionData:
     tstep: float
     tstop: list[float]
     stim_is_single: bool
-    stim_dims: list[Dimension | None]
+    stim_dims: list[StimDimensions | None]
     stim_names: list[str]
     baseline: Sequence[NDVar | float] | None
     scaling: Sequence[NDVar | float] | None
@@ -578,7 +576,7 @@ class RegressionData:
         Parameters
         ----------
         whitening_filter
-            Whitening matrix, typically :attr:`NCRF._whitening_filter`.
+            Whitening matrix.
 
         Notes
         -----
@@ -607,7 +605,7 @@ class RegressionData:
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
 
-        If this dataset :attr:`is_whitened`, the returned dataset is also
+        If this dataset ``.is_whitened``, the returned dataset is also
         marked as whitened and quadratic forms are recomputed lazily.
 
         Parameters
@@ -654,6 +652,8 @@ class NCRF:
     h
         The neuro-current response function. It is one NDVar when fitting a single
         predictor and a sequence of NDVars when fitting multiple predictors.
+    h_scaled
+        ``h`` with the original stimulus scaling restored.
     explained_var
         Fraction of total variance explained by the fitted NCRFs.
     voxelwise_explained_variance
@@ -664,9 +664,19 @@ class NCRF:
         Data covariance estimates under the model.
     theta
         NCRF coefficients over the Gabor basis.
+    mu
+        Regularization parameter used for the fitted model.
     residual
         The fit error, i.e. the result of the ``eval_obj`` error function on the
         final fit.
+    tstart
+        TRF start time in seconds, one value per predictor.
+    tstep
+        Sample spacing in seconds.
+    tstop
+        TRF stop time in seconds, one value per predictor.
+    basis_std
+        Standard deviation of the Gaussian basis functions in seconds.
     stim_baseline
         Mean that was subtracted from ``stim``.
     stim_scaling
