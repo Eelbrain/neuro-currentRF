@@ -12,13 +12,14 @@ from __future__ import annotations
 import time
 import copy
 import collections
+from dataclasses import dataclass
 from functools import cached_property
 from math import sqrt, log10
 from multiprocessing import current_process
 from operator import attrgetter
 from typing import Any, Callable, Iterator, Literal, Sequence
 
-from eelbrain import NDVar, UTS, fmtxt
+from eelbrain import Categorial, NDVar, Scalar, Sensor, Space, UTS, fmtxt
 import numpy as np
 import numpy.typing as npt
 from scipy import linalg
@@ -41,42 +42,42 @@ ObjectiveFunction = Callable[[FloatArray], float]
 GradientFunction = Callable[[FloatArray], FloatArray]
 MuArg = float | Sequence[float] | Literal["auto"]
 MusArg = Sequence[float] | Literal["auto"] | None
+StimDimensions = Categorial | Scalar | Space
 
 
 def gaussian_basis(
-        nlevel: int,
-        span: npt.ArrayLike,
-        stds: float = 8.5,
+        n_atoms: int,
+        lags: npt.ArrayLike,
+        basis_std: float = 0.0085,
 ) -> FloatArray:
     """Construct Gabor basis for the TRFs.
 
     Parameters
     ----------
-    nlevel
+    n_atoms
         number of atoms
-    span
-        One-dimensional sample locations covered by the basis functions.
-    stds
+    lags
+        One-dimensional lag times covered by the basis functions,
+        shape ``(n_lags,)``.
+    basis_std
         Standard deviation of each Gaussian atom, expressed in the same units
-        as ``span``.
+        as ``lags``.
 
     Returns
     -------
     ndarray
-        Array whose columns contain the basis atoms.
+        Array whose columns contain the basis atoms. Shape ``(n_lags, n_basis)``, with
+        ``n_basis = nlevel - 1``.
     """
     logger = logging.getLogger(__name__)
-    x = np.asarray(span, dtype=np.float64)
-    means = np.linspace(x[0] + x[-1] / nlevel, x[-1] * (1 - 1 / nlevel), num=nlevel - 1)
-    logger.info(f'Using gaussian std = {stds}')
-    W = []
-
-    for mean in means:
-        W.append(np.exp(-(x - mean) ** 2 / (2 * stds ** 2)))
-
-    W = np.array(W)
-
-    return W.T / np.max(W)
+    logger.info(f'Using gaussian basis with {basis_std=}')
+    lags = np.asarray(lags, dtype=np.float64)
+    lag_start = lags[0]
+    lag_stop = lags[-1]
+    lag_step = (lag_stop - lag_start) / n_atoms
+    centers = np.linspace(lag_start + lag_step, lag_stop - lag_step, num=n_atoms - 1)
+    basis = np.exp(-((lags[:, None] - centers[None, :]) ** 2) / (2 * basis_std ** 2))
+    return basis / basis.max()
 
 
 def g(x: FloatArray, mu: float) -> float:
@@ -144,7 +145,9 @@ def covariate_from_stim(
     Returns
     -------
     list
-        Covariate matrices, one per expanded predictor channel.
+        Covariate matrices, one per expanded predictor channel. Each matrix has
+        one row per stimulus time sample; rows with incomplete stimulus history are
+        zero-padded.
     """
     ws = []
     for stim in stims:
@@ -157,14 +160,15 @@ def covariate_from_stim(
     ws = ws[0] if len(ws) == 1 else np.concatenate(ws, 0)
     assert len(ws) == len(Ms) == len(starts), f"Length of w ({len(ws)}), Ms ({len(Ms)}), and start ({len(starts)}) should be equal"
 
-    length = ws.shape[1]
+    n_times = ws.shape[1]
     Y = []
-    M_max = max(Ms)
     for w, start, M in zip(ws, starts, Ms):
-        X = np.array(
-            [w[i + M:i:-1] if i > -1 else w[i + M::-1]
-             for i in range(M_max - M - 1, length - M)]
-        )
+        X = np.zeros((n_times, M), dtype=w.dtype)
+        for i in range(n_times):
+            stop = i + 1
+            start_i = max(0, stop - M)
+            n = stop - start_i
+            X[i, :n] = w[start_i:stop][::-1]
         if start != 0:
             # -ve tstart -> shift covariate matrix left
             # +ve tstart -> shift covariate matrix right
@@ -259,206 +263,288 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
     return
 
 
+@dataclass(eq=False, repr=False)
 class RegressionData:
-    """Prepared regression dataset for NCRF fitting.
+    """Prepared dataset for NCRF fitting.
+
+    Use :meth:`from_data` to construct a dataset from raw MEG and stimulus
+    :class:`~eelbrain.NDVar` objects.
 
     Parameters
     ----------
+    meg
+        MEG signal arrays, one per segment, each shaped
+        ``(n_sensors, n_times)``.
+    covariates
+        Basis-projected covariate matrices, one per segment, each shaped
+        ``(n_times, n_basis_cols)``.
+    norm_factor
+        ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
+        to rescale sub-segments consistently.
+    basis
+        Gaussian basis matrices, one per predictor variable, each shaped
+        ``(filter_length, n_basis)``.
     tstart
-        Start of the TRF in seconds. A scalar applies to all predictors; a sequence
-        specifies one start time per predictor.
+        TRF start time in seconds, one value per predictor.
+    tstep
+        Sample spacing in seconds, shared by all segments.
     tstop
-        Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
-        specifies one stop time per predictor.
-    nlevel
-        Decides the density of Gabor atoms. Bigger nlevel -> less dense basis.
-        By default, it is set to 1. ``nlevel > 2`` should be used with caution.
-    baseline
-        Per-predictor means to subtract from ``stim`` before covariate construction.
-    scaling
-        Per-predictor scaling factors applied after baseline subtraction.
+        TRF stop time in seconds, one value per predictor.
     stim_is_single
-        Records whether the original stimulus input was passed as a single predictor
-        per segment or as an explicit collection of predictors.
-    gaussian_fwhm
-        Full width at half maximum of the Gaussian basis functions, in milliseconds.
+        ``True`` when the original stimulus input contained a single
+        predictor per segment rather than a list; controls whether
+        :attr:`NCRF.h` returns a bare NDVar or a list.
+    stim_dims
+        Feature dimension for each predictor (``None`` for scalar predictors).
+    stim_names
+        Name of each predictor variable.
+    baseline
+        Per-predictor centering values subtracted before covariate
+        construction, or ``None`` if no centering was applied.
+    scaling
+        Per-predictor scale factors applied after centering, or ``None``
+        if no scaling was applied.
+    stim_normalization
+        Spectral norms of each predictor block before post-normalization,
+        one inner list per segment.
+    basis_std
+        Standard deviation of the Gaussian basis functions in seconds.
+    sensor_dim
+        Sensor dimension shared by all MEG segments.
+    is_whitened
+        Whether ``meg`` has already been transformed by a whitening filter.
     """
-    _n_predictor_variables = 1
-    _prewhitened = None
 
-    def __init__(
-            self,
+    meg: list[FloatArray]  # (sensor, time)
+    covariates: list[FloatArray]  # (time, covariate)
+    norm_factor: float
+    basis: list[FloatArray]  # (filter_time, covariate)
+    tstart: list[float]
+    tstep: float
+    tstop: list[float]
+    stim_is_single: bool
+    stim_dims: list[StimDimensions | None]
+    stim_names: list[str]
+    baseline: Sequence[NDVar | float] | None
+    scaling: Sequence[NDVar | float] | None
+    stim_normalization: list[list[float]]  # (segment, expanded covariate)
+    basis_std: float
+    sensor_dim: Sensor
+    is_whitened: bool = False
+
+    def __post_init__(self) -> None:
+        if len({m.shape[1] for m in self.meg}) > 1:
+            raise NotImplementedError("Segments with unequal trial length")
+
+    @classmethod
+    def from_data(
+            cls,
+            meg: list[NDVar],
+            stim: list[Sequence[NDVar]],
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
-            nlevel: int,
-            baseline: Sequence[NDVar | float] | None,
-            scaling: Sequence[NDVar | float] | None,
-            stim_is_single: bool,
-            gaussian_fwhm: float = 20.0,
-    ) -> None:
-        self.tstart = tstart if isinstance(tstart, collections.abc.Sequence) else [tstart]
-        self.tstop = tstop if isinstance(tstop, collections.abc.Sequence) else [tstop]
-        self.nlevel = nlevel
-        self.s_baseline = baseline
-        self.s_scaling = scaling
-        self.s_normalization = []
-        self.meg: list[np.ndarray] = []  # (sensor, time)
-        self.covariates = []
-        self.tstep = None
-        self.filter_length = None
-        self.basis = None
-        self._norm_factor = None
-        self._stim_is_single = stim_is_single
-        self._stim_dims = None
-        self._stim_names = None
-        self.sensor_dim = None
-        self.gaussian_fwhm = gaussian_fwhm
-
-    def add_data(
-            self,
-            meg: NDVar,
-            stim: Sequence[NDVar] | NDVar,
+            nlevel: int = 1,
+            baseline: Sequence[NDVar | float] | None = None,
+            scaling: Sequence[NDVar | float] | None = None,
+            stim_is_single: bool = False,
+            basis_std: float = 0.0085,
             in_place: bool = False,
-    ) -> None:
-        """Add sensor measurements and predictor variables for one trial.
-
-        Call this method repeatedly to add data for multiple trials/recordings.
+            post_normalize: bool = True,
+            pad_stim: bool = False,
+    ) -> RegressionData:
+        """Construct a dataset from MEG and stimulus NDVars.
 
         Parameters
         ----------
         meg
-            MEG measurements for one contiguous segment, with ``sensor`` and ``time``
-            dimensions.
+            MEG segments, each an NDVar with ``sensor`` and ``time`` dimensions.
         stim
-            One or more predictor variables whose ``time`` axis matches ``meg``.
-            Each predictor can be one-dimensional over time or carry one feature
+            Stimulus lists, one per segment; each inner list contains one NDVar per
+            predictor. Each predictor may be 1-D over time or carry one feature
             dimension before time.
+        tstart
+            Start of the TRF in seconds. A scalar applies to all predictors; a
+            sequence specifies one start time per predictor.
+        tstop
+            Stop of the TRF in seconds. A scalar applies to all predictors; a
+            sequence specifies one stop time per predictor.
+        nlevel
+            Density of Gabor basis atoms. Bigger → less dense. ``nlevel > 2``
+            should be used with caution.
+        baseline
+            Per-predictor means to subtract from ``stim`` before covariate
+            construction.
+        scaling
+            Per-predictor scaling factors applied after baseline subtraction.
+        stim_is_single
+            Whether the original stimulus input was a single predictor per segment.
+        basis_std
+            Standard deviation of the Gaussian basis functions in seconds.
         in_place
-            By default, ``meg`` and ``stim`` are copied to make them independent of the
-            objects supplied to the method. Set to ``True`` to skip the copy and
-            modify them in place, saving memory when working with large datasets.
+            If ``False`` (default), copies of ``stim`` are made before applying
+            baseline subtraction or scaling. Set to ``True`` to modify in place.
+        post_normalize
+            If ``True`` (default), equalize covariate scales across predictor
+            blocks by dividing each block by its average spectral norm.
+        pad_stim
+            If ``False`` (default), keep only rows whose full lag window is inside
+            the stimulus time axis. If ``True``, retain edge rows with zero-padded
+            covariates.
         """
-        if self.sensor_dim is None:
-            self.sensor_dim = meg.get_dim('sensor')
-        elif meg.get_dim('sensor') != self.sensor_dim:
-            raise NotImplementedError('combining data segments with different sensors is not supported')
+        if not meg:
+            raise ValueError("meg is empty")
+        elif len(meg) != len(stim):
+            raise ValueError("meg and stim have different lengths")
 
-        # check stim dimensions
-        meg_time: UTS = meg.get_dim('time')
-        stims = (stim,) if isinstance(stim, NDVar) else stim
-        stim_dims = []
-        for x in stims:
-            if x.get_dim('time') != meg_time:
-                raise ValueError(f"{stim=}: time axis incompatible with meg")
-            elif x.ndim == 1:
-                stim_dims.append(None)
-            elif x.ndim == 2:
-                dim, _ = x.get_dims((None, 'time'))
-                stim_dims.append(dim)
+        tstart = list(tstart) if isinstance(tstart, collections.abc.Sequence) else [tstart]
+        tstop = list(tstop) if isinstance(tstop, collections.abc.Sequence) else [tstop]
+
+        # State initialized from the first segment and compared to subsequent segments
+        sensor_dim = None
+        stim_dims = None
+        stim_names = None
+        tstep = None
+        basis = None
+        filter_length = None
+        row_slice = None
+        start_samples = None  # in-samples offsets, local to from_data
+
+        meg_arrays: list[FloatArray] = []
+        covariate_arrays: list[FloatArray] = []
+        s_normalization = []
+        trial_length = None
+        norm_factor = None
+
+        for i_segment, (m, ss) in enumerate(zip(meg, stim)):
+            if in_place:
+                ss = list(ss)
             else:
-                raise ValueError(f"{stim=}: stimulus with more than 2 dimensions")
+                ss = [s.copy() for s in ss]
 
-        # Initialize TRF lag range
-        if len(self.tstart) == 1:
-            self.tstart = self.tstart * len(stim_dims)
-        if len(self.tstop) == 1:
-            self.tstop = self.tstop * len(stim_dims)
-        assert len(self.tstart) == len(stim_dims)
-        assert len(self.tstop) == len(stim_dims)
+            # Sensor dim
+            if sensor_dim is None:
+                sensor_dim = m.get_dim('sensor')
+            elif m.get_dim('sensor') != sensor_dim:
+                raise ValueError(f'{meg=}: combining data segments with different sensor configurations is not supported')
 
-        # stim normalization
-        if not in_place:
-            stims = [s.copy() for s in stims]
+            # Time dim
+            meg_time: UTS = m.get_dim('time')
+            if tstep is None:
+                tstep = meg_time.tstep
+            elif meg_time.tstep != tstep:
+                raise ValueError(f"{meg=}: segment {i_segment} time-step incompatible with first segment")
+            if trial_length is None:
+                trial_length = len(meg_time)
+            elif len(meg_time) != trial_length:
+                raise NotImplementedError(f"{meg=}: unequal trial length")
 
-        if self.s_baseline is not None:
-            if len(self.s_baseline) != len(stims):
-                raise ValueError(f"{stim=}: incompatible with baseline={self.s_baseline!r}")
-            for s, m in zip(stims, self.s_baseline):
-                s -= m
-        if self.s_scaling is not None:
-            if len(self.s_scaling) != len(stims):
-                raise ValueError(f"{stim=}: incompatible with scaling={self.s_scaling!r}")
-            for s, scale in zip(stims, self.s_scaling):
-                s /= scale
+            # Determine stim feature dims for this segment
+            cur_stim_dims = []
+            for x in ss:
+                if x.get_dim('time') != meg_time:
+                    raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
+                elif x.ndim == 1:
+                    cur_stim_dims.append(None)
+                elif x.ndim == 2:
+                    dim, _ = x.get_dims((None, 'time'))
+                    cur_stim_dims.append(dim)
+                else:
+                    raise ValueError(f"Segment {i_segment} stim {x!r}: more than 2 dimensions")
 
-        if self.tstep is None:
-            # initialize time axis
-            self.tstep = meg_time.tstep
-            self.start = [int(round(tstart / self.tstep)) for tstart in self.tstart]
-            self.stop = [int(round(tstop / self.tstep)) for tstop in self.tstop]
-            self.filter_length = np.subtract(self.stop, self.start) + 1
-            # basis
-            self.basis = []
-            for tstart, tstop, filter_length in zip(self.tstart, self.tstop, self.filter_length):
-                x = np.linspace(int(round(1000 * tstart)), int(round(1000 * tstop)), filter_length)
-                self.basis.append(gaussian_basis(int(round((filter_length - 1) / self.nlevel)), x))
-            # stimuli
-            self._stim_dims = stim_dims
-            self._stim_names = [x.name for x in stims]
-        elif meg_time.tstep != self.tstep:
-            raise ValueError(f"{meg=}: incompatible time-step with previously added data")
-        else:
-            # check stimuli dimensions
-            if stim_dims != self._stim_dims:
-                raise ValueError(f"{stim=}: dimensions incompatible with previously added data")
+            if stim_dims is None:
+                # Initialize time/basis parameters from the first segment
+                stim_dims = cur_stim_dims
+                stim_names = [x.name for x in ss]
+                if len(tstart) == 1:
+                    tstart = tstart * len(stim_dims)
+                if len(tstop) == 1:
+                    tstop = tstop * len(stim_dims)
+                assert len(tstart) == len(stim_dims)
+                assert len(tstop) == len(stim_dims)
+                start_samples = [int(round(ts / tstep)) for ts in tstart]
+                stop_samples = [int(round(te / tstep)) for te in tstop]
+                filter_length = np.subtract(stop_samples, start_samples) + 1
+                basis = []
+                for ts, te, fl in zip(tstart, tstop, filter_length):
+                    x = np.linspace(ts, te, fl)
+                    basis.append(gaussian_basis(int(round((fl - 1) / nlevel)), x, basis_std))
+                if not pad_stim:
+                    # covariate_from_stim() fills the full MEG axis with
+                    # zero-padded lag histories. ``row_slice`` keeps only samples
+                    # whose complete lag window lies inside the stimulus.
+                    drop_start = max(0, *stop_samples)
+                    drop_stop = max(0, *(-s for s in start_samples))
+                    if drop_start or drop_stop:
+                        row_slice = slice(drop_start, -drop_stop if drop_stop else None)
+            elif cur_stim_dims != stim_dims:
+                raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
-        # add meg data
-        m = max([basis.shape[0] for basis in self.basis])
-        y = meg.get_data(('sensor', 'time'))
-        # Drop MEG samples for which we don't have a complete stimulus history
-        y_ = y[:, m - 1:].astype(np.float64, copy=False)
-        if in_place or y_.base is None:
-            y = y_
-        else:
-            y = y_.copy()
-        # Check for flat channels
-        ch_var = np.var(y, axis=1)
-        zero_var = ch_var == 0
-        if zero_var.any():
-            flat_channels = self.sensor_dim.names[zero_var]
-            raise ValueError(f"{meg=}: data contains flat channels ({', '.join(flat_channels)})")
-        y /= sqrt(y.shape[1])  # Mind the normalization
-        self.meg.append(y)
+            # Apply stim normalization
+            if baseline is not None:
+                if len(baseline) != len(ss):
+                    raise ValueError(f"baseline length {len(baseline)} != number of predictors {len(ss)}")
+                for s, b in zip(ss, baseline):
+                    s -= b
+            if scaling is not None:
+                if len(scaling) != len(ss):
+                    raise ValueError(f"scaling length {len(scaling)} != number of predictors {len(ss)}")
+                for s, sc in zip(ss, scaling):
+                    s /= sc
 
-        if self._norm_factor is None:
-            self._norm_factor = sqrt(y.shape[1])
+            # Extract and normalize MEG array
+            y = m.get_data(('sensor', 'time'))
+            y_ = y.astype(np.float64, copy=False)
+            y = y_ if (in_place or y_.base is None) else y_.copy()
 
-        # add corresponding covariate matrix
-        stim_lens = [len(dim) if dim else 1 for dim in stim_dims]
-        filter_lengths = np.repeat(np.asanyarray(self.filter_length), stim_lens)
-        start = np.repeat(np.asanyarray(self.start), stim_lens)
-        _covariates = covariate_from_stim(stims, filter_lengths, start)
-        i = 0
-        covariates = []
-        for dim, basis in zip(stim_dims, self.basis):
-            l = len(dim) if dim else 1
-            covariates.extend([np.dot(x, basis) / sqrt(y.shape[1]) for x in _covariates[i:i + l]])
-            # Mind the normalization
-            i += l
-        self._n_predictor_variables = len(covariates)
-        self.s_normalization.append([linalg.norm(x, 2) for x in covariates])
+            # Build basis-projected covariate matrix
+            stim_lens = [len(d) if d else 1 for d in stim_dims]
+            fl_rep = np.repeat(np.asanyarray(filter_length), stim_lens)
+            st_rep = np.repeat(np.asanyarray(start_samples), stim_lens)
+            raw_covs = covariate_from_stim(ss, fl_rep, st_rep)
 
-        x = np.concatenate(covariates, axis=1).astype(np.float64)
-        self.covariates.append(x)
+            if row_slice is not None:
+                y = y[:, row_slice]
+                raw_covs = [x[row_slice] for x in raw_covs]
+            if not y.shape[1]:
+                raise ValueError(f"{meg=}: no samples remain after applying lag-validity crop")
+            flat = np.var(y, axis=1) == 0
+            if flat.any():
+                raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
+            norm_factor = sqrt(y.shape[1])
+            y /= norm_factor
+            meg_arrays.append(y)
 
-    def _prewhiten(self, whitening_filter: FloatArray) -> None:
-        """Apply the model's whitening filter to all stored MEG segments."""
-        if self._prewhitened is None:
-            for i, (meg, _) in enumerate(self):
-                self.meg[i] = np.dot(whitening_filter, meg)
-            self._prewhitened = True
-        else:
-            pass
+            i = 0
+            covariates = []
+            for d, b in zip(stim_dims, basis):
+                l = len(d) if d else 1
+                covariates.extend([np.dot(x, b) / sqrt(y.shape[1]) for x in raw_covs[i:i + l]])
+                i += l
+            s_normalization.append([linalg.norm(x, 2) for x in covariates])
+            covariate_arrays.append(np.concatenate(covariates, axis=1).astype(np.float64))
 
-    def _precompute(self) -> None:
-        """Cache quadratic forms reused during repeated objective evaluation."""
-        self._bbt = []
-        self._bE = []
-        self._EtE = []
-        for b, E in self:
-            self._bbt.append(np.dot(b, b.T))
-            self._bE.append(np.dot(b, E))
-            self._EtE.append(np.dot(E.T, E))
+        # Equalize covariate scales across predictor blocks
+        if post_normalize:
+            n_vars = sum(len(d) if d else 1 for d in stim_dims)
+            if n_vars > 1:
+                stim_lens = [len(d) if d else 1 for d in stim_dims]
+                bl_lengths = np.repeat([b.shape[1] for b in basis], stim_lens)
+                avg_norm = np.array(s_normalization).mean(axis=0)
+                col = 0
+                for bl, norm in zip(bl_lengths, avg_norm):
+                    for cov in covariate_arrays:
+                        cov[:, col:col + bl] /= norm
+                    col += bl
+
+        return cls(
+            meg_arrays, covariate_arrays, norm_factor,
+            basis=basis,
+            tstart=tstart, tstep=tstep, tstop=tstop,
+            stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=stim_names,
+            baseline=baseline, scaling=scaling,
+            stim_normalization=s_normalization, basis_std=basis_std,
+            sensor_dim=sensor_dim,
+        )
 
     def __iter__(self) -> Iterator[TrialData]:
         return zip(self.meg, self.covariates)
@@ -469,50 +555,78 @@ class RegressionData:
     def __repr__(self) -> str:
         return 'Regression data'
 
+    @cached_property
+    def bbt(self) -> list[FloatArray]:
+        """Per-segment ``B @ B.T`` matrices for stored MEG arrays."""
+        return [np.dot(b, b.T) for b in self.meg]
+
+    @cached_property
+    def bE(self) -> list[FloatArray]:
+        """Per-segment ``B @ E`` cross-product matrices."""
+        return [np.dot(b, E) for b, E in zip(self.meg, self.covariates)]
+
+    @cached_property
+    def EtE(self) -> list[FloatArray]:
+        """Per-segment ``E.T @ E`` covariate Gram matrices."""
+        return [np.dot(E.T, E) for E in self.covariates]
+
+    def whiten(self, whitening_filter: FloatArray) -> RegressionData:
+        """Return a new dataset with MEG whitened.
+
+        Parameters
+        ----------
+        whitening_filter
+            Whitening matrix.
+
+        Notes
+        -----
+        Uses shallow copies of unmodified data.
+
+        Raises
+        ------
+        ValueError
+            If the dataset is already whitened. Whitening twice is not equivalent
+            to whitening once with the second filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
+        """
+        if self.is_whitened:
+            raise ValueError("Dataset is already whitened; cannot whiten twice")
+        meg = [np.dot(whitening_filter, m) for m in self.meg]
+        return RegressionData(
+            meg, self.covariates, self.norm_factor,
+            basis=self.basis,
+            tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
+            stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
+            stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
+            stim_normalization=self.stim_normalization,
+            basis_std=self.basis_std, sensor_dim=self.sensor_dim,
+            is_whitened=True,
+        )
+
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
+
+        If this dataset ``.is_whitened``, the returned dataset is also
+        marked as whitened and quadratic forms are recomputed lazily.
 
         Parameters
         ----------
         idx
             Integer indices selecting the time samples to retain.
-
-        Returns
-        -------
-        :class:`RegressionData`
-            A new dataset containing the requested time slice.
         """
-        obj = type(self).__new__(self.__class__)
-        # take care of the copied values from the old_obj
-        copy_keys = ['_n_predictor_variables', 'basis', 'filter_length', 'tstart', 'tstep', 'tstop', '_stim_is_single',
-                     '_stim_dims', '_stim_names', 's_baseline', 's_scaling', '_prewhitened', 'gaussian_fwhm', 's_normalization']
-        obj.__dict__.update({key: self.__dict__[key] for key in copy_keys})
-        # keep track of the normalization
-        obj._norm_factor = sqrt(len(idx))
-        # add splitted data
-        obj.meg = []
-        obj.covariates = []
-        # Dont forget to take care of the normalization here
-        mul = self._norm_factor / obj._norm_factor  # multiplier to take care of the time normalization
-        for meg, covariate in self:
-            obj.meg.append(meg[:, idx] * mul)
-            obj.covariates.append(covariate[idx, :] * mul)
-
-        return obj
-
-    def post_normalization(self) -> None:
-        """Equalize covariate scales across predictor blocks after construction."""
-        n_vars = sum(len(dim) if dim else 1 for dim in self._stim_dims)
-        if n_vars > 1:
-            start = 0
-            stim_lens = [len(dim) if dim else 1 for dim in self._stim_dims]
-            basis_lengths = [basis.shape[1] for basis in self.basis]
-            basis_lengths = np.repeat(np.asanyarray(basis_lengths), stim_lens)
-            s_normalization = np.asanyarray(self.s_normalization).mean(axis=0)
-            for basis_length, norm in zip(basis_lengths, s_normalization):
-                for covariates in self.covariates:
-                    covariates[:, start:start + basis_length] /= norm
-                start += basis_length
+        norm_factor = sqrt(len(idx))
+        mul = self.norm_factor / norm_factor
+        meg = [m[:, idx] * mul for m in self.meg]
+        covariates = [c[idx, :] * mul for c in self.covariates]
+        return RegressionData(
+            meg, covariates, norm_factor,
+            basis=self.basis,
+            tstart=self.tstart, tstep=self.tstep, tstop=self.tstop,
+            stim_is_single=self.stim_is_single, stim_dims=self.stim_dims,
+            stim_names=self.stim_names, baseline=self.baseline, scaling=self.scaling,
+            stim_normalization=self.stim_normalization,
+            basis_std=self.basis_std, sensor_dim=self.sensor_dim,
+            is_whitened=self.is_whitened,
+        )
 
 
 class NCRF:
@@ -538,6 +652,8 @@ class NCRF:
     h
         The neuro-current response function. It is one NDVar when fitting a single
         predictor and a sequence of NDVars when fitting multiple predictors.
+    h_scaled
+        ``h`` with the original stimulus scaling restored.
     explained_var
         Fraction of total variance explained by the fitted NCRFs.
     voxelwise_explained_variance
@@ -548,9 +664,19 @@ class NCRF:
         Data covariance estimates under the model.
     theta
         NCRF coefficients over the Gabor basis.
+    mu
+        Regularization parameter used for the fitted model.
     residual
         The fit error, i.e. the result of the ``eval_obj`` error function on the
         final fit.
+    tstart
+        TRF start time in seconds, one value per predictor.
+    tstep
+        Sample spacing in seconds.
+    tstop
+        TRF stop time in seconds, one value per predictor.
+    basis_std
+        Standard deviation of the Gaussian basis functions in seconds.
     stim_baseline
         Mean that was subtracted from ``stim``.
     stim_scaling
@@ -560,13 +686,12 @@ class NCRF:
     -----
     Usage:
 
-    1. Initialize :class:`RegressionData` instance with desired properties
-    2. Call :meth:`RegressionData.add_data` once for each contiguous
-       segment of MEG data
-    3. Initialize :class:`NCRF` instance with desired properties
-    4. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
+    1. Use :meth:`RegressionData.from_data` to construct a prepared dataset
+       from MEG and stimulus segments.
+    2. Initialize :class:`NCRF` with the lead field and noise covariance.
+    3. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance to
        estimate the cortical TRFs.
-    5. Access the cortical TRFs in the ``NCRF.h`` attribute.
+    4. Access the cortical TRFs in the ``NCRF.h`` attribute.
     """
     _name = 'cTRFs estimator'
     _cv_results = None
@@ -587,7 +712,7 @@ class NCRF:
     residual = None
     mu = None
     theta = None
-    gaussian_fwhm = None
+    basis_std = None
 
     def __init__(
             self,
@@ -626,7 +751,7 @@ class NCRF:
         obj = type(self).__new__(self.__class__)
         copy_keys = ['lead_field', '_whitened_lead_field', 'lead_field_scaling', 'source', 'space', 'sensor',
                      '_whitening_filter', 'noise_covariance', '_whitened_noise_covariance',
-                     'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'gaussian_fwhm']
+                     'n_iter', 'n_iterc', 'n_iterf', 'eta', 'init_sigma_b', 'basis_std']
         for key in copy_keys:
             obj.__dict__.update({key: self.__dict__.get(key, None)})
         return obj
@@ -639,7 +764,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'gaussian_fwhm', '_stim_normalization',
+        'basis_std', '_stim_normalization',
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -679,8 +804,9 @@ class NCRF:
                         for columns in items.T:
                             _cv_results.append(CVResult(*columns[[0, 1, 4, 2, 3]]))
                 setattr(self, '_cv_results', _cv_results)
-        if self.gaussian_fwhm is None:
-            self.gaussian_fwhm = 20.0  # the default value
+        if self.basis_std is None:
+            # Old bug: basis was always computed using std = 85 ms
+            self.basis_std = 0.0085
 
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.
@@ -729,14 +855,13 @@ class NCRF:
             self.Sigma_b.append(s.copy())
 
         # initializing \Theta
-        l = sum([basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data._stim_dims)])
+        l = sum([basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data.stim_dims)])
         self.theta = np.zeros((len(self.source) * dc, l), dtype=np.float64)
 
     def _set_mu(self, mu: float, data: RegressionData) -> None:
         """Reset the solver state for the requested regularization value."""
         self.mu = mu
         self._init_iter(data)
-        data._precompute()
         if mu == 0.0:
             self._solve(data, self.theta, n_iterc=30)
 
@@ -752,7 +877,7 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared regression data to fit.
+            Whitened regression data to fit.
         theta
             Coefficients of the TRFs over the Gabor basis.
 
@@ -859,6 +984,7 @@ class NCRF:
             n_splits: int = None,
             n_workers: int = None,
             compute_explained_variance: bool = False,
+            accept_whitening: bool = False,
     ) -> None:
         """Fit the NCRF model to prepared regression data.
 
@@ -893,11 +1019,16 @@ class NCRF:
             ``0`` to run without :mod:`multiprocessing`.
         compute_explained_variance
             Compute voxel-wise explained variance.
+        accept_whitening
+            Accept pre-whitened data. This is intended for internal workflows
+            that slice an already-whitened dataset, such as cross-validation.
         """
         logger = logging.getLogger(__name__)
-        # pre-whiten data
-        if isinstance(data, RegressionData):
-            data._prewhiten(self._whitening_filter)
+        if data.is_whitened:
+            if not accept_whitening:
+                raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
+        else:
+            data = data.whiten(self._whitening_filter)
 
         logger.info('Initiating from mne sol, please wait...')
         self._init_from_mne(data)
@@ -946,10 +1077,8 @@ class NCRF:
                     else:
                         mu = best_es.mu
 
-        else:
-            # use the passed mu
-            if mu is None:
-                raise ValueError('mu needs mu to be specified if not \'auto\'')
+        elif mu is None:  # use the passed mu
+            raise TypeError(f'{mu=}: mu needs mu to be a number or "auto"')
 
         self._set_mu(mu, data)
 
@@ -1002,17 +1131,17 @@ class NCRF:
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
-        self._stim_is_single = data._stim_is_single
-        self._stim_dims = data._stim_dims
-        self._stim_names = data._stim_names
-        self._stim_baseline = data.s_baseline
-        self._stim_scaling = data.s_scaling
-        self._stim_normalization = data.s_normalization
+        self._stim_is_single = data.stim_is_single
+        self._stim_dims = data.stim_dims
+        self._stim_names = data.stim_names
+        self._stim_baseline = data.baseline
+        self._stim_scaling = data.scaling
+        self._stim_normalization = data.stim_normalization
         self._basis = data.basis
         self.tstart = data.tstart
         self.tstep = data.tstep
         self.tstop = data.tstop
-        self.gaussian_fwhm = data.gaussian_fwhm
+        self.basis_std = data.basis_std
 
     def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
         """Build the smooth objective and gradient passed to FASTA.
@@ -1030,13 +1159,13 @@ class NCRF:
                 raise np.linalg.LinAlgError
                 L = linalg.cholesky(self.Sigma_b[i], lower=True)
                 leadfields.append(linalg.solve(L, self._whitened_lead_field))
-                bEs.append(linalg.solve(L, data._bE[i]))
-                bbts.append(np.trace(linalg.solve(L, linalg.solve(L, data._bbt[i]).T)))
+                bEs.append(linalg.solve(L, data.bE[i]))
+                bbts.append(np.trace(linalg.solve(L, linalg.solve(L, data.bbt[i]).T)))
             except np.linalg.LinAlgError:
                 Linv = _inv_sqrtm(self.Sigma_b[i])
                 leadfields.append(np.dot(Linv, self._whitened_lead_field))
-                bEs.append(np.dot(Linv, data._bE[i]))
-                bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data._bbt[i]).T)))
+                bEs.append(np.dot(Linv, data.bE[i]))
+                bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data.bbt[i]).T)))
 
         def f(L, x, bbt, bE, EtE):
             Lx = np.dot(L, x)
@@ -1050,13 +1179,13 @@ class NCRF:
         def funct(x):
             fval = 0.0
             for i in range(len(data)):
-                fval = fval + f(leadfields[i], x, bbts[i], bEs[i], data._EtE[i])
+                fval = fval + f(leadfields[i], x, bbts[i], bEs[i], data.EtE[i])
             return fval
 
         def grad_funct(x):
-            grad = gradf(leadfields[0], x, bEs[0], data._EtE[0]).astype(np.float64)
+            grad = gradf(leadfields[0], x, bEs[0], data.EtE[0]).astype(np.float64)
             for i in range(1, len(data)):
-                grad += gradf(leadfields[i], x, bEs[i], data._EtE[i])
+                grad += gradf(leadfields[i], x, bEs[i], data.EtE[i])
             return grad
 
         return funct, grad_funct
@@ -1315,7 +1444,7 @@ class NCRF:
             for model_, (train, test) in zip(models_, kf.split(data.meg[0][0])):
                 traindata = data.timeslice(train)
                 testdata = data.timeslice(test)
-                model_.fit(traindata, mu, tol=tol, verbose=False)
+                model_.fit(traindata, mu, tol=tol, verbose=False, accept_whitening=True)
                 obj, wl2 = model_.eval_obj(testdata, True)
                 ll.append(wl2)
                 ll1.append(obj)

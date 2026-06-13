@@ -4,10 +4,18 @@
 # License: BSD (3-clause)
 import numpy as np
 
-from ncrf._model import covariate_from_stim
+from ncrf._model import covariate_from_stim, gaussian_basis
 from .fetch import load
 
 from eelbrain import Categorial, concatenate
+
+
+def test_gaussian_basis():
+    basis = gaussian_basis(5, np.linspace(0, 1, 11), 0.1)
+    shifted_basis = gaussian_basis(5, np.linspace(10, 11, 11), 0.1)
+
+    assert basis.shape == (11, 4)
+    np.testing.assert_allclose(basis, shifted_basis)
 
 
 def test_covariate_from_stim():
@@ -37,5 +45,5 @@ def test_covariate_from_stim():
     filter_lengths = np.subtract(stop, start) + 1
     covariates_shift = covariate_from_stim([stim], filter_lengths, start)
 
-    np.testing.assert_array_equal(covariates[0].T[:, 0:100], covariates_shift[0].T[:, 20:120])  # Beginning
-    np.testing.assert_array_equal(covariates[0].T[:, -120:-20], covariates_shift[0].T[:, -100:])  # End
+    assert covariates[0].shape[0] == len(stim.get_dim('time'))
+    np.testing.assert_array_equal(covariates[0][:-20], covariates_shift[0][20:])

@@ -86,7 +86,7 @@ def fit_ncrf(
         n_splits: int = 3,
         n_workers: int | None = None,
         use_ES: bool = False,
-        gaussian_fwhm: float = 20.0,
+        basis_std: float = 0.0085,
         do_post_normalization: bool = True,
 ) -> NCRF:
     r"""One shot function for cortical TRF localization.
@@ -155,14 +155,14 @@ def fit_ncrf(
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
         choose the best ``mu``. (False, by default)
-    gaussian_fwhm
-        Specifies the full width half maximum (fwmh) for the Gaussian kernel (used as elements of
-        the time basis), the default is 20 ms. The standard deviation (std) is related to the
-        fwmh as following:
+    basis_std
+        Standard deviation of the Gaussian basis atoms in seconds
+        (default ``0.0085``, approximately 20 ms FWHM).
+        The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     do_post_normalization
         Scales covariate matrices of different predictor variables by spectral norms to
-        equalize their spectral spread (=1). (True, by default)
+        equalize their spectral spread (=1). (default ``True``)
 
     Returns
     -------
@@ -259,13 +259,11 @@ def fit_ncrf(
     else:
         raise TypeError(f"{normalize=}, need bool or str")
 
-    # Call `REG_Data.add_data` once for each contiguous segment of MEG data
-    ds = RegressionData(tstart, tstop, nlevels, s_baseline, s_scale, stim_is_single, gaussian_fwhm)
-    for r, ss in zip(meg_trials, stim_trials):
-        ds.add_data(r, ss, in_place=in_place)
-
-    if do_post_normalization:
-        ds.post_normalization()
+    ds = RegressionData.from_data(
+        meg_trials, stim_trials, tstart, tstop, nlevels,
+        s_baseline, s_scale, stim_is_single, basis_std=basis_std,
+        in_place=in_place, post_normalize=do_post_normalization,
+    )
 
     # noise covariance
     noise_cov = _handle_noise_channels(noise, ds.sensor_dim)
