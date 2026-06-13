@@ -1,0 +1,6 @@
+ncrf.RegressionData.whiten
+==========================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.whiten

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.NCRF.fit &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery.css?v=fd6457a4" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=f9605279" />
+    <script src="../../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="ncrf.RegressionData" href="../ncrf.RegressionData.html" />
+    <link rel="prev" title="ncrf.NCRF.eval_obj" href="ncrf.NCRF.eval_obj.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-ncrf-fit">
+<h1>ncrf.NCRF.fit<a class="headerlink" href="#ncrf-ncrf-fit" title="Link to this heading">¶</a></h1>
+<dl class="py method">
+<dt class="sig sig-object py" id="ncrf.NCRF.fit">
+<span class="sig-prename descclassname"><span class="pre">NCRF.</span></span><span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">do_crossvalidation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_ES</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mus</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_splits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_explained_variance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">accept_whitening</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.NCRF.fit" title="Link to this definition">¶</a></dt>
+<dd><p>Fit the NCRF model to prepared regression data.</p>
+<p>Estimate both TRFs and source variance from the observed MEG data by solving
+the Bayesian optimization problem formulated in <span class="bibtex-citation" id="id1">[<a class="reference internal" href="../../../references.html#id2" title="Proloy Das, Christian Brodbeck, Jonathan Z Simon, and Behtash Babadi. Neuro-current response functions: A unified approach to MEG source analysis under the continuous stimuli paradigm. NeuroImage, pages 116528, 2020. Publisher: Elsevier. doi:10.1016/j.neuroimage.2020.116528.">Das <em>et al.</em>, 2020</a>]</span>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> – M/EEG data and the corresponding stimulus variables.</p></li>
+<li><p><strong>mu</strong> – Regularization parameter; promote sparsity and guard against over-fitting</p></li>
+<li><p><strong>do_crossvalidation</strong> – if True, from a wide range of regularizing parameters, the one resulting in
+the least generalization error in a k-fold cross-validation procedure is chosen.
+Unless specified the range and k is chosed from cofig.py. The user can also pass
+several keyword arguments to overwrite them.</p></li>
+<li><p><strong>tol</strong> – tolerence parameter. Decides when to stop outer iterations.</p></li>
+<li><p><strong>verbose</strong> – If set True prints intermediate values of the cost functions (default <code class="docutils literal notranslate"><span class="pre">False</span></code>).</p></li>
+<li><p><strong>use_ES</strong> – use estimation stability criterion <span class="bibtex-citation" id="id2">[<a class="reference internal" href="../../../references.html#id3" title="Chinghway Lim and Bin Yu. Estimation Stability With Cross-Validation (ESCV). Journal of Computational and Graphical Statistics, 25(2):464–492, April 2016. URL: https://www.tandfonline.com/doi/full/10.1080/10618600.2015.1020159 (visited on 2025-05-13), doi:10.1080/10618600.2015.1020159.">Lim and Yu, 2016</a>]</span>
+to choose the best <code class="docutils literal notranslate"><span class="pre">mu</span></code> (default <code class="docutils literal notranslate"><span class="pre">False</span></code>).</p></li>
+<li><p><strong>mus</strong> – range of mu to be considered for cross-validation</p></li>
+<li><p><strong>n_splits</strong> – k value used in k-fold cross-validation</p></li>
+<li><p><strong>n_workers</strong> – Number of workers to use for cross-validation.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> to use <code class="docutils literal notranslate"><span class="pre">cpu_count/2</span></code> (default).
+<code class="docutils literal notranslate"><span class="pre">0</span></code> to run without <a class="reference external" href="https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing" title="(in Python v3.14)"><code class="xref py py-mod docutils literal notranslate"><span class="pre">multiprocessing</span></code></a>.</p></li>
+<li><p><strong>compute_explained_variance</strong> – Compute voxel-wise explained variance.</p></li>
+<li><p><strong>accept_whitening</strong> – Accept pre-whitened data. This is intended for internal workflows
+that slice an already-whitened dataset, such as cross-validation.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../references.html">References</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../ncrf.fit_ncrf.html">ncrf.fit_ncrf</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../ncrf.NCRF.html">ncrf.NCRF</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../ncrf.RegressionData.html">ncrf.RegressionData</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">API Reference</a><ul>
+  <li><a href="../ncrf.NCRF.html">ncrf.NCRF</a><ul>
+      <li>Previous: <a href="ncrf.NCRF.eval_obj.html" title="previous chapter">ncrf.NCRF.eval_obj</a></li>
+      <li>Next: <a href="../ncrf.RegressionData.html" title="next chapter">ncrf.RegressionData</a></li>
+  </ul></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../../../_sources/api/generated/generated/ncrf.NCRF.fit.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,6 @@
+ncrf.NCRF.cvfunc
+================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.cvfunc

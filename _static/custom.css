@@ -1,0 +1,118 @@
+/* base for the Read the Docs theme */
+@import 'theme.css';
+
+.wy-nav-content {
+    padding: 1.618em 3.236em;
+    height: 100%;
+    max-width: 1000px;
+}
+
+.wy-side-nav-search {
+    /*background color of the logo area*/
+    background-color: #55555d;
+}
+
+/* Reset gloabl font size */
+/* p {
+    font-size: 14px;
+}
+
+html {
+    font-size: 14px;
+}
+
+li.toctree-l1, li.toctree-l2 {
+    font-size: 15px;
+}
+
+div.version {
+    font-size: 18px;
+} */
+
+/*
+Autosummary tables
+------------------
+Remove table outlines*/
+.wy-table-bordered-all, .rst-content table.docutils {
+    border: none;
+}
+
+.wy-table-bordered-all td, .rst-content table.docutils td {
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+}
+
+/* condense */
+.wy-table td, .rst-content table.docutils td, .rst-content table.field-list td, .wy-table th, .rst-content table.docutils th, .rst-content table.field-list th {
+    font-size: 100%;
+    padding:4px 3px
+}
+
+/* code elements */
+code, .rst-content tt, .rst-content code {
+    background: transparent;
+    border: none;
+    font-size: 90%;
+}
+
+/* wrap cells */
+.wy-table-responsive table td, .wy-table-responsive table th {
+    white-space:normal;
+}
+
+.wy-table td, .rst-content table.docutils td, .rst-content table.field-list td {
+    vertical-align:top
+}
+
+/* Make section headings more distinguishable (from subsection) */
+h2 {
+    border-top: 1.5px solid #D3DEDE;
+    background-color: #f3f6f6;
+    line-height: 1.5em;
+    margin: 10px 0 20px;
+    padding-left: 5px
+}
+
+/*
+Autodoc parameters
+------------------
+Enumeration
+*/
+.rst-content dl:not(.docutils) dt {
+    font-size: 90%;
+    font-family: monospace;
+    font-weight: normal;
+    line-height: normal;
+    border-top: 0;
+    background: none;
+}
+
+tbody tr.field td.field-body dl.docutils dt {
+    background-color: white;
+    border-left: 0;
+    margin: 0;
+}
+
+/* signature & types */
+dt em {
+    font-style: normal;
+    font-weight: normal;
+}
+
+/* "parameters:" and parameter descriptions */
+dl.docutils dd p.first, tr.field th.field-name  {
+    font-size: 16px;
+}
+
+/* code samples */
+div.highlight-default div.highlight pre {
+    font-size: 13px;
+}
+
+/* example code output*/
+div.sphx-glr-script-out div.highlight pre {
+    font-size: 13px;
+    color: #555555;
+}

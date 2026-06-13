@@ -1,0 +1,6 @@
+ncrf.NCRF.fit
+=============
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.fit

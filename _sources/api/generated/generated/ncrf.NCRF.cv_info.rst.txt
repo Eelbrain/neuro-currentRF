@@ -1,0 +1,6 @@
+ncrf.NCRF.cv\_info
+==================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.cv_info

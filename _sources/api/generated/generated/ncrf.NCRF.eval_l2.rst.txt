@@ -1,0 +1,6 @@
+ncrf.NCRF.eval\_l2
+==================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.eval_l2

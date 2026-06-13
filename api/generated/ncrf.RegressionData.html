@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.RegressionData &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css?v=fd6457a4" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=f9605279" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="ncrf.RegressionData.from_data" href="generated/ncrf.RegressionData.from_data.html" />
+    <link rel="prev" title="ncrf.NCRF.fit" href="generated/ncrf.NCRF.fit.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-regressiondata">
+<h1>ncrf.RegressionData<a class="headerlink" href="#ncrf-regressiondata" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="ncrf.RegressionData">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">ncrf.</span></span><span class="sig-name descname"><span class="pre">RegressionData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">meg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covariates</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">norm_factor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tstart</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tstep</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tstop</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stim_is_single</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stim_dims</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stim_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">baseline</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaling</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stim_normalization</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basis_std</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sensor_dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_whitened</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.RegressionData" title="Link to this definition">¶</a></dt>
+<dd><p>Prepared dataset for NCRF fitting.</p>
+<p>Use <a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">from_data()</span></code></a> to construct a dataset from raw MEG and stimulus
+<a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><code class="xref py py-class docutils literal notranslate"><span class="pre">NDVar</span></code></a> objects.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>meg</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.4)"><em>numpy.dtype</em></a><em>[</em><em>numpy.float64</em><em>]</em><em>]</em><em>]</em>) – MEG signal arrays, one per segment, each shaped
+<code class="docutils literal notranslate"><span class="pre">(n_sensors,</span> <span class="pre">n_times)</span></code>.</p></li>
+<li><p><strong>covariates</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.4)"><em>numpy.dtype</em></a><em>[</em><em>numpy.float64</em><em>]</em><em>]</em><em>]</em>) – Basis-projected covariate matrices, one per segment, each shaped
+<code class="docutils literal notranslate"><span class="pre">(n_times,</span> <span class="pre">n_basis_cols)</span></code>.</p></li>
+<li><p><strong>norm_factor</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – <code class="docutils literal notranslate"><span class="pre">sqrt(n_times)</span></code> of the first segment; used by <a class="reference internal" href="generated/ncrf.RegressionData.timeslice.html#ncrf.RegressionData.timeslice" title="ncrf.RegressionData.timeslice"><code class="xref py py-meth docutils literal notranslate"><span class="pre">timeslice()</span></code></a>
+to rescale sub-segments consistently.</p></li>
+<li><p><strong>basis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.4)"><em>numpy.ndarray</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><em>Any</em><em>, </em><em>...</em><em>]</em><em>, </em><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.4)"><em>numpy.dtype</em></a><em>[</em><em>numpy.float64</em><em>]</em><em>]</em><em>]</em>) – Gaussian basis matrices, one per predictor variable, each shaped
+<code class="docutils literal notranslate"><span class="pre">(filter_length,</span> <span class="pre">n_basis)</span></code>.</p></li>
+<li><p><strong>tstart</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>]</em>) – TRF start time in seconds, one value per predictor.</p></li>
+<li><p><strong>tstep</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Sample spacing in seconds, shared by all segments.</p></li>
+<li><p><strong>tstop</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>]</em>) – TRF stop time in seconds, one value per predictor.</p></li>
+<li><p><strong>stim_is_single</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – <code class="docutils literal notranslate"><span class="pre">True</span></code> when the original stimulus input contained a single
+predictor per segment rather than a list; controls whether
+<a class="reference internal" href="ncrf.NCRF.html#ncrf.NCRF.h" title="ncrf.NCRF.h"><code class="xref py py-attr docutils literal notranslate"><span class="pre">NCRF.h</span></code></a> returns a bare NDVar or a list.</p></li>
+<li><p><strong>stim_dims</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.Categorial.html#eelbrain.Categorial" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.Categorial</em></a><em> | </em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.Scalar.html#eelbrain.Scalar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.Scalar</em></a><em> | </em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.Space.html#eelbrain.Space" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.Space</em></a><em> | </em><em>None</em><em>]</em>) – Feature dimension for each predictor (<code class="docutils literal notranslate"><span class="pre">None</span></code> for scalar predictors).</p></li>
+<li><p><strong>stim_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>) – Name of each predictor variable.</p></li>
+<li><p><strong>baseline</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.NDVar</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>] </em><em>| </em><em>None</em>) – Per-predictor centering values subtracted before covariate
+construction, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if no centering was applied.</p></li>
+<li><p><strong>scaling</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.NDVar</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>] </em><em>| </em><em>None</em>) – Per-predictor scale factors applied after centering, or <code class="docutils literal notranslate"><span class="pre">None</span></code>
+if no scaling was applied.</p></li>
+<li><p><strong>stim_normalization</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em>]</em><em>]</em>) – Spectral norms of each predictor block before post-normalization,
+one inner list per segment.</p></li>
+<li><p><strong>basis_std</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a>) – Standard deviation of the Gaussian basis functions in seconds.</p></li>
+<li><p><strong>sensor_dim</strong> (<a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.Sensor.html#eelbrain.Sensor" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.Sensor</em></a>) – Sensor dimension shared by all MEG segments.</p></li>
+<li><p><strong>is_whitened</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Whether <code class="docutils literal notranslate"><span class="pre">meg</span></code> has already been transformed by a whitening filter.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-obj docutils literal notranslate"><span class="pre">from_data</span></code></a>(meg, stim, tstart, tstop[, ...])</p></td>
+<td><p>Construct a dataset from MEG and stimulus NDVars.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.timeslice.html#ncrf.RegressionData.timeslice" title="ncrf.RegressionData.timeslice"><code class="xref py py-obj docutils literal notranslate"><span class="pre">timeslice</span></code></a>(idx)</p></td>
+<td><p>Return a new dataset restricted to selected time indices.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.whiten.html#ncrf.RegressionData.whiten" title="ncrf.RegressionData.whiten"><code class="xref py py-obj docutils literal notranslate"><span class="pre">whiten</span></code></a>(whitening_filter)</p></td>
+<td><p>Return a new dataset with MEG whitened.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../references.html">References</a></li>
+</ul>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="ncrf.fit_ncrf.html">ncrf.fit_ncrf</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ncrf.NCRF.html">ncrf.NCRF</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">ncrf.RegressionData</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">API Reference</a><ul>
+      <li>Previous: <a href="generated/ncrf.NCRF.fit.html" title="previous chapter">ncrf.NCRF.fit</a></li>
+      <li>Next: <a href="generated/ncrf.RegressionData.from_data.html" title="next chapter">ncrf.RegressionData.from_data</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../../_sources/api/generated/ncrf.RegressionData.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
