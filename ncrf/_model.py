@@ -12,8 +12,8 @@ from __future__ import annotations
 import time
 import copy
 import collections
-from dataclasses import dataclass
-from functools import cached_property
+from dataclasses import dataclass, field
+from functools import cached_property, wraps
 from math import sqrt, log10
 from multiprocessing import current_process
 from operator import attrgetter
@@ -262,6 +262,37 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
     compute_gamma_c(z, a, gamma)
     return
 
+
+@dataclass
+class OptimizationTracker:
+    """Records per-iteration snapshots during NCRF.fit()."""
+    snapshots: list = field(default_factory=list)
+
+    def record(self, iteration: int, objective: float, residual: float, theta: FloatArray):
+        self.snapshots.append({
+            'iteration': iteration,
+            'objective': objective,
+            'residual': residual,
+            'theta': theta.copy(),
+        })
+
+    def summary(self):
+        for s in self.snapshots:
+            print(f"Iter {s['iteration']:3d}  obj={s['objective']:.6f}  residual={s['residual']:.2e}")
+
+
+def track_optimization(func):
+    """Inject an OptimizationTracker into fit() when track_progress=True."""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        track = kwargs.pop('track_progress', False)
+        if not track:
+            return func(self, *args, **kwargs)
+        tracker = OptimizationTracker()
+        result = func(self, *args, tracker=tracker, **kwargs)
+        self.tracker = tracker
+        return result
+    return wrapper
 
 @dataclass(eq=False, repr=False)
 class RegressionData:
@@ -764,7 +795,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'basis_std', '_stim_normalization',
+        'basis_std', '_stim_normalization', 'tracker'
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -972,6 +1003,7 @@ class NCRF:
             end = time.time()
             logger.debug(f'{key} \t {end - start}')
 
+    @track_optimization
     def fit(
             self,
             data: RegressionData,
@@ -985,6 +1017,7 @@ class NCRF:
             n_workers: int = None,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
+            tracker: 'OptimizationTracker | None' = None,  # injected by decorator
     ) -> None:
         """Fit the NCRF model to prepared regression data.
 
@@ -1119,6 +1152,9 @@ class NCRF:
             self._solve(data, theta)
 
             self.objective_vals.append(self.eval_obj(data))
+
+            if tracker is not None:
+                tracker.record(i, self.objective_vals[-1], self.err[-1], self.theta)
 
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
