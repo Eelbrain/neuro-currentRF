@@ -294,6 +294,7 @@ def track_optimization(func):
         return result
     return wrapper
 
+
 @dataclass(eq=False, repr=False)
 class RegressionData:
     """Prepared dataset for NCRF fitting.
@@ -744,6 +745,7 @@ class NCRF:
     mu = None
     theta = None
     basis_std = None
+    tracker = None
 
     def __init__(
             self,
