@@ -281,20 +281,6 @@ class OptimizationTracker:
             print(f"Iter {s['iteration']:3d}  obj={s['objective']:.6f}  residual={s['residual']:.2e}")
 
 
-def track_optimization(func):
-    """Inject an OptimizationTracker into fit() when track_progress=True."""
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        track = kwargs.pop('track_progress', False)
-        if not track:
-            return func(self, *args, **kwargs)
-        tracker = OptimizationTracker()
-        result = func(self, *args, tracker=tracker, **kwargs)
-        self.tracker = tracker
-        return result
-    return wrapper
-
-
 @dataclass(eq=False, repr=False)
 class RegressionData:
     """Prepared dataset for NCRF fitting.
@@ -1005,7 +991,6 @@ class NCRF:
             end = time.time()
             logger.debug(f'{key} \t {end - start}')
 
-    @track_optimization
     def fit(
             self,
             data: RegressionData,
@@ -1019,7 +1004,7 @@ class NCRF:
             n_workers: int = None,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
-            tracker: 'OptimizationTracker | None' = None,  # injected by decorator
+            track_progress: bool = False,
     ) -> None:
         """Fit the NCRF model to prepared regression data.
 
@@ -1064,6 +1049,8 @@ class NCRF:
                 raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
         else:
             data = data.whiten(self._whitening_filter)
+
+        tracker = OptimizationTracker() if track_progress else None
 
         logger.info('Initiating from mne sol, please wait...')
         self._init_from_mne(data)
@@ -1166,6 +1153,7 @@ class NCRF:
         if compute_explained_variance:
             self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
         self._data = data  # save the data for further use
+        self.tracker = tracker
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
