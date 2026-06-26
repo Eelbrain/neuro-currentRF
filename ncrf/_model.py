@@ -268,12 +268,13 @@ class OptimizationTracker:
     """Records per-iteration snapshots during NCRF.fit()."""
     snapshots: list = field(default_factory=list)
 
-    def record(self, iteration: int, objective: float, residual: float, theta: FloatArray):
+    def record(self, iteration: int, objective: float, residual: float, theta: FloatArray, gamma: list):
         self.snapshots.append({
             'iteration': iteration,
             'objective': objective,
             'residual': residual,
             'theta': theta.copy(),
+            'gamma': copy.deepcopy(gamma),
         })
 
     def summary(self):
@@ -783,7 +784,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'basis_std', '_stim_normalization', 'tracker'
+        'basis_std', '_stim_normalization',
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -1143,7 +1144,7 @@ class NCRF:
             self.objective_vals.append(self.eval_obj(data))
 
             if tracker is not None:
-                tracker.record(i, self.objective_vals[-1], self.err[-1], self.theta)
+                tracker.record(i, self.objective_vals[-1], self.err[-1], self.theta, self.Gamma)
 
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
