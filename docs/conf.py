@@ -47,6 +47,8 @@ nitpick_ignore = [
     # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
     # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
     ("py:class", "numpy.float64"),
+    ("py:class", "numpy._typing._array_like.NDArray"),
+    ("py:class", "numpy.typing.NDArray"),
 ]
 
 # A list of ignored prefixes for module index sorting.
