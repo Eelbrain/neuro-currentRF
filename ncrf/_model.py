@@ -885,6 +885,43 @@ class NCRF:
         if mu == 0.0:
             self._solve(data, self.theta, n_iterc=30)
 
+    def pickle(
+            self,
+            path: str,
+            data: bool = False,
+            tracker: bool = False,  # CHANGE
+    ) -> None:
+        """Pickle the model to a file.
+
+        Parameters
+        ----------
+        path
+            Destination file path.
+        data
+            If ``False`` (default), exclude ``_data`` from the saved file.
+            The data object can be large and is often not needed after fitting.
+        tracker
+            If ``False`` (default), exclude the optimization tracker from the
+            saved file. Set to ``True`` to include it, noting that tracker
+            snapshots store a copy of ``theta`` and ``gamma`` at every iteration and may
+            lead to large files.
+        """
+        import eelbrain
+        # Temporarily stash attributes to exclude
+        stash = {}
+        if not data and self._data is not None:
+            stash['_data'] = self._data
+            self._data = None
+        if not tracker and self.tracker is not None:
+            stash['tracker'] = self.tracker
+            self.tracker = None
+        try:
+            eelbrain.save.pickle(self, path)
+        finally:
+            # Always restore, even if saving fails
+            for k, v in stash.items():
+                setattr(self, k, v)
+
     def _solve(
             self,
             data: RegressionData,
