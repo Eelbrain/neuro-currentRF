@@ -784,7 +784,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'basis_std', '_stim_normalization',
+        'basis_std', '_stim_normalization', 'tracker'
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -1043,6 +1043,12 @@ class NCRF:
         accept_whitening
             Accept pre-whitened data. This is intended for internal workflows
             that slice an already-whitened dataset, such as cross-validation.
+        track_progress
+            If ``True``, records a snapshot of ``theta``, ``gamma``, the objective value, and
+            the residual at each iteration. The result is stored in ``model.tracker``
+            after fitting. Note that storing ``theta`` and ``gamma`` at every iteration may lead to
+            large pickle files. To include the tracker when saving, use :meth:`NCRF.pickle` with
+            ``tracker=True``.
         """
         logger = logging.getLogger(__name__)
         if data.is_whitened:
