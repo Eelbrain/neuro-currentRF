@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 import copy
 import collections
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from math import sqrt, log10
 from multiprocessing import current_process
@@ -261,6 +261,25 @@ def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
     a = np.dot(x, x.T)
     compute_gamma_c(z, a, gamma)
     return
+
+
+@dataclass
+class OptimizationTracker:
+    """Records per-iteration snapshots during NCRF.fit()."""
+    snapshots: list = field(default_factory=list)
+
+    def record(self, iteration: int, objective: float, residual: float, theta: FloatArray, gamma: list):
+        self.snapshots.append({
+            'iteration': iteration,
+            'objective': objective,
+            'residual': residual,
+            'theta': theta.copy(),
+            'gamma': copy.deepcopy(gamma),
+        })
+
+    def summary(self):
+        for s in self.snapshots:
+            print(f"Iter {s['iteration']:3d}  obj={s['objective']:.6f}  residual={s['residual']:.2e}")
 
 
 @dataclass(eq=False, repr=False)
@@ -713,6 +732,7 @@ class NCRF:
     mu = None
     theta = None
     basis_std = None
+    tracker = None
 
     def __init__(
             self,
@@ -764,7 +784,7 @@ class NCRF:
         'noise_covariance', 'n_iter', 'n_iterc', 'n_iterf', 'lead_field', '_data',
         'explained_var', '_voxelwise_explained_variance', '_stim_baseline', '_stim_scaling',
         'residual', 'sensor', 'source', 'space', 'theta', 'tstart', 'tstep', 'tstop',
-        'basis_std', '_stim_normalization',
+        'basis_std', '_stim_normalization', 'tracker'
     )
 
     def __getstate__(self) -> dict[str, Any]:
@@ -864,6 +884,43 @@ class NCRF:
         self._init_iter(data)
         if mu == 0.0:
             self._solve(data, self.theta, n_iterc=30)
+
+    def pickle(
+            self,
+            path: str,
+            data: bool = False,
+            tracker: bool = False,  # CHANGE
+    ) -> None:
+        """Pickle the model to a file.
+
+        Parameters
+        ----------
+        path
+            Destination file path.
+        data
+            If ``False`` (default), exclude ``_data`` from the saved file.
+            The data object can be large and is often not needed after fitting.
+        tracker
+            If ``False`` (default), exclude the optimization tracker from the
+            saved file. Set to ``True`` to include it, noting that tracker
+            snapshots store a copy of ``theta`` and ``gamma`` at every iteration and may
+            lead to large files.
+        """
+        import eelbrain
+        # Temporarily stash attributes to exclude
+        stash = {}
+        if not data and self._data is not None:
+            stash['_data'] = self._data
+            self._data = None
+        if not tracker and self.tracker is not None:
+            stash['tracker'] = self.tracker
+            self.tracker = None
+        try:
+            eelbrain.save.pickle(self, path)
+        finally:
+            # Always restore, even if saving fails
+            for k, v in stash.items():
+                setattr(self, k, v)
 
     def _solve(
             self,
@@ -985,6 +1042,7 @@ class NCRF:
             n_workers: int = None,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
+            track_progress: bool = False,
     ) -> None:
         """Fit the NCRF model to prepared regression data.
 
@@ -1022,6 +1080,12 @@ class NCRF:
         accept_whitening
             Accept pre-whitened data. This is intended for internal workflows
             that slice an already-whitened dataset, such as cross-validation.
+        track_progress
+            If ``True``, records a snapshot of ``theta``, ``gamma``, the objective value, and
+            the residual at each iteration. The result is stored in ``model.tracker``
+            after fitting. Note that storing ``theta`` and ``gamma`` at every iteration may lead to
+            large pickle files. To include the tracker when saving, use :meth:`NCRF.pickle` with
+            ``tracker=True``.
         """
         logger = logging.getLogger(__name__)
         if data.is_whitened:
@@ -1029,6 +1093,8 @@ class NCRF:
                 raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
         else:
             data = data.whiten(self._whitening_filter)
+
+        tracker = OptimizationTracker() if track_progress else None
 
         logger.info('Initiating from mne sol, please wait...')
         self._init_from_mne(data)
@@ -1120,6 +1186,9 @@ class NCRF:
 
             self.objective_vals.append(self.eval_obj(data))
 
+            if tracker is not None:
+                tracker.record(i, self.objective_vals[-1], self.err[-1], self.theta, self.Gamma)
+
             logger.debug(f'{myname}:{i} \t {self.objective_vals[-1]} \t {self.err[-1] * 100}')
 
         self.residual = self.eval_obj(data)
@@ -1128,6 +1197,7 @@ class NCRF:
         if compute_explained_variance:
             self._voxelwise_explained_variance = self._compute_voxelwise_explained_variance(data)
         self._data = data  # save the data for further use
+        self.tracker = tracker
 
     def _copy_from_data(self, data: RegressionData) -> None:
         """Copy stimulus metadata needed to rebuild Eelbrain output objects."""
