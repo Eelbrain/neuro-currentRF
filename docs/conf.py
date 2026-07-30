@@ -47,6 +47,10 @@ nitpick_ignore = [
     # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
     # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
     ("py:class", "numpy.float64"),
+    ("py:class", "numpy._typing._array_like.NDArray"),
+    ("py:class", "numpy.typing.NDArray"),
+    ("py:class", "ncrf.OptimizationTracker"), 
+    ("py:meth", "ncrf.OptimizationSnapshot.get_h"),
 ]
 
 # A list of ignored prefixes for module index sorting.
@@ -89,6 +93,8 @@ napoleon_use_rtype = True
 qualname_overrides = {
     "ncrf._model.NCRF": "ncrf.NCRF",
     "ncrf._model.RegressionData": "ncrf.RegressionData",
+    "ncrf._model.OptimizationTracker": "ncrf.OptimizationTracker",
+    "ncrf._model.OptimizationSnapshot": "ncrf.OptimizationSnapshot",
     "ncrf._ncrf.fit_ncrf": "ncrf.fit_ncrf",
 }
 

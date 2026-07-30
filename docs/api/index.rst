@@ -11,3 +11,5 @@ The ``ncrf`` module provide functions for fitting NCRFs from data.
     fit_ncrf
     NCRF
     RegressionData
+    OptimizationSnapshot
+    OptimizationTracker
