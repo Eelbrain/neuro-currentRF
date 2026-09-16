@@ -104,12 +104,8 @@ class Fasta:
     ----------
     coefs
         Learned coefficients.
-    objective_value
-        Optimum objective value.
     residuals
         Residual values at each iteration.
-    initial_stepsize
-        Initial step size, created only with ``verbose=1``.
     objective
         Objective values at each iteration, created only with ``verbose=1``.
     stepsizes
@@ -237,7 +233,6 @@ class Fasta:
         if verbose:
             self.objective = []
             self.objective.append(self._funcValues[-1] + self.g(coefs_current))
-            self.initial_stepsize = np.copy(tau_current)
             self.stepsizes = []
             self.backtracks = []
 
@@ -280,6 +275,5 @@ class Fasta:
 
         end = time.time()
         self.coefs_ = coefs_current
-        self.objective_value = objective_next + self.g(coefs_current)
         if verbose:
             logger.debug(f"total time elapsed : {end - start:.3f} s")
