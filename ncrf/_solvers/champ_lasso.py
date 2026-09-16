@@ -251,11 +251,10 @@ class _ChampLassoState:
         """Seed the working state with a minimum-norm estimate."""
         # MNE-based seeds (re-read by _solve on every Champagne solve)
         self._init_gamma, self._init_sigma_b = _mne_seeds(self.forward, data)
-        # Working estimate. _solve() replaces Gamma[key] wholesale rather than
-        # writing into it, so the seeds can be shared; Sigma_b is read by
-        # _construct_f() before the first covariance update, hence the copy.
+        # Working estimate. _solve() replaces the per-segment entries wholesale
+        # rather than writing into them, so the seeds can be shared.
         self.Gamma = list(self._init_gamma)
-        self.Sigma_b = [s.copy() for s in self._init_sigma_b]
+        self.Sigma_b = list(self._init_sigma_b)
         self.theta = np.zeros((self.forward.lead_field.shape[1], data.design.n_coefficients), dtype=np.float64)
 
     def _solve(
@@ -291,7 +290,9 @@ class _ChampLassoState:
             start = time.time()
             yhat = _residual_factor(self.forward, theta, meg, covariates)
 
-            gamma = copy.deepcopy(self._init_gamma[key])
+            # compute_gamma() returns new objects, so the seed list only needs
+            # to be shallow-copied; sigma_b is accumulated in place
+            gamma = list(self._init_gamma[key])
             sigma_b = self._init_sigma_b[key].copy()
 
             # champagne iterations
