@@ -346,11 +346,12 @@ class NCRFEstimator:
             return self.forward
         if self.lead_field is None:
             raise ValueError(f"data channels {names} do not match the forward model, and the estimator has no lead field to derive a matching one from; construct it with from_lead_field()")
-        lead_field_names = self.lead_field.get_dim('sensor').names
-        missing = [name for name in names if name not in set(lead_field_names)]
+        lead_field_names = set(self.lead_field.get_dim('sensor').names)
+        missing = [name for name in names if name not in lead_field_names]
         if missing:
             raise ValueError(f"data channels missing from the lead field: {missing}; fitting requires a forward solution for every data channel")
-        missing = [name for name in names if name not in set(self.noise_channels)]
+        noise_channels = set(self.noise_channels)
+        missing = [name for name in names if name not in noise_channels]
         if missing:
             raise ValueError(f"data channels missing from the noise covariance: {missing}; whitening requires a noise estimate for every fitted channel (were they excluded from the noise estimate as bad channels?)")
         lead_field = self.lead_field.sub(sensor=names)
