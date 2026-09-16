@@ -129,8 +129,8 @@ def fit_ncrf(
         The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     solver
-        Solver configuration. When supplied, ``mu``, ``use_ES`` and the iteration
-        arguments are ignored; configure them on the solver. ``n_splits`` and
+        Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
+        iteration arguments are ignored; configure them on the solver. ``n_splits`` and
         ``n_workers`` still configure the folds a searching solver is scored on.
 
     Returns
