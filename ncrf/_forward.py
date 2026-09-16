@@ -38,8 +38,6 @@ def _assert_sensors_equal(
         Channel lists to compare.
     desc, reference_desc
         What the two lists describe, for the error message.
-    hint
-        Why the channels have to match, appended to the error message.
 
     Raises
     ------
