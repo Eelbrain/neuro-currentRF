@@ -177,7 +177,7 @@ class ForwardModel:
         """
         wf = _inv_sqrtm(self.noise_covariance)
         if (np.var(wf, axis=1) == 0).any():
-            raise ValueError("Noise covariance data contains flat channels")
+            raise ValueError("Noise covariance data is rank deficient, check if contains flat channels, or have projectors activated.")
         self.whitening_filter = wf
         self.whitened_lead_field = np.dot(wf, self.lead_field)
         self.whitened_noise_covariance = wf.dot(self.noise_covariance).dot(wf.T)
