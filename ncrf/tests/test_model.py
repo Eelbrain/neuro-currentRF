@@ -204,6 +204,22 @@ def test_timeslice_boolean_mask():
     assert by_mask.norm_factor == by_index.norm_factor
 
 
+def test_rejects_inconsistent_arrays():
+    """Directly constructed datasets have to match their metadata."""
+    data = _synthetic_data()
+    meg, covariates = data.meg[0], data.covariates[0]
+
+    with pytest.raises(ValueError, match="1 MEG segment but 2 covariate matrices"):
+        replace(data, covariates=[covariates, covariates])
+    with pytest.raises(ValueError, match="segment 0: MEG has 2 channels, sensor_dim 3 sensors"):
+        replace(data, meg=[meg[:2]])
+    with pytest.raises(ValueError, match="segment 0: covariates have shape"):
+        replace(data, covariates=[covariates[1:]])
+    # e.g., the lag matrix instead of its basis projection
+    with pytest.raises(ValueError, match="were they projected onto the basis"):
+        replace(data, covariates=[np.ones((len(covariates), data.design.n_coefficients + 2))])
+
+
 def _forward(seed: int = 1) -> ForwardModel:
     """Forward model for the sensors of :func:`_synthetic_data`, with 4 sources."""
     rng = np.random.RandomState(seed)

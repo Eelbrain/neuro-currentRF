@@ -275,8 +275,20 @@ class RegressionData:
         return self.whitener is not None
 
     def __post_init__(self) -> None:
+        # Direct construction bypasses from_data(), so check that the arrays fit
+        # the metadata; normalize() and the solvers rely on covariates that are
+        # projected onto the design's basis
+        if len(self.meg) != len(self.covariates):
+            raise ValueError(f"{_count_repr(len(self.meg), 'MEG segment')} but {_count_repr(len(self.covariates), 'covariate matrix', 'covariate matrices')}")
         if len({m.shape[1] for m in self.meg}) > 1:
             raise NotImplementedError("Segments with unequal trial length")
+        n_sensors = len(self.sensor_dim)
+        n_coefficients = self.design.n_coefficients
+        for i, (m, cov) in enumerate(zip(self.meg, self.covariates)):
+            if m.shape[0] != n_sensors:
+                raise ValueError(f"segment {i}: MEG has {_count_repr(m.shape[0], 'channel')}, sensor_dim {_count_repr(n_sensors, 'sensor')}")
+            elif cov.shape != (m.shape[1], n_coefficients):
+                raise ValueError(f"segment {i}: covariates have shape {cov.shape}, expected {(m.shape[1], n_coefficients)} (n_times, n_coefficients); were they projected onto the basis?")
 
     @classmethod
     def from_data(
