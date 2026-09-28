@@ -62,7 +62,7 @@ def get_scaling(
         to scale by.
     """
     by_predictor = list(zip(*stim))  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
-    _assert_varying(by_predictor, design)
+    _check_not_constant(by_predictor, design)
 
     n = sum(len(x.time) for x in by_predictor[0])
     means = [sum(x.sum('time') for x in trials) / n for trials in by_predictor]
@@ -80,7 +80,7 @@ def get_scaling(
     return baseline, _channel_values(scales, design.stim_lens)
 
 
-def _assert_varying(
+def _check_not_constant(
         by_predictor: Sequence[Sequence[NDVar]],
         design: TRFDesign,
 ) -> None:
