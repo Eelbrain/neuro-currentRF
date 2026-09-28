@@ -137,7 +137,7 @@ class ForwardModel:
     @property
     def dc(self) -> int:
         """Number of orientation components per source."""
-        return len(self.space) if self.space else 1
+        return len(self.space) if self.space is not None else 1
 
     @cached_property
     def mne_initializer(self) -> MNEInitializer:
