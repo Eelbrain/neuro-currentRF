@@ -10,7 +10,7 @@ model with training scores and solver-specific provenance.
 # License: BSD (3-clause)
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Any
 from collections.abc import Sequence
@@ -279,12 +279,6 @@ class NCRFEstimator:
         Channel names of ``noise_covariance``, in its order: a subset of the
         lead field's channels. Alignment to the data's channels happens by name
         when the forward model is derived.
-    forward
-        Whitened forward model, used for data with exactly its channels, in
-        order. For other data, :meth:`fit` derives a forward model from
-        ``lead_field`` and ``noise_covariance`` without storing it: fitting never
-        modifies the estimator (the forward model a fit used is
-        ``NCRFFit.model.forward``).
 
     Notes
     -----
@@ -298,7 +292,7 @@ class NCRFEstimator:
     lead_field: NDVar | None = None
     noise_covariance: FloatArray | None = None
     noise_channels: Sequence[str] | None = None
-    forward: ForwardModel | None = None
+    forward: ForwardModel | None = field(init=False, default=None)
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
