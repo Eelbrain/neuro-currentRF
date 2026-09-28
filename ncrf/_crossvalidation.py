@@ -49,6 +49,10 @@ class CrossValidation:
     n_splits: int = 3
     n_workers: int | None = None
 
+    def __post_init__(self) -> None:
+        if self.n_splits < 1:
+            raise ValueError(f"n_splits={self.n_splits!r}: need at least one cross-validation fold")
+
 
 def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionData, RegressionData]]:
     """Train/test fold datasets, shared by every candidate scored on ``data``."""

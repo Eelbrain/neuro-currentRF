@@ -117,6 +117,11 @@ def test_time_series_split_rejects_empty_training_window():
         list(splitter.split(np.empty(110)))
 
 
+def test_cross_validation_rejects_no_folds():
+    with pytest.raises(ValueError, match="n_splits=0: need at least one cross-validation fold"):
+        CrossValidation(n_splits=0)
+
+
 def test_extend_mu_grid():
     champ = ChampLasso(mu=0.1)
     mus = (0.1, 0.2, 0.3)
