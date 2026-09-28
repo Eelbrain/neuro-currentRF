@@ -76,7 +76,7 @@ Attributes of the old fitted model map onto the fit report as follows:
 ``model.residual``                            ``result.scores['cross_fit']``
 ``model.voxelwise_explained_variance``        ``result.voxelwise_explained_variance``
 ``model.Gamma``, ``model.Sigma_b``            ``result.solver_fit.gamma``, ``.sigma_b``
-``model.err``, ``model.objective_vals``       ``result.solver_fit.history.residual``, ``.objective``
+``model.err``, ``model.objective_vals``       ``result.solver_fit.history.relative_change``, ``.objective``
 ``model.cv_info()``                           ``result.cv_info()``
 ``model.cv_mu()``                             ``result.solver.mu``
 ``model.tstart``/``tstep``/``tstop``          ``result.model.design.tstart``/``tstep``/``tstop``

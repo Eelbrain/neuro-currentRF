@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
 #: Names from this tuple are what :attr:`ChampLasso.store` selects from.
-QUANTITIES = ('objective', 'residual', 'theta', 'gamma', 'sigma_b')
+QUANTITIES = ('objective', 'relative_change', 'theta', 'gamma', 'sigma_b')
 
 #: Champagne iterations for the warm covariance solve at ``theta = 0``, used
 #: wherever a usable ``Sigma_b`` is needed before any FASTA step has run:
@@ -55,7 +55,7 @@ class ChampLassoHistory:
     the amount of stored history can range from nothing to the full optimization
     trajectory.
 
-    All lists are indexed by outer iteration. ``residual`` and ``theta`` are
+    All lists are indexed by outer iteration. ``relative_change`` and ``theta`` are
     recorded for every iteration, whereas ``objective``, ``gamma`` and
     ``sigma_b`` come from the covariance update, which is skipped once the
     iterations converge; the last of those hence corresponds to
@@ -67,7 +67,7 @@ class ChampLassoHistory:
         Which of :data:`QUANTITIES` to retain, taken from :attr:`ChampLasso.store`.
     objective
         Objective value after each covariance update.
-    residual
+    relative_change
         Relative change in ``theta`` after each outer iteration (the convergence
         criterion).
     theta, gamma, sigma_b
@@ -75,9 +75,9 @@ class ChampLassoHistory:
         each matches the corresponding attribute of the resulting
         :class:`ChampLassoFit`.
     """
-    store: frozenset[str] = frozenset({'objective', 'residual'})
+    store: frozenset[str] = frozenset({'objective', 'relative_change'})
     objective: list[float] = field(default_factory=list)
-    residual: list[float] = field(default_factory=list)
+    relative_change: list[float] = field(default_factory=list)
     theta: list[FloatArray] = field(default_factory=list)
     gamma: list = field(default_factory=list)
     sigma_b: list = field(default_factory=list)
@@ -383,21 +383,21 @@ class _ChampLassoState:
             Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.solver.n_iterf)
             Theta.learn(theta)
 
-            residual = self._residual(theta, Theta.coefs_)
+            change = self._relative_change(theta, Theta.coefs_)
             theta = Theta.coefs_
             self.theta = theta
-            history.record(residual=residual, theta=theta)
+            history.record(relative_change=change, theta=theta)
             if debug:
                 logger.debug(f"After FASTA: {funct(self.theta)}")
 
-            if residual < self.solver.tol:
+            if change < self.solver.tol:
                 break
 
             self._solve(data, theta)
             if debug or 'objective' in history.store:
                 objective, _ = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
                 history.record(objective=objective)
-                logger.debug(f'{myname}:{i} \t {objective} \t {residual * 100}')
+                logger.debug(f'{myname}:{i} \t {objective} \t {change * 100}')
             history.record(gamma=self.Gamma, sigma_b=self.Sigma_b)
 
     def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
@@ -457,7 +457,7 @@ class _ChampLassoState:
         return np.abs(x)
 
     @staticmethod
-    def _residual(theta0: FloatArray, theta1: FloatArray) -> float:
+    def _relative_change(theta0: FloatArray, theta1: FloatArray) -> float:
         diff = theta1 - theta0
         num = diff ** 2
         den = theta0 ** 2
@@ -556,8 +556,8 @@ class ChampLasso(Solver):
         first local minimum of the ``estimation_stability`` score.
     store
         Which per-iteration quantities to keep in :attr:`ChampLassoFit.history`;
-        any of ``'objective'``, ``'residual'``, ``'theta'``, ``'gamma'`` or
-        ``'sigma_b'``. The two scalars (``'objective'`` and ``'residual'``, the
+        any of ``'objective'``, ``'relative_change'``, ``'theta'``, ``'gamma'`` or
+        ``'sigma_b'``. The two scalars (``'objective'`` and ``'relative_change'``, the
         default) are cheap; the other three retain the full trajectory and are
         correspondingly large.
     """
@@ -568,7 +568,7 @@ class ChampLasso(Solver):
     n_iterf: int = 100
     tol: float = 1e-5
     use_es: bool = False
-    store: Sequence[str] = ('objective', 'residual')
+    store: Sequence[str] = ('objective', 'relative_change')
 
     def __post_init__(self) -> None:
         # a bare string would be iterated character by character

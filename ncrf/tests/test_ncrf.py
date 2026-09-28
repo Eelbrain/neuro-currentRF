@@ -56,12 +56,12 @@ def test_champ_lasso_rejects_invalid_store(store):
 
 
 def test_history_rejects_unknown_quantity():
-    history = ChampLassoHistory(frozenset({'residual'}))
+    history = ChampLassoHistory(frozenset({'relative_change'}))
 
-    history.record(residual=0.5, theta=None)
-    assert history.residual == [0.5]
-    with pytest.raises(ValueError, match='name=.residuals.'):
-        history.record(residuals=0.5)
+    history.record(relative_change=0.5, theta=None)
+    assert history.relative_change == [0.5]
+    with pytest.raises(ValueError, match='name=.relative_changes.'):
+        history.record(relative_changes=0.5)
 
 
 @pytest.mark.slow
@@ -84,9 +84,9 @@ def test_ncrf():
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim_baseline)
     np.testing.assert_equal(result.model.design.stim_scaling[0], (stim - stim_baseline).abs().mean())
     np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
-    # by default, objective/residual accumulate but trajectories are not stored
+    # by default, objective/relative_change accumulate but trajectories are not stored
     assert len(result.solver_fit.history.objective) > 0
-    assert len(result.solver_fit.history.residual) > 0
+    assert len(result.solver_fit.history.relative_change) > 0
     assert result.solver_fit.history.theta == []
     assert result.solver_fit.history.gamma == []
     assert result.solver_fit.history.sigma_b == []
