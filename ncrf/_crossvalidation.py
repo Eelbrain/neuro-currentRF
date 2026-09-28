@@ -44,6 +44,7 @@ class CrossValidation:
         Number of cross-validation folds.
     n_workers
         Number of worker processes, or ``None`` to use the configured default.
+        Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
     """
 
     n_splits: int = 3
