@@ -368,23 +368,21 @@ class RegressionData:
         trial_length = len(first_time)
         design = TRFDesign.from_stim(stim[0], tstep, tstart, tstop, basis_stride, basis_std, stim_is_single)
 
-        row_slice = None
+        row_slice = slice(None)
         if not pad_stim:
             # covariate_from_stim() fills the full MEG axis with zero-padded lag
             # histories. ``row_slice`` keeps only samples whose complete lag
             # window lies inside the stimulus.
             drop_start = max(0, *design.stop_samples)
             drop_stop = max(0, *(-s for s in design.start_samples))
-            if drop_start or drop_stop:
-                row_slice = slice(drop_start, -drop_stop if drop_stop else None)
+            row_slice = slice(drop_start, -drop_stop if drop_stop else None)
+        if not len(range(trial_length)[row_slice]):
+            raise ValueError(f"{meg=}: no samples remain after applying lag-validity crop")
 
-        # Filter length/start per expanded covariate channel
-        fl_rep = np.repeat(design.filter_length, design.stim_lens)
-        st_rep = np.repeat(design.start_samples, design.stim_lens)
-
-        meg_arrays: list[FloatArray] = []
-        covariate_arrays: list[FloatArray] = []
-
+        # Validate all segments before building anything, so that invalid input
+        # fails before any work is done, and before in_place rescales any of the
+        # caller's arrays
+        ys = []
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
             meg_time: UTS = m.get_dim('time')
             if m.get_dim('sensor') != sensor_dim:
@@ -398,27 +396,32 @@ class RegressionData:
             for x in ss:
                 if x.get_dim('time') != meg_time:
                     raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
-
-            # Extract and normalize MEG array
-            y = m.get_data(('sensor', 'time')).astype(np.float64, copy=False)
-            if not in_place and np.shares_memory(y, m.x):
-                y = y.copy()
-
-            # Build basis-projected covariate matrix
-            raw_covs = covariate_from_stim(ss, fl_rep, st_rep)
-
-            if row_slice is not None:
-                y = y[:, row_slice]
-                raw_covs = [x[row_slice] for x in raw_covs]
-            if not y.shape[1]:
-                raise ValueError(f"{meg=}: no samples remain after applying lag-validity crop")
+            y = m.get_data(('sensor', 'time'))[:, row_slice]
             flat = np.var(y, axis=1) == 0
             if flat.any():
                 raise ValueError(f"{meg=}: segment {i_segment} has flat channels ({', '.join(sensor_dim.names[flat])})")
+            ys.append(y)
+        if scale is not None:
+            # also rejects predictors that are constant over time
+            baseline, stim_scaling = get_scaling(stim, design, scale)
+
+        # Filter length/start per expanded covariate channel
+        fl_rep = np.repeat(design.filter_length, design.stim_lens)
+        st_rep = np.repeat(design.start_samples, design.stim_lens)
+
+        meg_arrays: list[FloatArray] = []
+        covariate_arrays: list[FloatArray] = []
+        for m, y, ss in zip(meg, ys, stim):
+            # Normalize MEG array
+            y = y.astype(np.float64, copy=False)
+            if not in_place and np.shares_memory(y, m.x):
+                y = y.copy()
             norm_factor = sqrt(y.shape[1])
             y /= norm_factor
             meg_arrays.append(y)
 
+            # Build basis-projected covariate matrix
+            raw_covs = [x[row_slice] for x in covariate_from_stim(ss, fl_rep, st_rep)]
             covariate_arrays.append(_project_basis(raw_covs, design, norm_factor))
 
         data = cls(meg_arrays, covariate_arrays, design, sensor_dim)
@@ -426,7 +429,6 @@ class RegressionData:
         if scale is not None:
             # the covariate arrays were constructed above and are not shared, so
             # normalization can modify them without copying
-            baseline, stim_scaling = get_scaling(stim, design, scale)
             if stim_scaling is None:
                 # 'spectral': measured on the centered covariates, so center first
                 data = data.normalize(replace(design, stim_baseline=baseline), copy=False)

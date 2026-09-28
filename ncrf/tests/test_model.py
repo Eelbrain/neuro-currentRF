@@ -296,6 +296,25 @@ def test_rejects_constant_predictor(scale):
     assert np.isfinite(data.covariates[0]).all()
 
 
+def test_from_data_validates_before_modifying():
+    """Invalid input is rejected before in_place=True rescales any segment."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 200)
+    x = rng.normal(size=(3, 200))
+    flat = rng.normal(size=(3, 200))
+    flat[1] = 0
+    meg = [NDVar(x.copy(), (SENSOR, time)), NDVar(flat, (SENSOR, time))]
+    stim = [[NDVar(rng.normal(size=200), (time,), name='x')] for _ in meg]
+    constant = NDVar(np.full(200, 2.5), (time,), name='constant')
+
+    with pytest.raises(ValueError, match=r"segment 1 has flat channels \(b\)"):
+        RegressionData.from_data(meg, stim, 0, 0.05, in_place=True)
+    np.testing.assert_array_equal(meg[0].x, x)
+    with pytest.raises(ValueError, match="constant: predictor is constant over time"):
+        RegressionData.from_data(meg[:1], [[constant]], 0, 0.05, in_place=True)
+    np.testing.assert_array_equal(meg[0].x, x)
+
+
 @pytest.mark.parametrize('factor', [0., np.nan, np.inf, -1.])
 def test_normalize_rejects_invalid_scaling(factor):
     """Scaling factors that would fill the covariates with NaN or infinity are rejected."""
