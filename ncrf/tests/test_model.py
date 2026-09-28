@@ -557,6 +557,19 @@ def test_h_with_narrow_basis(tstop, n_atoms):
         assert h.shape == shape
 
 
+def test_design_timing_per_predictor():
+    """A scalar TRF time applies to all predictors, a sequence has one value per predictor."""
+    time = UTS(0, 0.01, 200)
+    stim = [NDVar(np.zeros(200), (time,), name='a'), NDVar(np.zeros(200), (time,), name='b')]
+
+    design = TRFDesign.from_stim(stim, 0.01, -0.1, [0.2, 0.3])
+    assert design.tstart == [-0.1, -0.1]
+    assert design.tstop == [0.2, 0.3]
+    # a one-element sequence is not broadcast
+    with pytest.raises(ValueError, match="need one value per predictor"):
+        TRFDesign.from_stim(stim, 0.01, [-0.1], 0.2)
+
+
 def test_gaussian_basis():
     basis = gaussian_basis(4, np.linspace(0, 1, 11), 0.1)
     shifted_basis = gaussian_basis(4, np.linspace(10, 11, 11), 0.1)

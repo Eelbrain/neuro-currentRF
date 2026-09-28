@@ -144,12 +144,8 @@ class TRFDesign:
             Whether the original stimulus input was a single predictor per segment.
         """
         stim_dims = stim_dimensions(stim)
-        tstart = list(tstart) if isinstance(tstart, Sequence) else [tstart]
-        tstop = list(tstop) if isinstance(tstop, Sequence) else [tstop]
-        if len(tstart) == 1:
-            tstart = tstart * len(stim_dims)
-        if len(tstop) == 1:
-            tstop = tstop * len(stim_dims)
+        tstart = list(tstart) if isinstance(tstart, Sequence) else [tstart] * len(stim_dims)
+        tstop = list(tstop) if isinstance(tstop, Sequence) else [tstop] * len(stim_dims)
         if len(tstart) != len(stim_dims) or len(tstop) != len(stim_dims):
             raise ValueError(f"{tstart=}, {tstop=}: need one value per predictor ({len(stim_dims)})")
 
