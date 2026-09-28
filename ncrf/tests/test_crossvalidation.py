@@ -55,7 +55,7 @@ def test_make_folds(monkeypatch):
     test_data = object()
     data = Mock()
     data.design.filter_length = [2, 5]
-    data.meg = [[np.empty(10)]]
+    data.samples = np.arange(10)
     data.timeslice.side_effect = [train_data, test_data]
 
     splitter = Mock()

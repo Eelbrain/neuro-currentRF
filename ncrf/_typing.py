@@ -17,5 +17,6 @@ ObjectiveFunction = Callable[[FloatArray], float]
 GradientFunction = Callable[[FloatArray], FloatArray]
 MuArg = float | Sequence[float] | FloatArray | Literal["auto"]
 NoiseArg = mne.Covariance | NDVar
-ScaleArg = Literal["l1", "l2", "spectral"] | None
+Scale = Literal["l1", "l2", "spectral"]
+ScaleArg = Scale | None
 StimDimensions = Categorial | Scalar | Space

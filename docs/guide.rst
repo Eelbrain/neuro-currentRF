@@ -30,12 +30,12 @@ Normalization
 -------------
 
 The covariates that an NCRF is fit against can be centered and scaled.
-:class:`~ncrf.RegressionData` handles this normalization: it computes the
-values, applies them to the covariates, and records them on its ``design``.
+:class:`~ncrf.RegressionData` handles this normalization: the values are recorded
+on its ``design`` and applied whenever the covariates are built from the
+predictors, and :meth:`~ncrf.RegressionData.from_data` derives them from the data.
 
-:meth:`~ncrf.RegressionData.from_data` and :func:`~ncrf.fit_ncrf` take one
-``scale`` argument. Each predictor's mean is subtracted, and each covariate
-channel is divided by one factor:
+Each predictor's mean is subtracted, and each covariate channel is
+divided by a scaling factor, determined through the ``scale`` argument:
 
 - ``'spectral'`` (the default): the average spectral norm of the channel's
   covariates. This equalizes covariate scales across predictor variables, so that
@@ -46,8 +46,8 @@ channel is divided by one factor:
 
 The centering and the ``'l1'``/``'l2'`` factors are properties of the predictor,
 and are measured on all of its samples. The ``'spectral'`` norm is a property of
-the covariates that were built from it, and is measured on the rows that carry a
-complete lag window.
+the covariates that were built from it, and is measured on the samples that carry
+a complete lag window.
 
 Centering and scaling are a single choice because they only make sense together.
 M/EEG data is high-pass filtered, so an uncentered predictor's mean would
@@ -68,9 +68,8 @@ Applying a model to new data
 A fitted model can only be applied to covariates on the scale it was fit on --
 multiplying coefficients learned from ``(stim - baseline) / scaling`` with a raw
 stimulus would silently produce wrong predictions and scores. New data therefore
-has to carry the same normalization as the training data. Prepare it
-unnormalized and apply the model's own normalization with
-:meth:`~ncrf.RegressionData.normalize`::
+has to carry the same normalization as the training data. Apply the model's own
+normalization with :meth:`~ncrf.RegressionData.normalize`::
 
     test_data = RegressionData.from_data(
         [test_meg],
@@ -84,15 +83,16 @@ unnormalized and apply the model's own normalization with
     scores = result.model.evaluate(test_data)
 
 Note that this uses the training data's normalization values, which is what
-makes the scores comparable; re-deriving them from the test data would put the
-covariates on a different scale.
+makes the scores comparable; values derived from the test data would put the
+covariates on a different scale. The covariates are built from the raw
+predictors, so a dataset can be normalized any number of times with any
+compatible design; ``scale=None`` merely skips deriving values that
+:meth:`~ncrf.RegressionData.normalize` would replace anyway.
 
 :meth:`~ncrf.NCRF.predict`, :meth:`~ncrf.NCRF.evaluate` and
 :meth:`~ncrf.NCRF.voxelwise_explained_variance` raise an error when ``data``
 carries a different normalization, or when its design describes different
-predictors, TRF timings, or a different basis. Normalizing data that is already
-normalized is a no-op when the values agree, and an error otherwise, so a dataset
-can safely be passed to :meth:`~ncrf.RegressionData.normalize` more than once.
+predictors, TRF timings, or a different basis.
 
 Prediction units
 ^^^^^^^^^^^^^^^^

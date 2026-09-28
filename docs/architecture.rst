@@ -11,8 +11,8 @@ Pipeline
 
 The most important classes are:
 
-* :class:`~ncrf.RegressionData` prepares and stores the sensor data, lagged
-  basis-projected covariates, and the metadata needed to reconstruct TRFs.
+* :class:`~ncrf.RegressionData` holds the sensor data and predictors together
+  with the design, and derives the arrays the solver consumes from them.
 * :class:`~ncrf.NCRFEstimator` owns the forward model and whitening transform,
   selects a solver candidate through cross-validation, and runs the final fit.
 * :class:`~ncrf.Solver` implementations, such as :class:`~ncrf.ChampLasso`,
@@ -55,11 +55,11 @@ layouts, creates :class:`~ncrf.RegressionData`, and delegates the fit to
 Data and design
 ---------------
 
-:class:`~ncrf.RegressionData` contains numeric sensor arrays and lagged stimulus
-covariates projected into a Gaussian basis. Its design metadata records the TRF
-lags, basis, predictor dimensions and names, and the normalization the covariates
-carry (``stim_baseline`` and ``stim_scaling``, applied by
-:meth:`~ncrf.RegressionData.normalize`). The same compact metadata is stored on
+:class:`~ncrf.RegressionData` holds the M/EEG segments and their predictors as
+NDVars. Its design records the TRF lags, basis, predictor dimensions and names,
+and the covariates' normalization (``stim_baseline`` and ``stim_scaling``); the
+sensor arrays and the lagged, basis-projected covariates the solver consumes are
+derived from the raw data and the design on demand. The same compact metadata is stored on
 the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
 without retaining the training dataset, and so that the model can check that new
 data is on the scale it was fit on.

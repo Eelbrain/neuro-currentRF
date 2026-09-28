@@ -84,12 +84,8 @@ class TRFDesign:
         :meth:`from_stim`. ``None`` when the design was constructed directly with
         a custom :attr:`~ncrf.TRFDesign.basis`, since no single stride describes it then.
     stim_baseline, stim_scaling
-        Centering and scaling applied to the covariates during data preparation,
-        one value per expanded covariate channel, or ``None`` when that step was
-        not applied. Set by :meth:`~ncrf.RegressionData.normalize`; a design
-        that has them set describes covariates that carry them.
-        :attr:`~ncrf.NCRF.h_scaled` uses :attr:`~ncrf.TRFDesign.stim_scaling` to restore the
-        original stimulus scale.
+        Centering and scaling of the covariates, one value per expanded covariate
+        channel, or ``None`` when that step is not applied.
     scale
         Which scaling produced :attr:`~ncrf.TRFDesign.stim_scaling` (``'l1'``, ``'l2'`` or
         ``'spectral'``), or ``None`` when the covariates were left unscaled.
@@ -229,47 +225,28 @@ class TRFDesign:
             i += n
         return out
 
-    def normalization_to(
-            self,
-            target: TRFDesign,
-            *,
-            assert_applied: bool = False,
-    ) -> tuple[FloatArray | None, FloatArray | None]:
-        """The centering and scaling that take covariates carrying this design to ``target``.
+    def assert_same_normalization(self, other: TRFDesign) -> None:
+        """Check that ``other`` records the same centering and scaling as this design.
+
+        Coefficients are fit against covariates carrying their design's
+        normalization, so data on any other scale would produce wrong predictions.
 
         Parameters
         ----------
-        target
-            Design describing the normalization the covariates should end up with.
-        assert_applied
-            Require ``target``'s normalization to be applied already, i.e. raise
-            instead of returning a step that is still missing. Use this where the
-            covariates have to be on ``target``'s scale, such as applying a fitted model.
-
-        Returns
-        -------
-        baseline
-            ``target``'s centering, or ``None`` when it is already applied.
-        scaling
-            ``target``'s scaling, or ``None`` when it is already applied.
+        other
+            Design of the data the coefficients are applied to.
 
         Raises
         ------
         ValueError
-            If a step that is already applied differs from ``target``, since it
-            cannot be applied a second time; with ``assert_applied``, also if a
-            step is still missing.
+            If the centering, the scaling, or ``scale`` differ.
         """
         for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
-            mine, theirs = getattr(self, attr), getattr(target, attr)
-            if (assert_applied or mine is not None) and mine is not theirs and not np.array_equal(mine, theirs):
-                raise ValueError(f"covariates carry different {name} than the design records; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
-        if (assert_applied or self.stim_scaling is not None) and self.scale != target.scale:
-            raise ValueError(f"covariates carry {self.scale!r} scaling, the design records {target.scale!r}; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
-        return (
-            target.stim_baseline if self.stim_baseline is None else None,
-            target.stim_scaling if self.stim_scaling is None else None,
-        )
+            mine, theirs = getattr(self, attr), getattr(other, attr)
+            if mine is not theirs and not np.array_equal(mine, theirs):
+                raise ValueError(f"data carries different {name} than the model was fit with; apply the model's normalization with data.normalize(model.design)")
+        if self.scale != other.scale:
+            raise ValueError(f"data carries {other.scale!r} scaling, the model was fit with {self.scale!r}; apply the model's normalization with data.normalize(model.design)")
 
     def assert_compatible(self, other: TRFDesign) -> None:
         """Check that ``other`` describes the same coefficient space as this design.

@@ -98,7 +98,7 @@ class NCRF:
         if design is self.design:
             return self.theta
         self.design.assert_compatible(design)
-        design.normalization_to(self.design, assert_applied=True)
+        self.design.assert_same_normalization(design)
         return self.theta
 
     @cached_property
@@ -124,9 +124,9 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared dataset with a design compatible with the training data, and
-            carrying the same normalization (prepare it with ``scale=None`` and
-            apply :meth:`~ncrf.RegressionData.normalize` with :attr:`design`).
+            Dataset with a design compatible with the training data, and carrying
+            the same normalization (apply :meth:`~ncrf.RegressionData.normalize`
+            with :attr:`design`).
         whitened
             Predict in the whitened, variance-normalized sensor space the model is
             fit in, i.e. the space :meth:`evaluate` scores in, rather than in the
@@ -164,8 +164,8 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared dataset with a design compatible with the training data, and
-            carrying the same normalization (see :meth:`predict`).
+            Dataset with a design compatible with the training data, and carrying
+            the same normalization (see :meth:`predict`).
         metrics
             Metric functions such as :func:`~ncrf.explained_variance`, each
             mapping observed and predicted per-segment arrays to a scalar.

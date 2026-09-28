@@ -41,7 +41,6 @@ def fit_ncrf(
         n_iterc: int = 10,
         n_iterf: int = 100,
         scale: ScaleArg = 'spectral',
-        in_place: bool = False,
         mu: MuArg = 'auto',
         tol: float = 1e-3,
         verbose: bool = False,
@@ -99,12 +98,8 @@ def fit_ncrf(
         deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
         ``'spectral'`` (average spectral norm of the covariates, which equalizes
         covariate scales across predictor variables; the default) scale. Use
-        ``None`` to leave ``stim`` untouched. :attr:`~ncrf.NCRF.h_scaled` undoes the
-        scaling, whichever one is used.
-    in_place
-        By default, ``meg`` is copied to make it independent of the object supplied
-        to the function. Set to ``True`` to skip the copy and modify it in place,
-        saving memory when working with large datasets. ``stim`` is never modified.
+        ``None`` to leave the covariates on their raw scale.
+        :attr:`~ncrf.NCRF.h_scaled` undoes the scaling, whichever one is used.
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
@@ -224,7 +219,7 @@ def fit_ncrf(
 
     ds = RegressionData.from_data(
         meg_trials, stim_trials, tstart, tstop, basis_stride,
-        scale, stim_is_single, basis_std=basis_std, in_place=in_place,
+        scale, stim_is_single, basis_std=basis_std,
     )
 
     # the estimator trims the forward model to the noise channels, and its fit()

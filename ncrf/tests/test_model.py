@@ -2,6 +2,7 @@
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 from dataclasses import dataclass, replace
+import pickle
 from unittest.mock import MagicMock, Mock
 
 import mne
@@ -156,10 +157,12 @@ def test_merge_scores_rejects_shadowing():
 
 
 def test_whitening_guard():
-    data = RegressionData.__new__(RegressionData)
+    raw = _synthetic_data()
     whitening_filter = np.eye(3) * 2
-    data.whitener = whitening_filter
-    data.sensor_dim = SENSOR
+    data = raw.whiten(whitening_filter)
+    assert data.whitener is whitening_filter
+    np.testing.assert_allclose(data.responses[0], 2 * raw.responses[0])
+    np.testing.assert_array_equal(data.covariates[0], raw.covariates[0])
 
     # the same filter is a no-op, a different filter an error
     assert data.whiten(whitening_filter) is data
@@ -170,7 +173,7 @@ def test_whitening_guard():
     forward = _forward()
     with pytest.raises(ValueError, match="whitened with a different filter"):
         forward.whiten(data)
-    data.whitener = forward.whitening_filter
+    data = replace(data, whitener=forward.whitening_filter)
     assert forward.whiten(data) is data
 
 
@@ -193,31 +196,64 @@ def _synthetic_data(
 
 def test_timeslice_boolean_mask():
     data = _synthetic_data()
-    mask = np.zeros(data.meg[0].shape[1], dtype=bool)
+    mask = np.zeros(len(data.samples), dtype=bool)
     mask[10:50] = True
 
     by_mask = data.timeslice(mask)
     by_index = data.timeslice(np.flatnonzero(mask))
 
-    np.testing.assert_array_equal(by_mask.meg[0], by_index.meg[0])
+    np.testing.assert_array_equal(by_mask.samples, by_index.samples)
+    np.testing.assert_array_equal(by_mask.responses[0], by_index.responses[0])
     np.testing.assert_array_equal(by_mask.covariates[0], by_index.covariates[0])
     assert by_mask.norm_factor == by_index.norm_factor
 
 
-def test_rejects_inconsistent_arrays():
-    """Directly constructed datasets have to match their metadata."""
-    data = _synthetic_data()
-    meg, covariates = data.meg[0], data.covariates[0]
+def test_timeslice_rescales():
+    """A slice's arrays are the full dataset's rows, rescaled to the slice's own norm factor."""
+    data = _synthetic_data('l2').whiten(np.eye(3) * 2)
+    idx = np.arange(10, 50)
 
-    with pytest.raises(ValueError, match="1 MEG segment but 2 covariate matrices"):
-        replace(data, covariates=[covariates, covariates])
-    with pytest.raises(ValueError, match="segment 0: MEG has 2 channels, sensor_dim 3 sensors"):
-        replace(data, meg=[meg[:2]])
-    with pytest.raises(ValueError, match="segment 0: covariates have shape"):
-        replace(data, covariates=[covariates[1:]])
-    # e.g., the lag matrix instead of its basis projection
-    with pytest.raises(ValueError, match="were they projected onto the basis"):
-        replace(data, covariates=[np.ones((len(covariates), data.design.n_coefficients + 2))])
+    fold = data.timeslice(idx)
+
+    assert fold.is_whitened
+    mul = data.norm_factor / fold.norm_factor
+    np.testing.assert_allclose(fold.responses[0], data.responses[0][:, idx] * mul)
+    np.testing.assert_allclose(fold.covariates[0], data.covariates[0][idx] * mul)
+
+
+def test_pickle_ships_raw_inputs():
+    """Pickles carry the inputs and design; the solver's arrays are rebuilt on demand."""
+    data = _synthetic_data('l2').whiten(np.eye(3) * 2)
+    responses, covariates = data.responses, data.covariates  # populate the caches
+
+    restored = pickle.loads(pickle.dumps(data))
+
+    assert 'responses' not in restored.__dict__ and 'covariates' not in restored.__dict__
+    np.testing.assert_array_equal(restored.samples, data.samples)
+    np.testing.assert_array_equal(restored.whitener, data.whitener)
+    np.testing.assert_allclose(restored.responses[0], responses[0])
+    np.testing.assert_allclose(restored.covariates[0], covariates[0])
+
+
+def test_rejects_inconsistent_inputs():
+    """Directly constructed datasets have to match their design."""
+    data = _synthetic_data()
+    meg, stim = data.meg[0], data.stim[0]
+
+    with pytest.raises(ValueError, match="1 MEG segment but 2 stimulus lists"):
+        replace(data, stim=[stim, stim])
+    with pytest.raises(ValueError, match="segment 1: combining data segments with different sensor"):
+        replace(data, meg=[meg, meg.sub(sensor=['a', 'b'])], stim=[stim, stim])
+    with pytest.raises(ValueError, match="segment 0: stim dimensions"):
+        replace(data, stim=[stim[:1]])
+    with pytest.raises(ValueError, match="time axis incompatible with meg"):
+        replace(data, stim=[[stim[0], NDVar(stim[1].x, (UTS(1, 0.01, 200),), name='quiet')]])
+    with pytest.raises(ValueError, match="does not match design.tstep"):
+        replace(data, design=replace(data.design, tstep=0.02))
+    with pytest.raises(ValueError, match="samples out of range"):
+        replace(data, samples=[0, 200])
+    with pytest.raises(ValueError, match="samples is empty"):
+        replace(data, samples=[])
 
 
 def _forward(seed: int = 1) -> ForwardModel:
@@ -244,30 +280,39 @@ def test_normalize_matches_from_data(scale):
     np.testing.assert_allclose(raw.covariates[0], _synthetic_data().covariates[0])
 
 
-def test_normalize_does_not_write_through_shared_covariates():
-    """Datasets sharing covariate arrays must not be normalized behind each other's back."""
-    data = _synthetic_data()
-    design = _synthetic_data('l2').design
-    before = data.covariates[0].copy()
+@pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
+def test_normalize_derives_scale(scale):
+    """normalize(scale) derives the values from the dataset itself, which is what from_data uses."""
+    expected = _synthetic_data(scale)
+    raw = _synthetic_data()
 
-    whitened = data.whiten(np.eye(3))
-    assert whitened.covariates[0] is data.covariates[0]  # whitening only copies meg
-    normalized = whitened.normalize(design)
+    derived = raw.normalize(scale)
 
-    np.testing.assert_allclose(normalized.covariates[0], _synthetic_data('l2').covariates[0])
-    # the dataset the whitened view was derived from is untouched
-    np.testing.assert_array_equal(data.covariates[0], before)
-    assert data.design.stim_scaling is None
+    assert derived.design.scale == scale
+    np.testing.assert_array_equal(derived.design.stim_baseline, expected.design.stim_baseline)
+    np.testing.assert_array_equal(derived.design.stim_scaling, expected.design.stim_scaling)
+    np.testing.assert_allclose(derived.covariates[0], expected.covariates[0])
+    # the handed-over 'spectral' covariates equal ones rebuilt from the predictors
+    rebuilt = replace(derived, design=derived.design)
+    assert 'covariates' not in rebuilt.__dict__
+    np.testing.assert_allclose(rebuilt.covariates[0], derived.covariates[0])
+    with pytest.raises(ValueError, match="need one of"):
+        raw.normalize('l3')
 
 
-def test_normalize_rejects_renormalization():
-    data = _synthetic_data('l2')
-    other = _synthetic_data('l2', seed=2)
+def test_normalize_replaces_normalization():
+    """Covariates are built from the raw predictors, so any normalization can be swapped for another."""
+    spectral = _synthetic_data('spectral')
+    l2 = _synthetic_data('l2')
 
-    with pytest.raises(ValueError, match="carry different centering"):
-        data.normalize(other.design)
+    renormalized = spectral.normalize(l2.design)
+
+    assert renormalized.design is l2.design
+    np.testing.assert_allclose(renormalized.covariates[0], l2.covariates[0])
+    # the source dataset is unchanged
+    assert spectral.design.scale == 'spectral'
     # applying the same normalization again is a no-op
-    np.testing.assert_array_equal(data.normalize(data.design).covariates[0], data.covariates[0])
+    np.testing.assert_array_equal(spectral.normalize(spectral.design).covariates[0], spectral.covariates[0])
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
@@ -296,23 +341,17 @@ def test_rejects_constant_predictor(scale):
     assert np.isfinite(data.covariates[0]).all()
 
 
-def test_from_data_validates_before_modifying():
-    """Invalid input is rejected before in_place=True rescales any segment."""
+def test_from_data_rejects_flat_channels():
+    """A flat channel makes the noise covariance rank deficient, so it is rejected up front."""
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
-    x = rng.normal(size=(3, 200))
     flat = rng.normal(size=(3, 200))
     flat[1] = 0
-    meg = [NDVar(x.copy(), (SENSOR, time)), NDVar(flat, (SENSOR, time))]
+    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time)), NDVar(flat, (SENSOR, time))]
     stim = [[NDVar(rng.normal(size=200), (time,), name='x')] for _ in meg]
-    constant = NDVar(np.full(200, 2.5), (time,), name='constant')
 
     with pytest.raises(ValueError, match=r"segment 1 has flat channels \(b\)"):
-        RegressionData.from_data(meg, stim, 0, 0.05, in_place=True)
-    np.testing.assert_array_equal(meg[0].x, x)
-    with pytest.raises(ValueError, match="constant: predictor is constant over time"):
-        RegressionData.from_data(meg[:1], [[constant]], 0, 0.05, in_place=True)
-    np.testing.assert_array_equal(meg[0].x, x)
+        RegressionData.from_data(meg, stim, 0, 0.05)
 
 
 @pytest.mark.parametrize('factor', [0., np.nan, np.inf, -1.])
@@ -385,8 +424,9 @@ def test_predict_rejects_mismatched_normalization():
 def test_rejects_sensor_mismatch():
     """Data whose sensors differ from the forward model must not be whitened silently."""
     data = _synthetic_data('l2')
+    meg = data.meg[0]
     # same channels in a different order: whitening would apply to the wrong channels
-    reordered = replace(data, sensor_dim=Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']))
+    reordered = replace(data, meg=[NDVar(meg.x, (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']), meg.time))])
 
     model = _model(data.design, data.design.n_coefficients)
     with pytest.raises(ValueError, match="same channels in a different order"):
@@ -395,7 +435,7 @@ def test_rejects_sensor_mismatch():
         model.evaluate(reordered)
 
     # a genuinely different channel set names the channels that differ
-    renamed = replace(data, sensor_dim=Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']))
+    renamed = replace(data, meg=[NDVar(meg.x, (Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']), meg.time))])
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
 

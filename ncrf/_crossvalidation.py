@@ -60,7 +60,7 @@ def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionDat
     """Train/test fold datasets, shared by every candidate scored on ``data``."""
     d = max(data.design.filter_length)
     kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
-    return [(data.timeslice(train), data.timeslice(test)) for train, test in kf.split(data.meg[0][0])]
+    return [(data.timeslice(train), data.timeslice(test)) for train, test in kf.split(data.samples)]
 
 
 def _initialize_worker(estimator: NCRFEstimator, data: RegressionData, n_splits: int) -> None:

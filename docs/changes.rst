@@ -106,9 +106,9 @@ A fitted :class:`~ncrf.NCRF` can be applied to any compatible dataset:
 :meth:`~ncrf.NCRF.predict` returns predictions in the units of the M/EEG data,
 and :meth:`~ncrf.NCRF.evaluate` scores them in whitened sensor space with one or
 more metrics (:func:`~ncrf.explained_variance`, :func:`~ncrf.l2_error`, or a
-custom one). The new data has to carry the training data's normalization; prepare
-it with ``scale=None`` and apply :meth:`~ncrf.RegressionData.normalize` with the
-model's ``design`` (see :doc:`guide`).
+custom one). The new data has to carry the training data's normalization; apply
+:meth:`~ncrf.RegressionData.normalize` with the model's ``design`` (see
+:doc:`guide`).
 
 Normalization
 """""""""""""
@@ -134,7 +134,7 @@ fitted model is applied to new data (see :doc:`guide`).
   subtracted with ``normalize``, so the default fit scaled the covariates without
   centering the predictors; it now centers them.
 - Normalization is applied to the covariates rather than to ``stim``, which is
-  never modified; ``in_place`` now only concerns ``meg``.
+  never modified.
 - :attr:`ncrf.NCRF.h_scaled` now also undoes spectral scaling; previously ``h``
   from a post-normalized fit was not in stimulus units. (The direction of the
   correction was also wrong; see `Bug fixes`_.)
