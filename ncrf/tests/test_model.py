@@ -576,7 +576,7 @@ def test_covariate_from_stim():
     covariates = covariate_from_stim([stim, diff], filter_lengths, start)
 
     conc = concatenate([stim, diff.clip(0)], Categorial('rep', ['on', 'off']))
-    covariates_conc = covariate_from_stim(conc, filter_lengths, start)
+    covariates_conc = covariate_from_stim([conc], filter_lengths, start)
 
     assert np.array(covariates).shape == np.array(covariates_conc).shape
     np.testing.assert_allclose(np.array(covariates)[0, 0, 0], np.array(covariates_conc)[0, 0, 0], rtol=0.001)
