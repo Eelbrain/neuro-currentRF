@@ -64,15 +64,14 @@ the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
 without retaining the training dataset, and so that the model can check that new
 data is on the scale it was fit on.
 
-:class:`~ncrf.NCRFEstimator` wraps a forward model built from a lead field and
-sensor noise covariance, matched by channel name: the noise channels have to be a
-subset of the lead field's channels, and the lead field is trimmed to the
-channels the noise covers. At fit time the forward model is trimmed further to
-the sensors of the data, since it can legitimately cover more channels, while
-data the forward model does not cover is an error. The estimator
-whitens the data before candidate selection and fitting; the fitted
-:class:`~ncrf.NCRF` retains the forward state needed to apply the same transform
-when predicting.
+:class:`~ncrf.NCRFEstimator` holds a lead field and a sensor noise covariance,
+matched by channel name: the noise channels have to be a subset of the lead
+field's channels. At fit time it derives the whitened forward model for exactly
+the sensors of the data, since whitening is not separable per channel; a data
+channel missing from the lead field or the noise covariance is an error. The
+derived forward model is not stored on the estimator. The estimator whitens the
+data before candidate selection and fitting; the fitted :class:`~ncrf.NCRF`
+retains the forward state needed to apply the same transform when predicting.
 
 Solvers and cross-validation
 ----------------------------

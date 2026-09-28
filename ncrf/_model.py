@@ -280,8 +280,11 @@ class NCRFEstimator:
         lead field's channels. Alignment to the data's channels happens by name
         when the forward model is derived.
     forward
-        Whitened forward-model state for the channels of the data most recently
-        fit; ``None`` until :meth:`fit` derives it.
+        Whitened forward model, used for data with exactly its channels, in
+        order. For other data, :meth:`fit` derives a forward model from
+        ``lead_field`` and ``noise_covariance`` without storing it: fitting never
+        modifies the estimator (the forward model a fit used is
+        ``NCRFFit.model.forward``).
 
     Notes
     -----
@@ -332,8 +335,7 @@ class NCRFEstimator:
     def _forward_for(self, sensor: Sensor) -> ForwardModel:
         """Whitened forward-model state for exactly ``sensor``'s channels.
 
-        Returns the already-derived :attr:`forward` when it covers these
-        channels in this order.
+        Returns :attr:`forward` when it covers these channels in this order.
 
         Raises
         ------
@@ -404,7 +406,7 @@ class NCRFEstimator:
             mismatch would silently produce wrong coefficients.
         """
         if self.forward is None:
-            raise ValueError("estimator has no forward model yet; fit() derives it from the data's channels")
+            raise ValueError("estimator has no forward model; use fit(), which derives one from the data's channels")
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         if not data.is_whitened:
             raise ValueError("data is not whitened; use NCRFEstimator.fit(), which whitens the data, or whiten it with self.forward.whiten(data)")
