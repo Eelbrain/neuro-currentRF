@@ -43,8 +43,9 @@ class CrossValidation:
     n_splits
         Number of cross-validation folds.
     n_workers
-        Number of worker processes, or ``None`` to use the configured default.
-        Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
+        Number of worker processes, or ``None`` to derive it from Eelbrain's
+        ``n_workers`` setting (see :func:`eelbrain.configure`). Set to ``0`` to
+        run without :mod:`multiprocessing`, for debugging.
     """
 
     n_splits: int = 3
@@ -182,10 +183,10 @@ def crossvalidate(
     logging.getLogger(__name__).info('Crossvalidation initiated!')
     n_workers = cv.n_workers
     if n_workers is None:
-        n = CONFIG['n_workers'] or 1  # by default this is cpu_count()
-        # Use a fraction of the CPUs to avoid oversubscribing them, since each
-        # worker's BLAS already runs its own thread pool
-        n_workers = ceil(n / 8)
+        # Eelbrain's setting is cpu_count() by default, and 0 when multiprocessing
+        # is disabled. Use a fraction of the CPUs to avoid oversubscribing them,
+        # since each worker's BLAS already runs its own thread pool
+        n_workers = ceil(CONFIG['n_workers'] / 8)
 
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:

@@ -118,9 +118,9 @@ def fit_ncrf(
     n_splits
         Number of cross-validation folds. By default it uses 3-fold cross-validation.
     n_workers
-        Number of worker processes for cross-validation. If ``None``, use the
-        library's configured default. Set to ``0`` to run without
-        :mod:`multiprocessing`, for debugging.
+        Number of worker processes for cross-validation. If ``None``, derive it
+        from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).
+        Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
         choose the best ``mu``. (``False`` by default, see :class:`~ncrf.ChampLasso`).
