@@ -178,6 +178,8 @@ def crossvalidate(
     n_workers = cv.n_workers
     if n_workers is None:
         n = CONFIG['n_workers'] or 1  # by default this is cpu_count()
+        # Use a fraction of the CPUs to avoid oversubscribing them, since each
+        # worker's BLAS already runs its own thread pool
         n_workers = ceil(n / 8)
 
     results = []
