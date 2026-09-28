@@ -161,9 +161,8 @@ def covariate_from_stim(
     Parameters
     ----------
     stims
-        Predictor variables, one NDVar per predictor. Each predictor must provide a
-        ``time`` axis and may have at most one additional feature dimension before
-        time.
+        Predictor variables. Each predictor must provide a ``time`` axis and
+        may have at most one additional feature dimension.
     Ms
         Filter lengths, in samples, for each expanded predictor channel.
     starts
