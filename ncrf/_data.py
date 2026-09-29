@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from math import sqrt
-from typing import Any, TYPE_CHECKING, get_args
+from typing import Any, get_args
 from collections.abc import Iterator, Sequence
 
 from eelbrain import NDVar, Sensor, UTS
@@ -18,13 +18,10 @@ import numpy.typing as npt
 from scipy import linalg
 
 from ._trf_design import TRFDesign, stim_dimensions
-from ._forward import _assert_sensors_equal
+from ._forward import ForwardModel, _assert_sensors_equal
 from ._pickle import pickle_state
 from ._repr import _count_repr
 from ._typing import FloatArray, IndexArray, Scale, ScaleArg, TrialData
-
-if TYPE_CHECKING:
-    from ._forward import ForwardModel
 
 
 SCALES: tuple[Scale, ...] = get_args(Scale)
