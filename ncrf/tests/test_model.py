@@ -329,6 +329,8 @@ def test_normalize_derives_scale(scale):
     np.testing.assert_allclose(rebuilt.covariates[0], derived.covariates[0])
     with pytest.raises(ValueError, match="need one of"):
         raw.normalize('l3')
+    with pytest.raises(ValueError, match="need None or one of"):
+        _synthetic_data('l3')
 
 
 def test_normalize_replaces_normalization():

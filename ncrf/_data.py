@@ -381,6 +381,8 @@ class RegressionData:
             raise ValueError("meg is empty")
         elif len(meg) != len(stim):
             raise ValueError("meg and stim have different lengths")
+        elif scale is not None and scale not in SCALES:
+            raise ValueError(f"{scale=}, need None or one of {SCALES}")
 
         # The design is fully determined by the first segment's predictors
         time: UTS = meg[0].get_dim('time')
