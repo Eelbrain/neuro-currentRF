@@ -338,11 +338,23 @@ class NCRFEstimator:
     call :meth:`fit` with a configured :class:`Solver`. The returned
     :class:`NCRFFit` keeps the reusable model separate from solver-specific
     fitted state.
+
+    Derived forward models are cached by channel set, so repeated fits to data
+    with the same channels share one. The estimator's inputs are treated as
+    immutable; replace the estimator rather than modifying them.
     """
 
     lead_field: NDVar | None = None
     noise_covariance: FloatArray | None = None
     noise_channels: Sequence[str] | None = None
+
+    @cached_property
+    def _forwards(self) -> dict[tuple[str, ...], ForwardModel]:
+        """Forward models derived by :meth:`_forward_for`, keyed by channel names."""
+        return {}
+
+    def __getstate__(self) -> dict[str, Any]:
+        return pickle_state(self)
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
@@ -386,6 +398,9 @@ class NCRFEstimator:
             covariance; fitting needs both for every data channel.
         """
         names = list(sensor.names)
+        forward = self._forwards.get(tuple(names))
+        if forward is not None:
+            return forward
         if self.lead_field is None:
             raise ValueError("estimator has no lead field to derive a forward model from; construct it with from_lead_field()")
         lead_field_names = set(self.lead_field.get_dim('sensor').names)
@@ -407,7 +422,8 @@ class NCRFEstimator:
         else:
             g = lead_field.get_data(dims=('sensor', 'source')).astype(np.float64)
             space = None
-        return ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
+        forward = self._forwards[tuple(names)] = ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
+        return forward
 
     def __repr__(self) -> str:
         if self.lead_field is None:

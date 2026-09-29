@@ -554,6 +554,12 @@ def test_fit_trims_forward_to_data():
     np.testing.assert_array_equal(model.forward.lead_field, lead_field.x[[2, 0]])
     np.testing.assert_array_equal(model.forward.noise_covariance, noise.data[np.ix_([2, 0], [2, 0])])
 
+    # the derived forward is reused for further fits to the same channels, but
+    # does not travel with a pickled estimator
+    assert estimator._forward_for(sensor_sub) is model.forward
+    assert estimator.fit(data, _ShapedZeroSolver()).model.forward is model.forward
+    assert '_forwards' not in pickle.loads(pickle.dumps(estimator)).__dict__
+
     # the derived forward is identical to one built from the trimmed inputs directly
     reference = NCRFEstimator.from_lead_field(lead_field.sub(sensor=['c', 'a']), mne.Covariance(noise.data[np.ix_([2, 0], [2, 0])], ['c', 'a'], [], [], 0))._forward_for(sensor_sub)
     np.testing.assert_array_equal(model.forward.whitening_filter, reference.whitening_filter)
