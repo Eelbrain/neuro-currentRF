@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from math import sqrt
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, get_args
 from collections.abc import Iterator, Sequence
 
 from eelbrain import NDVar, Sensor, UTS
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from ._forward import ForwardModel
 
 
-SCALES = ('l1', 'l2', 'spectral')
+SCALES: tuple[Scale, ...] = get_args(Scale)
 
 
 def get_scaling(
