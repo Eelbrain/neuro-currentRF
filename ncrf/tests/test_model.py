@@ -165,13 +165,19 @@ def test_whitening_guard():
     with pytest.raises(ValueError, match="whitened with a different forward model"):
         data.whiten(_forward())
 
-    # a forward model for other sensors cannot be attached
+    # a forward model for other sensors cannot be attached, even when its whitening
+    # filter is the same (as for a diagonal noise covariance with equal variances)
     other_sensor = Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a'])
-    other_forward = ForwardModel(np.ones((3, 4)), np.eye(3), Scalar('source', range(4)), other_sensor, None)
+    other_forward = ForwardModel(np.ones((3, 4)), np.eye(3) / 4, Scalar('source', range(4)), other_sensor, None)
     with pytest.raises(ValueError, match="same channels in a different order"):
         raw.whiten(other_forward)
     with pytest.raises(ValueError, match="same channels in a different order"):
+        data.whiten(other_forward)
+    with pytest.raises(ValueError, match="same channels in a different order"):
         replace(raw, forward=other_forward)
+    fewer_sensors = ForwardModel(np.ones((2, 4)), np.eye(2) / 4, Scalar('source', range(4)), SENSOR[:2], None)
+    with pytest.raises(ValueError, match=r"only in data: \['c'\]"):
+        data.whiten(fewer_sensors)
 
 
 def test_whiten_shares_covariates():

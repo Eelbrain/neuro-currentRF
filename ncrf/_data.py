@@ -598,6 +598,7 @@ class RegressionData:
             equivalent to whitening once with the second filter
             (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
+        _assert_sensors_equal(self.sensor_dim.names, forward.sensor.names, 'data', 'forward model')
         if self.forward is not None:
             if self.forward is forward or np.allclose(self.forward.whitening_filter, forward.whitening_filter):
                 return self
