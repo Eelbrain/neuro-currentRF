@@ -238,9 +238,16 @@ def test_timeslice_rescales():
     fold = data.timeslice(idx)
 
     assert fold.is_whitened
+    # the arrays are built once, on the source dataset, and sliced from there
+    assert 'responses' in data.__dict__ and 'covariates' in data.__dict__
+    assert 'responses' in fold.__dict__ and 'covariates' in fold.__dict__
     mul = data.norm_factor / fold.norm_factor
     np.testing.assert_allclose(fold.responses[0], data.responses[0][:, idx] * mul)
     np.testing.assert_allclose(fold.covariates[0], data.covariates[0][idx] * mul)
+    # and equal the arrays built from the NDVars for the same samples
+    rebuilt = replace(fold, samples=fold.samples)
+    np.testing.assert_allclose(rebuilt.responses[0], fold.responses[0])
+    np.testing.assert_allclose(rebuilt.covariates[0], fold.covariates[0])
 
 
 def test_pickle_ships_raw_inputs():

@@ -620,5 +620,17 @@ class RegressionData:
         idx
             Samples to retain, as integer indices or a boolean mask into this
             dataset's ``samples``.
+
+        Notes
+        -----
+        The slice's arrays are the corresponding rows of this dataset's arrays,
+        rescaled to the slice's own :attr:`norm_factor`. Slicing them is much
+        cheaper than rebuilding them from the NDVars, so this dataset's arrays are
+        built once and shared by all slices, such as cross-validation folds.
         """
-        return replace(self, samples=self.samples[np.asarray(idx)])
+        idx = np.asarray(idx)
+        data = replace(self, samples=self.samples[idx])
+        mul = self.norm_factor / data.norm_factor
+        data.__dict__['responses'] = [y[:, idx] * mul for y in self.responses]
+        data.__dict__['covariates'] = [cov[idx] * mul for cov in self.covariates]
+        return data
