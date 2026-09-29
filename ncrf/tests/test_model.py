@@ -174,6 +174,19 @@ def test_whitening_guard():
         replace(raw, forward=other_forward)
 
 
+def test_whiten_shares_covariates():
+    """Whitening only changes the responses, so arrays derived from the covariates carry over."""
+    raw = _synthetic_data('spectral')
+    list(raw)  # populate the responses and covariates
+    ete = raw.EtE
+
+    data = raw.whiten(_forward())
+
+    assert data.covariates is raw.covariates
+    assert data.EtE is ete
+    assert 'responses' not in data.__dict__
+
+
 def _synthetic_data(
         scale: str | None = None,
         seed: int = 0,

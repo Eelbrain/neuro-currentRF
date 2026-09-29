@@ -136,13 +136,14 @@ class NCRF:
         -------
         list
             Predicted arrays, one per segment, each shaped
-            ``(n_sensors, n_times)``.
+            ``(n_sensors, n_samples)``; column ``i`` is the prediction for time
+            sample ``data.samples[i]`` of the segment.
         """
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)
         if whitened:
             return [self._predict_whitened(covariate) for covariate in data.covariates]
-        # Predicting through the un-whitened lead field, and undoing the sqrt(n_times)
+        # Predicting through the un-whitened lead field, and undoing the norm_factor
         # by which both MEG and covariates were divided, puts the prediction back into
         # the units of the M/EEG data the dataset was built from.
         source = np.dot(self.forward.lead_field, theta) / self.forward.lead_field_scaling
@@ -260,7 +261,7 @@ def fit_model(
         solver: Solver,
         verbose: bool = False,
 ) -> tuple[NCRF, SolverFit]:
-    """Fit one fixed solver configuration on prepared, whitened data.
+    """Fit one fixed solver configuration on whitened data.
 
     The single-fit primitive underneath :meth:`NCRFEstimator.fit`: no candidate
     selection, no scoring. Cross-validation uses it to fit the individual folds.
@@ -268,8 +269,8 @@ def fit_model(
     Parameters
     ----------
     data
-        Prepared, whitened data (see :meth:`RegressionData.whiten`); its forward
-        model is the one the fit uses.
+        Whitened data (see :meth:`RegressionData.whiten`); its forward model is
+        the one the fit uses.
     solver
         Fixed solver configuration.
     verbose
@@ -423,15 +424,15 @@ class NCRFEstimator:
             verbose: bool = False,
             compute_explained_variance: bool = False,
     ) -> NCRFFit:
-        """Fit a configured solver to prepared regression data.
+        """Fit a configured solver to a regression dataset.
 
         Parameters
         ----------
         data
-            Prepared M/EEG data and corresponding basis-projected covariates. The
-            forward model is derived from the estimator's lead field and noise
-            covariance for exactly the data's channels; a data channel missing
-            from either is an error.
+            M/EEG data and predictors to fit. The data is whitened with a forward
+            model derived from the estimator's lead field and noise covariance for
+            exactly the data's channels; a data channel missing from either is an
+            error.
         solver
             Solver configuration. A solver with more than one configuration to
             choose from selects one through cross-validation before the final fit.

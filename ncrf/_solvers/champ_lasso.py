@@ -405,7 +405,7 @@ class _ChampLassoState:
         Parameters
         ----------
         data
-            Prepared regression data.
+            Whitened regression data.
         """
         leadfields = []
         bEs = []
@@ -697,7 +697,7 @@ class ChampLasso(Solver):
             *,
             verbose: bool = False,
     ) -> ChampLassoFit:
-        """Estimate NCRF weights for one prepared, whitened dataset."""
+        """Estimate NCRF weights for one whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
         history = ChampLassoHistory(frozenset(self.store))

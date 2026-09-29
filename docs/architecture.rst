@@ -30,8 +30,8 @@ The high-level data flow is::
           +---------+----------+
           |                    |
     RegressionData       NCRFEstimator
-    (TRF design and       (forward model and
-     covariates)           whitening)
+    (M/EEG, predictors    (forward model and
+     and TRF design)       whitening)
           |                    |
           +---------+----------+
                     |

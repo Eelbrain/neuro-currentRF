@@ -209,9 +209,10 @@ def covariate_from_stim(
 def _project_basis(
         raw_covs: Sequence[FloatArray],
         design: TRFDesign,
+        samples: IndexArray,
         norm_factor: float,
 ) -> FloatArray:
-    """Project each channel's lag matrix onto its predictor's Gaussian basis.
+    """Project the retained samples of each channel's lag matrix onto its predictor's Gaussian basis.
 
     Parameters
     ----------
@@ -219,36 +220,37 @@ def _project_basis(
         Lag matrix of each expanded covariate channel, in design order.
     design
         Design supplying the basis of each predictor.
+    samples
+        Rows of the lag matrices to retain.
     norm_factor
         Value the covariates are divided by, matching the MEG data.
 
     Returns
     -------
     ndarray
-        Covariate matrix, shape ``(n_times, n_basis_cols)``.
+        Covariate matrix, shape ``(n_samples, n_basis_cols)``.
     """
     covariates = []
     i = 0
     for n, basis in zip(design.stim_lens, design.basis):
-        covariates.extend(np.dot(x, basis) / norm_factor for x in raw_covs[i:i + n])
+        covariates.extend(np.dot(x[samples], basis) / norm_factor for x in raw_covs[i:i + n])
         i += n
-    return np.concatenate(covariates, axis=1).astype(np.float64)
+    return np.concatenate(covariates, axis=1).astype(np.float64, copy=False)
 
 
 @dataclass(eq=False, repr=False)
 class RegressionData:
     """Dataset for NCRF fitting: M/EEG segments, their predictors, and the design.
 
-    The stored fields are the raw inputs. The arrays the solver consumes,
-    :attr:`responses` and :attr:`covariates`, are derived from them on demand
-    according to :attr:`design`, which fixes the TRF lags, the Gaussian basis the
-    predictors are projected onto, and the centering and scaling of the
-    covariates. The arrays can therefore not get out of step with the design, and
-    :meth:`normalize`, :meth:`whiten` and :meth:`timeslice` each only replace one
-    field.
-
     Use :meth:`from_data` to derive the design, including its normalization, from
     the data itself.
+
+    .. warning::
+       The ``meg`` and ``stim`` NDVars are referenced rather than copied, and the
+       arrays are built from them when first accessed. Do not modify the NDVars in
+       place while the dataset, or one derived from it, is in use: arrays built
+       afterwards would reflect the change, but the normalization recorded on the
+       design would not.
 
     Parameters
     ----------
@@ -272,6 +274,14 @@ class RegressionData:
         ``None`` for raw data. Set by :meth:`whiten`; whitened data thus carries
         the forward model it is fit with, and recording it lets :meth:`whiten`
         distinguish a no-op (same filter) from an error (different filter).
+
+    Notes
+    -----
+    The stored fields are the raw inputs. The arrays the solver consumes,
+    :attr:`responses` and :attr:`covariates`, are derived from them on demand
+    according to :attr:`design`, which fixes the TRF lags, the Gaussian basis the
+    predictors are projected onto, and the centering and scaling of the
+    covariates.
     """
 
     meg: list[NDVar]
@@ -352,9 +362,11 @@ class RegressionData:
             default of ``1`` the atoms are one sample apart, and larger values
             make the basis sparser. ``basis_stride > 2`` should be used with caution.
         scale
-            Normalization derived from the data and applied to the covariates
-            (see :meth:`normalize`). To apply a fitted model instead, bring the
-            data onto the model's scale with ``data.normalize(model.design)``.
+            Normalization derived from the data and applied to the covariates:
+            ``'spectral'``, ``'l1'`` or ``'l2'`` (see :meth:`normalize`), or
+            ``None`` to leave the covariates on their raw scale, without
+            centering. To apply a fitted model instead, bring the data onto the
+            model's scale with ``data.normalize(model.design)``.
         stim_is_single
             Whether the original stimulus input was a single predictor per segment.
         basis_std
@@ -448,8 +460,7 @@ class RegressionData:
             factors = design.expand(design.stim_scaling)
         covariates = []
         for ss in self.stim:
-            lagged = [x[self.samples] for x in covariate_from_stim(ss, filter_lengths, starts)]
-            cov = _project_basis(lagged, design, self.norm_factor)
+            cov = _project_basis(covariate_from_stim(ss, filter_lengths, starts), design, self.samples, self.norm_factor)
             if offset is not None:
                 cov -= offset
             if factors is not None:
@@ -529,9 +540,11 @@ class RegressionData:
               deviation.
 
             The centering and the ``'l1'``/``'l2'`` factors describe the predictor
-            and are measured on all of its samples; the ``'spectral'`` norm
-            describes the constructed covariates and is measured on the retained
-            ``samples``.
+            and are measured on the whole ``stim`` NDVars, regardless of
+            ``samples``; for a dataset restricted with :meth:`timeslice`, they
+            therefore include the samples outside the slice. The ``'spectral'``
+            norm describes the constructed covariates and is measured on the
+            retained ``samples``.
 
         Raises
         ------
@@ -589,7 +602,12 @@ class RegressionData:
             if self.forward is forward or np.allclose(self.forward.whitening_filter, forward.whitening_filter):
                 return self
             raise ValueError("data is already whitened with a different forward model, so it belongs to a different sensor space; rebuild the dataset from raw data")
-        return replace(self, forward=forward)
+        data = replace(self, forward=forward)
+        # The covariates do not depend on the whitening, so share them
+        for key in ('covariates', 'EtE'):
+            if key in self.__dict__:
+                data.__dict__[key] = self.__dict__[key]
+        return data
 
     def timeslice(self, idx: Sequence[int] | IndexArray | npt.NDArray[np.bool_]) -> RegressionData:
         """Return a new dataset restricted to a subset of this dataset's samples.

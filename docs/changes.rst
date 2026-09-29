@@ -135,6 +135,10 @@ fitted model is applied to new data (see :doc:`guide`).
   centering the predictors; it now centers them.
 - Normalization is applied to the covariates rather than to ``stim``, which is
   never modified.
+- The ``in_place`` argument of :func:`~ncrf.fit_ncrf` is removed. ``meg`` and
+  ``stim`` are neither modified nor copied: :class:`~ncrf.RegressionData` keeps
+  references to the NDVars and derives the arrays the solver consumes from them
+  (so they must not be modified in place while it is in use).
 - :attr:`ncrf.NCRF.h_scaled` now also undoes spectral scaling; previously ``h``
   from a post-normalized fit was not in stimulus units. (The direction of the
   correction was also wrong; see `Bug fixes`_.)

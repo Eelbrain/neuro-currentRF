@@ -1,7 +1,7 @@
 """Public API for fitting and applying neuro-current response functions.
 
 :func:`fit_ncrf` provides the complete convenience workflow. The component API
-separates prepared :class:`RegressionData`, the :class:`NCRFEstimator` fitting
+separates the :class:`RegressionData` dataset, the :class:`NCRFEstimator` fitting
 orchestrator, :class:`ForwardModel` and :class:`TRFDesign` model components,
 pluggable :class:`Solver` configurations, the reusable fitted :class:`NCRF`, and
 the accompanying :class:`NCRFFit` report.

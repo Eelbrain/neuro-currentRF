@@ -78,7 +78,7 @@ class Solver(ABC):
             *,
             verbose: bool = False,
     ) -> SolverFit:
-        """Estimate source-space NCRF weights for prepared, whitened data."""
+        """Estimate source-space NCRF weights for whitened data."""
 
     def search(
             self,
@@ -93,7 +93,7 @@ class Solver(ABC):
         Parameters
         ----------
         data
-            Prepared, whitened data the fit will use; its
+            Whitened data the fit will use; its
             :attr:`~ncrf.RegressionData.forward` is the forward model.
         cv
             Cross-validation configuration to score candidates with. Pass it to
