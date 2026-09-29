@@ -586,23 +586,25 @@ class RegressionData:
         forward
             Forward model for exactly this dataset's sensors, in the same order.
             Its whitening filter is applied to the responses, and it is recorded
-            as :attr:`forward`. If the dataset is already whitened with the same
-            filter, it is returned unchanged.
+            as :attr:`forward`. If the dataset is already whitened with an
+            equivalent forward model (same lead field and noise covariance), it
+            is returned unchanged.
 
         Raises
         ------
         ValueError
             If ``forward`` has different sensors than the dataset, or if the
-            dataset is already whitened with a different filter: its sensor space
-            is then not the one ``forward`` belongs to, and whitening twice is not
-            equivalent to whitening once with the second filter
-            (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
+            dataset is already whitened with a different forward model: the
+            forward model whitened data carries is the one it is fit with, and
+            whitening twice is not equivalent to whitening once with the second
+            filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
         _assert_sensors_equal(self.sensor_dim.names, forward.sensor.names, 'data', 'forward model')
         if self.forward is not None:
-            if self.forward is forward or np.allclose(self.forward.whitening_filter, forward.whitening_filter):
+            current = self.forward
+            if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field) and np.allclose(current.noise_covariance, forward.noise_covariance)):
                 return self
-            raise ValueError("data is already whitened with a different forward model, so it belongs to a different sensor space; rebuild the dataset from raw data")
+            raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
         data = replace(self, forward=forward)
         # The covariates do not depend on the whitening, so share them
         for key in ('covariates', 'EtE'):

@@ -159,11 +159,17 @@ def test_whitening_guard():
     np.testing.assert_allclose(data.responses[0], 2 * raw.responses[0])
     np.testing.assert_array_equal(data.covariates[0], raw.covariates[0])
 
-    # the same filter is a no-op, a different filter an error
+    # an equivalent forward model is a no-op, a different one an error
     assert data.whiten(forward) is data
     assert data.whiten(_forward(noise_covariance=np.eye(3) / 4)) is data
     with pytest.raises(ValueError, match="whitened with a different forward model"):
         data.whiten(_forward())
+    # the same whitening filter with a different lead field is a different model:
+    # whitened data is fit with the forward model it carries
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        data.whiten(_forward(seed=2, noise_covariance=np.eye(3) / 4))
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        data.whiten(ForwardModel(forward.lead_field[:, :2], np.eye(3) / 4, Scalar('source', range(2)), SENSOR, None))
 
     # a forward model for other sensors cannot be attached, even when its whitening
     # filter is the same (as for a diagonal noise covariance with equal variances)
@@ -550,6 +556,13 @@ def test_fit_trims_forward_to_data():
     data_extra = RegressionData.from_data(meg_extra, stim, 0, 0.05, scale=None, stim_is_single=True)
     with pytest.raises(ValueError, match=r"data channels missing from the lead field: \['z'\]"):
         estimator.fit(data_extra, _ShapedZeroSolver())
+
+    # data whitened with another model's forward is not silently fit with that
+    # lead field instead of the estimator's
+    other_forward = ForwardModel(rng.normal(size=(2, 4)), noise.data[np.ix_([2, 0], [2, 0])], Scalar('source', range(4)), sensor_sub, None)
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        estimator.fit(data.whiten(other_forward), _ShapedZeroSolver())
+    assert estimator.fit(data.whiten(model.forward), _ShapedZeroSolver()).model.forward is model.forward
 
     # a channel with a lead field but no noise estimate blames the noise covariance
     estimator_sub = NCRFEstimator.from_lead_field(lead_field, mne.Covariance(noise.data[:2, :2], names[:2], [], [], 0))
