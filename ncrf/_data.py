@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from math import sqrt
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from collections.abc import Iterator, Sequence
 
 from eelbrain import NDVar, Sensor, UTS
@@ -18,9 +18,13 @@ import numpy.typing as npt
 from scipy import linalg
 
 from ._trf_design import TRFDesign, stim_dimensions
+from ._forward import _assert_sensors_equal
 from ._pickle import pickle_state
 from ._repr import _count_repr
 from ._typing import FloatArray, IndexArray, Scale, ScaleArg, TrialData
+
+if TYPE_CHECKING:
+    from ._forward import ForwardModel
 
 
 SCALES = ('l1', 'l2', 'spectral')
@@ -263,17 +267,18 @@ class RegressionData:
         ``meg``; ``None`` for all samples. :meth:`from_data` drops samples whose
         lag window extends beyond the stimulus, and :meth:`timeslice` selects
         cross-validation folds.
-    whitener
-        Whitening filter applied to the responses, or ``None`` for raw data.
-        Recording the filter itself lets :meth:`whiten` distinguish a no-op
-        (same filter) from an error (different filter).
+    forward
+        Forward model whose whitening filter is applied to the responses, or
+        ``None`` for raw data. Set by :meth:`whiten`; whitened data thus carries
+        the forward model it is fit with, and recording it lets :meth:`whiten`
+        distinguish a no-op (same filter) from an error (different filter).
     """
 
     meg: list[NDVar]
     stim: list[Sequence[NDVar]]
     design: TRFDesign
     samples: IndexArray | None = None
-    whitener: FloatArray | None = None
+    forward: ForwardModel | None = None
 
     def __post_init__(self) -> None:
         if not self.meg:
@@ -281,6 +286,8 @@ class RegressionData:
         elif len(self.meg) != len(self.stim):
             raise ValueError(f"{_count_repr(len(self.meg), 'MEG segment')} but {_count_repr(len(self.stim), 'stimulus list')}")
         sensor_dim = self.sensor_dim
+        if self.forward is not None:
+            _assert_sensors_equal(sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         time: UTS = self.meg[0].get_dim('time')
         if time.tstep != self.design.tstep:
             raise ValueError(f"meg time step {time.tstep} does not match design.tstep {self.design.tstep}")
@@ -401,21 +408,21 @@ class RegressionData:
 
     @property
     def is_whitened(self) -> bool:
-        """Whether the responses are transformed by a whitening filter (see ``whitener``)."""
-        return self.whitener is not None
+        """Whether the responses are transformed by a whitening filter (see ``forward``)."""
+        return self.forward is not None
 
     @cached_property
     def responses(self) -> list[FloatArray]:
         """M/EEG arrays for the solver, one per segment, each shaped ``(n_sensors, n_samples)``.
 
-        The retained samples of ``meg``, whitened if a ``whitener`` is set, and
+        The retained samples of ``meg``, whitened if a ``forward`` model is set, and
         divided by :attr:`norm_factor`.
         """
         responses = []
         for m in self.meg:
             y = m.get_data(('sensor', 'time'))[:, self.samples].astype(np.float64, copy=False) / self.norm_factor
-            if self.whitener is not None:
-                y = np.dot(self.whitener, y)
+            if self.forward is not None:
+                y = np.dot(self.forward.whitening_filter, y)
             responses.append(y)
         return responses
 
@@ -558,28 +565,31 @@ class RegressionData:
             data.__dict__['covariates'] = covariates
         return data
 
-    def whiten(self, whitening_filter: FloatArray) -> RegressionData:
-        """Return a dataset whose responses are whitened.
+    def whiten(self, forward: ForwardModel) -> RegressionData:
+        """Return a dataset whose responses are whitened with ``forward``.
 
         Parameters
         ----------
-        whitening_filter
-            Whitening matrix. If the dataset is already whitened with this same
+        forward
+            Forward model for exactly this dataset's sensors, in the same order.
+            Its whitening filter is applied to the responses, and it is recorded
+            as :attr:`forward`. If the dataset is already whitened with the same
             filter, it is returned unchanged.
 
         Raises
         ------
         ValueError
-            If the dataset is already whitened with a different filter: its
-            sensor space is not the one this filter belongs to, and whitening
-            twice is not equivalent to whitening once with the second filter
+            If ``forward`` has different sensors than the dataset, or if the
+            dataset is already whitened with a different filter: its sensor space
+            is then not the one ``forward`` belongs to, and whitening twice is not
+            equivalent to whitening once with the second filter
             (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
-        if self.whitener is not None:
-            if self.whitener is whitening_filter or (self.whitener.shape == whitening_filter.shape and np.allclose(self.whitener, whitening_filter)):
+        if self.forward is not None:
+            if self.forward is forward or np.allclose(self.forward.whitening_filter, forward.whitening_filter):
                 return self
-            raise ValueError("data is already whitened with a different filter, so it belongs to a different (forward model's) sensor space; rebuild the dataset from raw data")
-        return replace(self, whitener=whitening_filter)
+            raise ValueError("data is already whitened with a different forward model, so it belongs to a different sensor space; rebuild the dataset from raw data")
+        return replace(self, forward=forward)
 
     def timeslice(self, idx: Sequence[int] | IndexArray | npt.NDArray[np.bool_]) -> RegressionData:
         """Return a new dataset restricted to a subset of this dataset's samples.

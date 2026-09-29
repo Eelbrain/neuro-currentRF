@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from .._crossvalidation import CrossValidation, CVResult
     from .._data import RegressionData
     from .._forward import ForwardModel
-    from .._model import NCRFEstimator
 
 
 @dataclass(frozen=True, repr=False)
@@ -83,7 +82,6 @@ class Solver(ABC):
 
     def search(
             self,
-            estimator: NCRFEstimator,
             data: RegressionData,
             cv: CrossValidation,
     ) -> tuple[Solver, list[CVResult]]:
@@ -94,12 +92,9 @@ class Solver(ABC):
 
         Parameters
         ----------
-        estimator
-            Estimator running the fit; its
-            :attr:`~ncrf.NCRFEstimator.forward` is the forward model the fit
-            will use.
         data
-            Prepared, whitened data the fit will use.
+            Prepared, whitened data the fit will use; its
+            :attr:`~ncrf.RegressionData.forward` is the forward model.
         cv
             Cross-validation configuration to score candidates with. Pass it to
             :func:`ncrf.crossvalidate` as often as the search needs;

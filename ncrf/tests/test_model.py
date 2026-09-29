@@ -9,10 +9,12 @@ import mne
 import numpy as np
 import pytest
 
-from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign
+from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._metrics import merge_scores
+from ncrf._model import _score_fit
+from ncrf._typing import FloatArray
 from .fetch import load
 
 from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
@@ -23,32 +25,23 @@ SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
 
 def test_fit_model():
     forward = Mock()
-    forward.sensor.names = ['a', 'b']
-    estimator = NCRFEstimator(forward=forward)
     solver = Mock()
     solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
-    data = Mock(design=object(), is_whitened=True)
-    data.sensor_dim.names = ['a', 'b']
+    data = Mock(design=object(), forward=forward)
 
-    model, returned_fit = estimator.fit_model(data, solver, True)
+    model, returned_fit = fit_model(data, solver, True)
 
-    assert model.forward is estimator.forward
+    assert model.forward is forward
     assert model.theta is solver_fit.theta
     assert model.design is data.design
     assert returned_fit is solver_fit
-    solver.solve.assert_called_once_with(estimator.forward, data, verbose=True)
-
-    # channel misattribution would be silent, so mismatched sensors are rejected
-    data.sensor_dim.names = ['b', 'a']
-    with pytest.raises(ValueError, match="data sensors do not match the forward model"):
-        estimator.fit_model(data, solver)
-    data.sensor_dim.names = ['a', 'b']
+    solver.solve.assert_called_once_with(forward, data, verbose=True)
 
     # the solver assumes isotropic noise, so raw data must not reach it
-    data.is_whitened = False
+    data.forward = None
     with pytest.raises(ValueError, match="data is not whitened"):
-        estimator.fit_model(data, solver)
+        fit_model(data, solver)
 
 
 @dataclass(frozen=True)
@@ -67,13 +60,16 @@ class _ShapedZeroSolver(Solver):
 
 def test_fit_accepts_generic_solver(monkeypatch):
     data = MagicMock()
-    estimator = NCRFEstimator(forward=Mock(
-        whiten=Mock(return_value=data),
+    data.whiten.return_value = data
+    forward = Mock(
         whitened_lead_field=np.ones((1, 1)),
         lead_field=np.ones((1, 1)),
         lead_field_scaling=1.0,
         sensor=SENSOR,
-    ))
+    )
+    estimator = NCRFEstimator()
+    monkeypatch.setattr(NCRFEstimator, '_forward_for', lambda self, sensor: forward)
+    data.forward = forward
     data.sensor_dim = SENSOR
     data.design = Mock()
     data.covariates = [np.ones((4, 1))]
@@ -107,7 +103,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
     # search() gets what it needs to cross-validate on the configured folds
-    searching_solver.search.assert_called_once_with(estimator, data, cv)
+    searching_solver.search.assert_called_once_with(data, cv)
 
 
 def test_default_search_contract():
@@ -116,7 +112,7 @@ def test_default_search_contract():
 
     assert solver.without_history() is solver
     # no estimator or cv config is touched, since nothing is cross-validated
-    assert solver.search(None, None, None) == (solver, [])
+    assert solver.search(None, None) == (solver, [])
 
     # a generic table renders from whatever score keys are present
     cv_results = [
@@ -128,17 +124,16 @@ def test_default_search_contract():
 
 def test_score_fit():
     """Training and cross-validation fold scores use the same composition."""
-    estimator = NCRFEstimator(forward=object())
     model = Mock()
     model.evaluate.return_value = {'l2_error': 3.0, 'explained_variance': 0.5}
     solver_fit = Mock()
     solver_fit.score.return_value = {'cross_fit': 1.0}
-    data = object()
+    data = Mock(forward=object())
 
-    scores = estimator._score_fit(model, solver_fit, data)
+    scores = _score_fit(model, solver_fit, data)
 
     model.evaluate.assert_called_once_with(data)
-    solver_fit.score.assert_called_once_with(estimator.forward, data)
+    solver_fit.score.assert_called_once_with(data.forward, data)
     assert scores == {'l2_error': 3.0, 'explained_variance': 0.5, 'cross_fit': 1.0}
 
 
@@ -158,23 +153,25 @@ def test_merge_scores_rejects_shadowing():
 
 def test_whitening_guard():
     raw = _synthetic_data()
-    whitening_filter = np.eye(3) * 2
-    data = raw.whiten(whitening_filter)
-    assert data.whitener is whitening_filter
+    forward = _forward(noise_covariance=np.eye(3) / 4)
+    data = raw.whiten(forward)
+    assert data.forward is forward
     np.testing.assert_allclose(data.responses[0], 2 * raw.responses[0])
     np.testing.assert_array_equal(data.covariates[0], raw.covariates[0])
 
     # the same filter is a no-op, a different filter an error
-    assert data.whiten(whitening_filter) is data
-    assert data.whiten(whitening_filter.copy()) is data
-    with pytest.raises(ValueError, match="whitened with a different filter"):
-        data.whiten(whitening_filter * 2)
+    assert data.whiten(forward) is data
+    assert data.whiten(_forward(noise_covariance=np.eye(3) / 4)) is data
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        data.whiten(_forward())
 
-    forward = _forward()
-    with pytest.raises(ValueError, match="whitened with a different filter"):
-        forward.whiten(data)
-    data = replace(data, whitener=forward.whitening_filter)
-    assert forward.whiten(data) is data
+    # a forward model for other sensors cannot be attached
+    other_sensor = Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a'])
+    other_forward = ForwardModel(np.ones((3, 4)), np.eye(3), Scalar('source', range(4)), other_sensor, None)
+    with pytest.raises(ValueError, match="same channels in a different order"):
+        raw.whiten(other_forward)
+    with pytest.raises(ValueError, match="same channels in a different order"):
+        replace(raw, forward=other_forward)
 
 
 def _synthetic_data(
@@ -210,7 +207,7 @@ def test_timeslice_boolean_mask():
 
 def test_timeslice_rescales():
     """A slice's arrays are the full dataset's rows, rescaled to the slice's own norm factor."""
-    data = _synthetic_data('l2').whiten(np.eye(3) * 2)
+    data = _synthetic_data('l2').whiten(_forward())
     idx = np.arange(10, 50)
 
     fold = data.timeslice(idx)
@@ -223,14 +220,14 @@ def test_timeslice_rescales():
 
 def test_pickle_ships_raw_inputs():
     """Pickles carry the inputs and design; the solver's arrays are rebuilt on demand."""
-    data = _synthetic_data('l2').whiten(np.eye(3) * 2)
+    data = _synthetic_data('l2').whiten(_forward())
     responses, covariates = data.responses, data.covariates  # populate the caches
 
     restored = pickle.loads(pickle.dumps(data))
 
     assert 'responses' not in restored.__dict__ and 'covariates' not in restored.__dict__
     np.testing.assert_array_equal(restored.samples, data.samples)
-    np.testing.assert_array_equal(restored.whitener, data.whitener)
+    np.testing.assert_array_equal(restored.forward.whitening_filter, data.forward.whitening_filter)
     np.testing.assert_allclose(restored.responses[0], responses[0])
     np.testing.assert_allclose(restored.covariates[0], covariates[0])
 
@@ -256,10 +253,12 @@ def test_rejects_inconsistent_inputs():
         replace(data, samples=[])
 
 
-def _forward(seed: int = 1) -> ForwardModel:
+def _forward(seed: int = 1, noise_covariance: FloatArray | None = None) -> ForwardModel:
     """Forward model for the sensors of :func:`_synthetic_data`, with 4 sources."""
     rng = np.random.RandomState(seed)
-    return ForwardModel(rng.normal(size=(3, 4)), np.eye(3), Scalar('source', range(4)), SENSOR, None)
+    if noise_covariance is None:
+        noise_covariance = np.eye(3)
+    return ForwardModel(rng.normal(size=(3, 4)), noise_covariance, Scalar('source', range(4)), SENSOR, None)
 
 
 def _model(design: TRFDesign, n_coefficients: int, seed: int = 1) -> NCRF:
@@ -408,7 +407,7 @@ def test_predict_returns_meg_scale():
         # whitening and dividing by sqrt(n_times) is exactly what from_data() applied
         np.testing.assert_allclose(np.dot(forward.whitening_filter, meg_scale) / data.norm_factor, fit_scale)
     # whitening the input does not change the prediction, which only uses covariates
-    for expected, actual in zip(predicted, model.predict(forward.whiten(data))):
+    for expected, actual in zip(predicted, model.predict(data.whiten(forward))):
         np.testing.assert_array_equal(expected, actual)
 
 
@@ -439,9 +438,8 @@ def test_rejects_sensor_mismatch():
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
 
-    estimator = NCRFEstimator(forward=model.forward)
-    with pytest.raises(ValueError, match="no lead field to derive a matching one from"):
-        estimator.fit(renamed, _ZeroSolver())
+    with pytest.raises(ValueError, match="no lead field to derive a forward model from"):
+        NCRFEstimator().fit(renamed, _ZeroSolver())
 
 
 def test_estimator_noise_forms():
@@ -481,7 +479,6 @@ def test_estimator_noise_forms():
     assert list(estimator.noise_channels) == names[:2]
     np.testing.assert_array_equal(estimator.noise_covariance, data[:2, :2])
     assert estimator.lead_field is lead_field
-    assert estimator.forward is None
 
 
 def test_estimator_rejects_invalid_noise():
@@ -522,8 +519,6 @@ def test_fit_trims_forward_to_data():
     assert list(model.forward.sensor.names) == ['c', 'a']
     np.testing.assert_array_equal(model.forward.lead_field, lead_field.x[[2, 0]])
     np.testing.assert_array_equal(model.forward.noise_covariance, noise.data[np.ix_([2, 0], [2, 0])])
-    # the estimator itself is unchanged
-    assert estimator.forward is None
 
     # the derived forward is identical to one built from the trimmed inputs directly
     reference = NCRFEstimator.from_lead_field(lead_field.sub(sensor=['c', 'a']), mne.Covariance(noise.data[np.ix_([2, 0], [2, 0])], ['c', 'a'], [], [], 0))._forward_for(sensor_sub)

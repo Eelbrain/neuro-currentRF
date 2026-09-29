@@ -22,6 +22,7 @@ Fitting pipeline
 
     RegressionData
     NCRFEstimator
+    fit_model
     CrossValidation
     CVResult
     crossvalidate

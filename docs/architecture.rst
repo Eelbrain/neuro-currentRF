@@ -69,9 +69,9 @@ matched by channel name: the noise channels have to be a subset of the lead
 field's channels. At fit time it derives the whitened forward model for exactly
 the sensors of the data, since whitening is not separable per channel; a data
 channel missing from the lead field or the noise covariance is an error. The
-derived forward model is not stored on the estimator. The estimator whitens the
-data before candidate selection and fitting; the fitted :class:`~ncrf.NCRF`
-retains the forward state needed to apply the same transform when predicting.
+derived forward model is attached to the whitened :class:`~ncrf.RegressionData`,
+and the fitted :class:`~ncrf.NCRF` retains it to apply the same transform when
+predicting.
 
 Solvers and cross-validation
 ----------------------------

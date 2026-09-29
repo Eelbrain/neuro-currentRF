@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
 import mne
@@ -16,9 +16,6 @@ from ._linalg import _inv_sqrtm
 from ._pickle import pickle_state
 from ._repr import _forward_summary
 from ._typing import FloatArray, NoiseArg
-
-if TYPE_CHECKING:
-    from ._data import RegressionData
 
 
 def _assert_sensors_equal(
@@ -148,25 +145,6 @@ class ForwardModel:
         """Column/row slice of source ``i``'s orientation components in stacked arrays."""
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
-
-    def whiten(self, data: RegressionData) -> RegressionData:
-        """Whiten ``data`` with :attr:`~ncrf.ForwardModel.whitening_filter`, after checking sensor alignment.
-
-        Parameters
-        ----------
-        data
-            Dataset to whiten; it has to have exactly this forward model's sensors,
-            in the same order. Data already whitened with this model's filter is
-            returned unchanged.
-
-        Raises
-        ------
-        ValueError
-            If ``data`` has different sensors than the forward model, or was
-            whitened with a different filter (see :meth:`RegressionData.whiten`).
-        """
-        _assert_sensors_equal(data.sensor_dim.names, self.sensor.names, 'data', 'forward model')
-        return data.whiten(self.whitening_filter)
 
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.

@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from .._crossvalidation import CrossValidation, CVResult
     from .._data import RegressionData
     from .._forward import ForwardModel
-    from .._model import NCRFEstimator
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
 #: Names from this tuple are what :attr:`ChampLasso.store` selects from.
@@ -581,20 +580,19 @@ class ChampLasso(Solver):
 
     def search(
             self,
-            estimator: NCRFEstimator,
             data: RegressionData,
             cv: CrossValidation,
     ) -> tuple[ChampLasso, list[CVResult]]:
         """Resolve ``mu``, and cross-validate unless it is a fixed number."""
-        candidates = self.candidates(estimator.forward, data)
+        candidates = self.candidates(data.forward, data)
         if _is_number(self.mu):
             return candidates[0], []
-        cv_results = crossvalidate(estimator, data, candidates, cv)
+        cv_results = crossvalidate(data, candidates, cv)
         # Extend before selecting, so that the estimation-stability criterion is
         # applied to the complete cross-fit search range
         extension = self._extend_grid(cv_results)
         if extension:
-            cv_results.extend(crossvalidate(estimator, data, extension, cv))
+            cv_results.extend(crossvalidate(data, extension, cv))
         return self._select(cv_results), cv_results
 
     def _select(self, cv_results: Sequence[CVResult]) -> ChampLasso:

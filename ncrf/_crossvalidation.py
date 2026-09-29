@@ -28,10 +28,10 @@ from ._metrics import merge_scores
 from ._typing import FloatArray, IndexArray
 
 if TYPE_CHECKING:
-    from ._model import NCRFEstimator, NCRF
+    from ._model import NCRF
     from ._solvers import Solver
 
-_worker_context: tuple[NCRFEstimator, RegressionData, list[tuple[RegressionData, RegressionData]]] | None = None
+_worker_context: tuple[RegressionData, list[tuple[RegressionData, RegressionData]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -63,19 +63,19 @@ def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionDat
     return [(data.timeslice(train), data.timeslice(test)) for train, test in kf.split(data.samples)]
 
 
-def _initialize_worker(estimator: NCRFEstimator, data: RegressionData, n_splits: int) -> None:
-    """Store large shared inputs and the fold datasets once per multiprocessing worker."""
+def _initialize_worker(data: RegressionData, n_splits: int) -> None:
+    """Store the shared whitened data and the fold datasets once per multiprocessing worker."""
     global _worker_context
     if CONFIG['nice']:
         os.nice(CONFIG['nice'])
-    _worker_context = estimator, data, _make_folds(data, n_splits)
+    _worker_context = data, _make_folds(data, n_splits)
 
 
 def _score_worker(solver: Solver) -> CVResult:
     if _worker_context is None:
         raise RuntimeError("cross-validation worker was not initialized")
-    estimator, data, folds = _worker_context
-    return _score_candidate(estimator, data, folds, solver)
+    data, folds = _worker_context
+    return _score_candidate(data, folds, solver)
 
 
 def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
@@ -127,24 +127,24 @@ class CVResult:
 
 
 def _score_candidate(
-        estimator: NCRFEstimator,
         data: RegressionData,
         folds: Sequence[tuple[RegressionData, RegressionData]],
         solver: Solver,
 ) -> CVResult:
     """Fit and score all cross-validation folds for one solver candidate.
 
-    Each fold is fit through :meth:`~ncrf.NCRFEstimator.fit_model`, then scored
-    on its held-out window with the model metrics plus whatever the solver's fit
-    contributes.
+    Each fold is fit through :func:`~ncrf.fit_model`, then scored on its held-out
+    window with the model metrics plus whatever the solver's fit contributes.
     """
+    from ._model import fit_model, _score_fit  # _model imports this module
+
     fold_solver = solver.without_history()
     models = []
     fold_scores = []
     for traindata, testdata in folds:
-        model, solver_fit = estimator.fit_model(traindata, fold_solver)
+        model, solver_fit = fit_model(traindata, fold_solver)
         models.append(model)
-        fold_scores.append(estimator._score_fit(model, solver_fit, testdata))
+        fold_scores.append(_score_fit(model, solver_fit, testdata))
 
     scores = {key: sum(fold[key] for fold in fold_scores) / len(fold_scores) for key in fold_scores[0]}
     estimation_stability = compute_es_metric(models, data)
@@ -152,7 +152,6 @@ def _score_candidate(
 
 
 def crossvalidate(
-        estimator: NCRFEstimator,
         data: RegressionData,
         candidates: Sequence[Solver],
         cv: CrossValidation,
@@ -165,11 +164,10 @@ def crossvalidate(
 
     Parameters
     ----------
-    estimator
-        The :class:`NCRFEstimator` to validate. It must be picklable so that it
-        can be sent to worker processes.
     data
-        M/EEG data and the corresponding stimulus variables.
+        Whitened M/EEG data and the corresponding stimulus variables (see
+        :meth:`RegressionData.whiten`); its forward model is the one the
+        candidates are fit with. It is pickled to send it to worker processes.
     candidates
         Fixed solver configurations to compare.
     cv
@@ -193,13 +191,13 @@ def crossvalidate(
         if n_workers == 0:
             folds = _make_folds(data, cv.n_splits)
             for candidate in candidates:
-                results.append(_score_candidate(estimator, data, folds, candidate))
+                results.append(_score_candidate(data, folds, candidate))
                 prog.update()
         else:
             with Pool(
                     processes=n_workers,
                     initializer=_initialize_worker,
-                    initargs=(estimator, data, cv.n_splits),
+                    initargs=(data, cv.n_splits),
             ) as pool:
                 for result in pool.imap_unordered(_score_worker, candidates):
                     results.append(result)

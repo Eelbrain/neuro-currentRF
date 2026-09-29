@@ -10,7 +10,7 @@ model with training scores and solver-specific provenance.
 # License: BSD (3-clause)
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 from collections.abc import Sequence
@@ -171,7 +171,7 @@ class NCRF:
             mapping observed and predicted per-segment arrays to a scalar.
             Results are keyed by function name.
         """
-        data = self.forward.whiten(data)
+        data = data.whiten(self.forward)
         self._theta_for(data)
         observed = [meg for meg, _ in data]
         predicted = [self._predict_whitened(covariate) for _, covariate in data]
@@ -183,7 +183,7 @@ class NCRF:
         ``data`` has to carry the same normalization as the training data (see
         :meth:`predict`).
         """
-        data = self.forward.whiten(data)
+        data = data.whiten(self.forward)
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
@@ -255,6 +255,56 @@ class NCRF:
         return [h / s for h, s in zip(self.h, scaling)]
 
 
+def fit_model(
+        data: RegressionData,
+        solver: Solver,
+        verbose: bool = False,
+) -> tuple[NCRF, SolverFit]:
+    """Fit one fixed solver configuration on prepared, whitened data.
+
+    The single-fit primitive underneath :meth:`NCRFEstimator.fit`: no candidate
+    selection, no scoring. Cross-validation uses it to fit the individual folds.
+
+    Parameters
+    ----------
+    data
+        Prepared, whitened data (see :meth:`RegressionData.whiten`); its forward
+        model is the one the fit uses.
+    solver
+        Fixed solver configuration.
+    verbose
+        Print intermediate values of the cost functions.
+
+    Raises
+    ------
+    ValueError
+        If ``data`` is not whitened. The solver assumes isotropic noise, so raw
+        data would silently produce wrong coefficients.
+    """
+    if data.forward is None:
+        raise ValueError("data is not whitened; whiten it with data.whiten(forward), or use NCRFEstimator.fit(), which whitens the data")
+    solver_fit = solver.solve(data.forward, data, verbose=verbose)
+    model = NCRF(
+        forward=data.forward,
+        theta=solver_fit.theta,
+        design=data.design,
+    )
+    return model, solver_fit
+
+
+def _score_fit(
+        model: NCRF,
+        solver_fit: SolverFit,
+        data: RegressionData,
+) -> dict[str, float]:
+    """Scores for one fit on ``data``: the model metrics plus the solver's own.
+
+    The same composition scores the training fit and every cross-validation
+    fold, so candidate selection compares the very quantities the fit reports.
+    """
+    return merge_scores(model.evaluate(data), solver_fit.score(data.forward, data))
+
+
 @dataclass(eq=False, repr=False)
 class NCRFEstimator:
     """Estimator for neuro-current response functions (NCRFs).
@@ -292,7 +342,6 @@ class NCRFEstimator:
     lead_field: NDVar | None = None
     noise_covariance: FloatArray | None = None
     noise_channels: Sequence[str] | None = None
-    forward: ForwardModel | None = field(init=False, default=None)
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
@@ -329,8 +378,6 @@ class NCRFEstimator:
     def _forward_for(self, sensor: Sensor) -> ForwardModel:
         """Whitened forward-model state for exactly ``sensor``'s channels.
 
-        Returns :attr:`forward` when it covers these channels in this order.
-
         Raises
         ------
         ValueError
@@ -338,10 +385,8 @@ class NCRFEstimator:
             covariance; fitting needs both for every data channel.
         """
         names = list(sensor.names)
-        if self.forward is not None and names == list(self.forward.sensor.names):
-            return self.forward
         if self.lead_field is None:
-            raise ValueError(f"data channels {names} do not match the forward model, and the estimator has no lead field to derive a matching one from; construct it with from_lead_field()")
+            raise ValueError("estimator has no lead field to derive a forward model from; construct it with from_lead_field()")
         lead_field_names = set(self.lead_field.get_dim('sensor').names)
         missing = [name for name in names if name not in lead_field_names]
         if missing:
@@ -364,66 +409,10 @@ class NCRFEstimator:
         return ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
 
     def __repr__(self) -> str:
-        if self.forward is not None:
-            return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
         if self.lead_field is None:
             return f'<{type(self).__name__}>'
         orientation = 'free' if self.lead_field.has_dim('space') else 'fixed'
         return f"<{type(self).__name__}: {_count_repr(len(self.lead_field.get_dim('source')), 'source')}, {_count_repr(len(self.lead_field.get_dim('sensor')), 'sensor')}, {orientation} orientation, {_count_repr(len(self.noise_channels), 'noise channel')}>"
-
-    def fit_model(
-            self,
-            data: RegressionData,
-            solver: Solver,
-            verbose: bool = False,
-    ) -> tuple[NCRF, SolverFit]:
-        """Fit one fixed solver configuration on prepared, whitened data.
-
-        The single-fit primitive underneath :meth:`fit`: no candidate selection,
-        no scoring. Cross-validation uses it to fit the individual folds.
-
-        Parameters
-        ----------
-        data
-            Prepared, whitened data.
-        solver
-            Fixed solver configuration.
-        verbose
-            Print intermediate values of the cost functions.
-
-        Raises
-        ------
-        ValueError
-            If ``data``'s sensors do not match the forward model's, or if
-            ``data`` is not whitened. The solver multiplies the lead field and
-            the data by channel position and assumes isotropic noise, so either
-            mismatch would silently produce wrong coefficients.
-        """
-        if self.forward is None:
-            raise ValueError("estimator has no forward model; use fit(), which derives one from the data's channels")
-        _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
-        if not data.is_whitened:
-            raise ValueError("data is not whitened; use NCRFEstimator.fit(), which whitens the data, or whiten it with self.forward.whiten(data)")
-        solver_fit = solver.solve(self.forward, data, verbose=verbose)
-        model = NCRF(
-            forward=self.forward,
-            theta=solver_fit.theta,
-            design=data.design,
-        )
-        return model, solver_fit
-
-    def _score_fit(
-            self,
-            model: NCRF,
-            solver_fit: SolverFit,
-            data: RegressionData,
-    ) -> dict[str, float]:
-        """Scores for one fit on ``data``: the model metrics plus the solver's own.
-
-        The same composition scores the training fit and every cross-validation
-        fold, so candidate selection compares the very quantities the fit reports.
-        """
-        return merge_scores(model.evaluate(data), solver_fit.score(self.forward, data))
 
     def fit(
             self,
@@ -461,15 +450,12 @@ class NCRFEstimator:
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
-        forward = self._forward_for(data.sensor_dim)
-        if forward is not self.forward:
-            self = replace(self, forward=forward)
-        data = self.forward.whiten(data)
+        data = data.whiten(self._forward_for(data.sensor_dim))
         if cv is None:
             cv = CrossValidation()
-        solver, cv_results = solver.search(self, data, cv)
-        model, solver_fit = self.fit_model(data, solver, verbose)
-        scores = self._score_fit(model, solver_fit, data)
+        solver, cv_results = solver.search(data, cv)
+        model, solver_fit = fit_model(data, solver, verbose)
+        scores = _score_fit(model, solver_fit, data)
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data)
         else:
