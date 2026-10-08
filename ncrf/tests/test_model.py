@@ -170,6 +170,14 @@ def test_whitening_guard():
         data.whiten(_forward(seed=2, noise_covariance=np.eye(3) / 4))
     with pytest.raises(ValueError, match="whitened with a different forward model"):
         data.whiten(ForwardModel(forward.lead_field[:, :2], np.eye(3) / 4, Scalar('source', range(2)), SENSOR, None))
+    # the comparison is relative: at MEG scale, every value is below any absolute tolerance
+    source = Scalar('source', range(4))
+    meg_scale = raw.whiten(ForwardModel(forward.lead_field * 1e-8, np.eye(3) * 1e-26, source, SENSOR, None))
+    assert meg_scale.whiten(ForwardModel(forward.lead_field * 1e-8, np.eye(3) * 1e-26, source, SENSOR, None)) is meg_scale
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        meg_scale.whiten(ForwardModel(forward.lead_field * 1e-8, np.eye(3) * 5e-26, source, SENSOR, None))
+    with pytest.raises(ValueError, match="whitened with a different forward model"):
+        meg_scale.whiten(ForwardModel(forward.lead_field * 2e-8, np.eye(3) * 1e-26, source, SENSOR, None))
 
     # a forward model for other sensors cannot be attached, even when its whitening
     # filter is the same (as for a diagonal noise covariance with equal variances)
