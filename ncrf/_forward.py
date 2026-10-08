@@ -106,9 +106,8 @@ class ForwardModel:
     rank-deficient one (e.g. after ICA component removal, Maxwell filtering, or
     SSP projection) the directions without noise are dropped, as data cleaned
     the same way carries no signal there either. The rank is the number of
-    eigenvalues above ``1e-12`` times the largest, a threshold well clear of both
-    the numerical floor of removed directions (~1e-15) and the quietest measured
-    noise direction (~1e-8 even for unscaled magnetometer plus gradiometer data).
+    eigenvalues above a small fraction of the largest, chosen to separate removed
+    directions from measured noise (see ``_RANK_TOL`` in the source).
 
     Parameters
     ----------
