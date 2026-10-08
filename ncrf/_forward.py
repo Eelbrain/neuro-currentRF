@@ -22,6 +22,11 @@ from ._typing import FloatArray, NoiseArg
 #: measured noise directions stay above ~1e-8 even for unscaled magnetometer plus
 #: gradiometer data, so 1e-12 sits well clear of both; it also caps the whitening
 #: gain at 1e6, above MNE-Python's instability warning (condition number 1e10).
+#: This assumes a single channel type: multiple channel types are currently not
+#: supported, as with channel types in different units (e.g. EEG in V and MEG in
+#: T) the smaller-scale type would fall below the threshold and be dropped as a
+#: whole; supporting them would require scaling the channel types to comparable
+#: variance before the eigendecomposition.
 _RANK_TOL = 1e-12
 
 
