@@ -44,9 +44,14 @@ nitpicky = True
 nitpick_ignore = [
     ("py:obj", "optional"),
     ("py:obj", "NCRF"),
-    # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
-    # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
+    # NumPy's intersphinx inventory resolves ndarray/dtype, but not these
+    # classes when Sphinx expands npt.NDArray[np.float64] / npt.NDArray[np.int64]
+    # in signatures.
+    ("py:class", "numpy._typing._array_like.NDArray"),
     ("py:class", "numpy.float64"),
+    ("py:class", "numpy.int64"),
+    # Documented through ChampLassoFit.history, no page of its own
+    ("py:class", "ncrf._solvers.champ_lasso.ChampLassoHistory"),
 ]
 
 # A list of ignored prefixes for module index sorting.
@@ -85,12 +90,6 @@ napoleon_use_param = True
 napoleon_use_ivar = False
 napoleon_use_keyword = True
 napoleon_use_rtype = True
-
-qualname_overrides = {
-    "ncrf._model.NCRF": "ncrf.NCRF",
-    "ncrf._model.RegressionData": "ncrf.RegressionData",
-    "ncrf._ncrf.fit_ncrf": "ncrf.fit_ncrf",
-}
 
 # -- intersphinx -----------------------------------------------------------------------
 intersphinx_mapping = get_intersphinx_mapping(

@@ -33,6 +33,11 @@ div.version {
 Autosummary tables
 ------------------
 Remove table outlines*/
+table.autosummary {
+    margin-left: 0;
+    margin-right: auto;
+}
+
 .wy-table-bordered-all, .rst-content table.docutils {
     border: none;
 }

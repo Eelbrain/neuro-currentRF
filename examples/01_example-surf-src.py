@@ -42,7 +42,7 @@ offset = n_times_run1
 for idx in [1]:
     csv_fname = data_path / 'MEG' / 'bst_auditory' / f'events_bad_0{idx}.csv'
     df = pd.read_csv(csv_fname, header=None, names=['onset', 'duration', 'id', 'label'])
-    print('Events from run {0}:'.format(idx))
+    print(f'Events from run {idx}:')
     print(df)
 
     df['onset'] += offset * (idx - 1)
@@ -69,8 +69,7 @@ diffs = np.concatenate([[min_diff + 1], np.diff(onsets)])
 onsets = onsets[diffs > min_diff]
 assert len(onsets) == len(events)
 diffs = 1000. * (events[:, 0] - onsets) / raw.info['sfreq']
-print('Trigger delay removed (μ ± σ): %0.1f ± %0.1f ms'
-      % (np.mean(diffs), np.std(diffs)))
+print(f'Trigger delay removed (μ ± σ): {np.mean(diffs):0.1f} ± {np.std(diffs):0.1f} ms')
 
 # events times are rescaled according to new sampling freq, 100 Hz
 events[:, 0] = np.int64(onsets * 100 / raw.info['sfreq'])
@@ -222,7 +221,7 @@ lf = eelbrain.load.fiff.forward_operator(fwd_fixed, src='ico-4', subjects_dir=su
 #    1) For this example, we use a fixed regularization parameter (``mu``).
 #    For a real experiment, the optimal ``mu`` would be determined by
 #    cross-validation (set ``mu='auto'``, which is the default).
-#    The optimal ``mu`` will then be stored in ``model.mu``
+#    The optimal ``mu`` will then be stored in ``result.solver.mu``
 #    (this is how the ``mu`` used here was determined).
 #
 #    2) The example forces the estimation to stop after fewer iterations than
@@ -232,22 +231,22 @@ lf = eelbrain.load.fiff.forward_operator(fwd_fixed, src='ico-4', subjects_dir=su
 # To speed up the example, we cache the NCRF:
 ncrf_file = data_path / 'MEG' / 'bst_auditory' / 'oddball_ncrf.pickle'
 if ncrf_file.exists():
-    model = eelbrain.load.unpickle(ncrf_file)
+    result = eelbrain.load.unpickle(ncrf_file)
 else:
-    model = fit_ncrf(
+    result = fit_ncrf(
         meg, [stim1, stim2], lf, noise_cov, tstart=0, tstop=0.5,
         mu=0.0001756774187547859, n_iter=5,
     )
-    eelbrain.save.pickle(model, ncrf_file)
+    eelbrain.save.pickle(result, ncrf_file)
 
 
 ###############################################################################
-# The learned kernel/filter (the NCRF) can be accessed as an attribute of the
-# ``model``.
+# The learned kernel/filter (the NCRF) can be accessed on the fitted model,
+# ``result.model``.
 # NCRFs are stored as :class:`eelbrain.NDVar`. Here, the two NCRFs correspond
 # to the two different predictor variables:
 
-model.h
+result.model.h
 
 
 ###############################################################################
@@ -260,7 +259,7 @@ model.h
 # .. note::
 #    Since the estimates are sparse over cortical locations, smoothing the NCRFs over sources to make the visualization more intuitive.
 
-hs = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
+hs = [h.smooth('source', 0.01, 'gaussian') for h in result.model.h]
 p = eelbrain.plot.Butterfly(hs)
 
 ###############################################################################

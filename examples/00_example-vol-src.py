@@ -257,7 +257,7 @@ lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
 #    1) For this example, we use a fixed regularization parameter (``mu``).
 #    For a real experiment, the optimal ``mu`` can be determined by
 #    cross-validation (set ``mu='auto'``, which is the default).
-#    The optimal ``mu`` will then be stored in ``model.mu``
+#    The optimal ``mu`` will then be stored in ``result.solver.mu``
 #    (this is how the ``mu`` used here was determined).
 #
 #    2) The example forces the estimation to stop after fewer iterations than
@@ -267,23 +267,23 @@ lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
 # To speed up the example, we cache the NCRF
 ncrf_file = data_path / 'MEG' / 'bst_auditory' / 'oddball_ncrf_vol.pickle'
 if ncrf_file.exists():
-    model = eelbrain.load.unpickle(ncrf_file)
+    result = eelbrain.load.unpickle(ncrf_file)
 else:
-    model = fit_ncrf(
+    result = fit_ncrf(
         meg, [stim1, stim2], lf, noise_cov, tstart=0, tstop=0.5,
         mu=4.958456130470556e-06, n_iter=5,
         # mu='auto', n_iter=5,
     )
-    eelbrain.save.pickle(model, ncrf_file)
-model
+    eelbrain.save.pickle(result, ncrf_file)
+result
 
 ###############################################################################
-# The learned kernel/filter (the NCRF) can be accessed as an attribute of the
-# ``model``.
+# The learned kernel/filter (the NCRF) can be accessed on the fitted model,
+# ``result.model``.
 # NCRFs are stored as :class:`eelbrain.NDVar`. Here, the two NCRFs correspond
 # to the two different predictor variables:
 
-model.h
+result.model.h
 
 ###############################################################################
 # Visualization
@@ -296,7 +296,7 @@ model.h
 #    Since the estimates are sparse over cortical locations, smoothing the NCRFs
 #    over sources makes the visualization more intuitive.
 
-hs_orig = [h.smooth('source', 0.01, 'gaussian') for h in model.h]
+hs_orig = [h.smooth('source', 0.01, 'gaussian') for h in result.model.h]
 p = eelbrain.plot.Butterfly([h.norm('space') for h in hs_orig],
                             axtitle=['Common', 'Contrast'], rows=1)
 

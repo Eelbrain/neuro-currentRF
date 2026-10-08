@@ -40,7 +40,7 @@ maintainers = [
 name = 'ncrf'
 readme = 'README.md'
 requires-python = '>=3.10'
-version = '0.4.0.dev0'
+version = '0.5.0.dev0'
 
 [project.optional-dependencies]
 all = [
@@ -77,6 +77,20 @@ test = [
   'pytest-faulthandler',
   'seaborn'  # required to import `eelbrain.testing`
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow or heavy (deselect with '-m \"not slow\"')",
+]
+addopts = "--strict-markers"
+
+[tool.cibuildwheel]
+test-requires = [
+  "eelbrain>=0.34",
+  "pytest",
+  "pytest-cov",
+]
+test-command = "pytest -m \"not slow\" -rsx -v --pyargs ncrf --cov ncrf --cov-report=xml:{project}/coverage.xml"
 
 [tool.tomlsort]
 all = true

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from math import sqrt
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import logging
 
@@ -74,60 +74,6 @@ def _compute_residual(deltaf: FloatArray, sg: FloatArray) -> tuple[float, float]
     return res, res_r
 
 
-def _update_coefs(
-        x: FloatArray,
-        tau: float,
-        gradfx: FloatArray,
-        prox: ProximalOperator,
-        f: ObjectiveFunction,
-        g: ObjectiveFunction,
-        beta: float,
-        fk: float,
-) -> tuple[FloatArray, float, FloatArray, float, int]:
-    """Non-monotone line search
-
-    Parameters
-    ----------
-    x
-        Current coefficients.
-    tau
-        step size
-    gradfx
-        Gradient evaluated at the current coefficients.
-    prox
-        proximal operator of :math:`g(x)`
-    f
-        smooth differentiable function, :math:`f(x)`
-    g
-        non-smooth function, :math:`g(x)`
-    beta
-        backtracking parameter
-    fk
-        maximum of previous function values
-
-    Returns
-    -------
-    tuple
-        Tuple ``(z, fz, sg, tau, count)`` containing the updated coefficients,
-        objective value, subgradient term, accepted step size, and number of
-        backtracking steps.
-    """
-    x_hat = x - tau * gradfx
-    z = prox(x_hat, tau)
-    fz = f(z)
-    count = 0
-    while fz > fk + (gradfx * (z - x)).sum() + ((z - x) ** 2).sum() / (2 * tau):
-        # np.square(linalg.norm(z - x, 'fro')) / (2 * tau):
-        count += 1
-        tau = beta * tau
-        x_hat = x - tau * gradfx
-        z = prox(x_hat, tau)
-        fz = f(z)
-
-    sg = (x_hat - z) / tau
-    return z, fz, sg, tau, count
-
-
 class Fasta:
     r"""Fast adaptive shrinkage/thresholding Algorithm
 
@@ -158,12 +104,8 @@ class Fasta:
     ----------
     coefs
         Learned coefficients.
-    objective_value
-        Optimum objective value.
     residuals
         Residual values at each iteration.
-    initial_stepsize
-        Initial step size, created only with ``verbose=1``.
     objective
         Objective values at each iteration, created only with ``verbose=1``.
     stepsizes
@@ -212,10 +154,60 @@ class Fasta:
         self._funcValues: list[float] = []
         self.coefs_: FloatArray | None = None
 
-    def __str__(self) -> str:
-        return "<Fast adaptive shrinkage/thresholding Algorithm instance>"
+    def __repr__(self) -> str:
+        beta, n_iter = self.beta, self.n_iter
+        completed_iterations = len(self.residuals)
+        fitted = self.coefs_ is not None
+        return f'<{type(self).__name__}: {beta=}, {n_iter=}, {completed_iterations=}, {fitted=}>'
 
-    def learn(self, coefs_init: FloatArray, tol: float = 1e-2, verbose: bool = True) -> Fasta:
+    def _update_coefs(
+            self,
+            x: FloatArray,
+            tau: float,
+            gradfx: FloatArray,
+            fk: float,
+    ) -> tuple[FloatArray, float, FloatArray, float, int]:
+        """Non-monotone line search
+
+        Parameters
+        ----------
+        x
+            Current coefficients.
+        tau
+            step size
+        gradfx
+            Gradient evaluated at the current coefficients.
+        fk
+            maximum of previous function values
+
+        Returns
+        -------
+        tuple
+            Tuple ``(z, fz, sg, tau, count)`` containing the updated coefficients,
+            objective value, subgradient term, accepted step size, and number of
+            backtracking steps.
+        """
+        x_hat = x - tau * gradfx
+        z = self.prox(x_hat, tau)
+        fz = self.f(z)
+        count = 0
+        while fz > fk + (gradfx * (z - x)).sum() + ((z - x) ** 2).sum() / (2 * tau):
+            # np.square(linalg.norm(z - x, 'fro')) / (2 * tau):
+            count += 1
+            tau = self.beta * tau
+            x_hat = x - tau * gradfx
+            z = self.prox(x_hat, tau)
+            fz = self.f(z)
+
+        sg = (x_hat - z) / tau
+        return z, fz, sg, tau, count
+
+    def learn(
+            self,
+            coefs_init: FloatArray,
+            tol: float = 1e-2,
+            verbose: bool = True,
+    ) -> None:
         """Fit the coefficients using the FASTA algorithm.
 
         Parameters
@@ -241,16 +233,14 @@ class Fasta:
         if verbose:
             self.objective = []
             self.objective.append(self._funcValues[-1] + self.g(coefs_current))
-            self.initial_stepsize = np.copy(tau_current)
             self.stepsizes = []
             self.backtracks = []
 
         start = time.time()
         logger.debug("Iteration \t objective value \t step-size \t backtracking steps taken \t residual")
         for i in range(self.n_iter):
-            coefs_next, objective_next, sub_grad, tau, n_backtracks = _update_coefs(coefs_current, tau_current,
-                                                                                    grad_current, self.prox, self.f,
-                                                                                    self.g, self.beta, max(self._funcValues))
+            coefs_next, objective_next, sub_grad, tau, n_backtracks = self._update_coefs(
+                coefs_current, tau_current, grad_current, max(self._funcValues))
 
             self._funcValues.append(objective_next)
 
@@ -278,13 +268,12 @@ class Fasta:
 
             if tau_next == 0 or min(residual_n, residual_r) < tol:  # convergence reached
                 break
-            elif tau_next < 0:  # non-convex probelms ->  negative stepsize -> use the previous value
+            elif tau_next < 0:  # non-convex problems ->  negative stepsize -> use the previous value
                 tau_current = tau
             else:
                 tau_current = tau_next
 
         end = time.time()
         self.coefs_ = coefs_current
-        self.objective_value = objective_next + self.g(coefs_current)
         if verbose:
             logger.debug(f"total time elapsed : {end - start:.3f} s")

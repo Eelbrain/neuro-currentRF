@@ -2,7 +2,8 @@
 
 This module is the public entrypoint for the library. It normalizes the
 different supported input layouts, derives stimulus scaling metadata, prepares
-:class:`RegressionData`, and then delegates optimization to :class:`NCRF`.
+:class:`RegressionData`, and then delegates candidate selection and fitting to
+:class:`NCRFEstimator`.
 """
 # Authors: Proloy Das <email:proloyd94@gmail.com>
 #          Christian Brodbeck <email:brodbecc@mcmaster.ca>
@@ -14,81 +15,41 @@ import collections
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from eelbrain import NDVar, Sensor
-import mne
-import numpy as np
+from eelbrain import NDVar
 
-from ._model import NCRF, RegressionData
+from ._crossvalidation import CrossValidation
+from ._data import RegressionData
+from ._model import NCRFEstimator, NCRFFit
+from ._solvers import ChampLasso, Solver
+from ._typing import MuArg, NoiseArg, ScaleArg
 
 
-DEFAULT_MUs = np.logspace(-3, -1, 7)
-NormalizationValue: TypeAlias = NDVar | float
 StimulusInput: TypeAlias = NDVar | Sequence[NDVar]
 TrialStimulusInput: TypeAlias = StimulusInput | Sequence[StimulusInput]
 MegInput: TypeAlias = NDVar | Sequence[NDVar]
-MuInput: TypeAlias = float | Sequence[float] | str
-
-
-def _handle_noise_channels(
-        noise: mne.Covariance | NDVar | np.ndarray,
-        sensor_dim: Sensor,
-) -> np.ndarray:
-    """Return the noise covariance aligned to the MEG sensor order."""
-    if isinstance(noise, mne.Covariance):
-        chs_noise = set(noise.ch_names)
-        chs_data = set(sensor_dim.names)
-        missing = sorted(chs_data - chs_noise)
-        if missing:
-            raise RuntimeError(f"Missing channels in noise covariance: {', '.join(missing)}")
-
-        index = [noise.ch_names.index(ch) for ch in sensor_dim.names]
-
-        if noise['diag']:
-            full_cov = np.zeros((len(noise.data), len(noise.data)))
-            row, col = np.diag_indices(full_cov.shape[0])
-            full_cov[row, col] = noise.data
-            noise_cov = full_cov[index, :][:, index]
-        else:
-            noise_cov = noise.data[index, :][:, index]
-
-    elif isinstance(noise, NDVar):
-        er = noise.get_data(('sensor', 'time'))
-        noise_cov = np.dot(er, er.T) / er.shape[1]
-
-    elif isinstance(noise, np.ndarray):
-        n = len(sensor_dim)
-        if noise.shape != (n, n):
-            raise ValueError(f"noise = array of shape {noise.shape}; should be {(n, n)}")
-        noise_cov = noise
-
-    else:
-        raise TypeError(f"Invalid noise type: {type(noise)}. Must be NDVar, mne.Covariance, or ndarray.")
-
-    return noise_cov
 
 
 def fit_ncrf(
         meg: MegInput,
         stim: TrialStimulusInput,
         lead_field: NDVar,
-        noise: mne.Covariance | NDVar | np.ndarray,
+        noise: NoiseArg,
         tstart: float | Sequence[float] = 0,
         tstop: float | Sequence[float] = 0.5,
-        nlevels: int = 1,
+        basis_stride: int = 1,
         n_iter: int = 10,
         n_iterc: int = 10,
         n_iterf: int = 100,
-        normalize: bool | str = False,
-        in_place: bool = False,
-        mu: MuInput = 'auto',
+        scale: ScaleArg = 'spectral',
+        mu: MuArg = 'auto',
         tol: float = 1e-3,
         verbose: bool = False,
         n_splits: int = 3,
         n_workers: int | None = None,
         use_ES: bool = False,
         basis_std: float = 0.0085,
-        do_post_normalization: bool = True,
-) -> NCRF:
+        solver: Solver | None = None,
+) -> NCRFFit:
     r"""One shot function for cortical TRF localization.
 
     Estimate both TRFs and source variance from the observed MEG data by solving
@@ -110,34 +71,35 @@ def fit_ncrf(
     lead_field
         Forward solution a.k.a. lead-field matrix.
     noise
-        Empty-room noise covariance, either directly as :class:`mne.Covariance`, as an
-        :class:`eelbrain.NDVar` from which a covariance will be estimated, or as an
-        already aligned covariance matrix. Covariance inputs are checked against the MEG
-        sensor order and raise an error when sensors are missing or the shape is wrong.
+        Empty-room noise covariance, either directly as :class:`mne.Covariance` or as
+        an :class:`eelbrain.NDVar` from which a covariance will be estimated. Channels
+        are matched by name: the noise channels must be a subset of the lead field's
+        channels, and the ``meg`` channels must in turn be covered by the noise; the
+        model is fit on the ``meg`` channels.
     tstart
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
     tstop
         Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one stop time per predictor.
-    nlevels
-        Decides the density of Gabor atoms. Bigger nlevel -> less dense basis.
-        By default it is set to ``1``. ``nlevel > 2`` should be used with caution.
+    basis_stride
+        Spacing between neighboring Gabor atoms, in samples: with the default of
+        ``1`` the atoms are one sample apart, and larger values make the basis
+        sparser. ``basis_stride > 2`` should be used with caution.
     n_iter
         Number of outer iterations of the algorithm, by default set to 10.
     n_iterc
         Number of Champagne iterations within each outer iteration, by default set to 10.
     n_iterf
         Number of FASTA iterations within each outer iteration, by default set to 100.
-    normalize
-        Scale ``stim`` before model fitting: subtract the mean and divide by
-        the standard deviation (when ``normalize='l2'`` or ``normalize=True``)
-        or the mean absolute value (when ``normalize='l1'``). By default,
-        ``normalize=False`` leaves ``stim`` data untouched.
-    in_place
-        By default, ``meg`` and ``stim`` are copied to make them independent of the
-        objects supplied to the function. Set to ``True`` to skip the copy and
-        modify them in place, saving memory when working with large datasets.
+    scale
+        Normalization applied before model fitting: each predictor's mean is
+        subtracted, and the covariates are divided by the ``'l2'`` (standard
+        deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
+        ``'spectral'`` (average spectral norm of the covariates, which equalizes
+        covariate scales across predictor variables; the default) scale. Use
+        ``None`` to leave the covariates on their raw scale.
+        :attr:`~ncrf.NCRF.h_scaled` undoes the scaling, whichever one is used.
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
@@ -151,23 +113,32 @@ def fit_ncrf(
     n_splits
         Number of cross-validation folds. By default it uses 3-fold cross-validation.
     n_workers
-        Number of workers to spawn for cross-validation. If None, it will use ``cpu_count/2``.
+        Number of worker processes for cross-validation. If ``None``, derive it
+        from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).
+        Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
-        choose the best ``mu``. (False, by default)
+        choose the best ``mu``. (``False`` by default, see :class:`~ncrf.ChampLasso`).
     basis_std
         Standard deviation of the Gaussian basis atoms in seconds
         (default ``0.0085``, approximately 20 ms FWHM).
         The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
-    do_post_normalization
-        Scales covariate matrices of different predictor variables by spectral norms to
-        equalize their spectral spread (=1). (default ``True``)
+    solver
+        Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
+        iteration arguments are ignored; configure them on the solver. ``n_splits`` and
+        ``n_workers`` still configure the folds a searching solver is scored on.
 
     Returns
     -------
-    :class:`NCRF`
-        Fitted model instance.
+    :class:`NCRFFit`
+        Fit report. The fitted, reusable model is :attr:`NCRFFit.model` (an
+        :class:`NCRF`); the response functions are ``result.model.h`` /
+        ``result.model.h_scaled``, and metrics for an arbitrary dataset are
+        ``result.model.evaluate(data)``. Training-set metrics (``scores``,
+        ``voxelwise_explained_variance``), solver state
+        (``solver_fit``, including ``solver_fit.history``), and ``cv_info()``
+        live on the result itself.
 
     Examples
     --------
@@ -246,65 +217,21 @@ def fit_ncrf(
                 raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
             stim_trials.append(stim_chunk)
 
-    # normalize=True defaults to 'l2'
-    if normalize is False:
-        s_baseline, s_scale = None, None
-    elif normalize is True:
-        normalize = 'l2'
-        s_baseline, s_scale = get_scaling(stim_trials, normalize)
-    elif isinstance(normalize, str):
-        if normalize not in ('l1', 'l2'):
-            raise ValueError(f"{normalize=}, need bool or 'l1' or 'l2'")
-        s_baseline, s_scale = get_scaling(stim_trials, normalize)
-    else:
-        raise TypeError(f"{normalize=}, need bool or str")
-
     ds = RegressionData.from_data(
-        meg_trials, stim_trials, tstart, tstop, nlevels,
-        s_baseline, s_scale, stim_is_single, basis_std=basis_std,
-        in_place=in_place, post_normalize=do_post_normalization,
+        meg_trials, stim_trials, tstart, tstop, basis_stride,
+        scale, stim_is_single, basis_std=basis_std,
     )
 
-    # noise covariance
-    noise_cov = _handle_noise_channels(noise, ds.sensor_dim)
+    # the estimator trims the forward model to the noise channels, and its fit()
+    # trims further to the sensors of the data
+    estimator = NCRFEstimator.from_lead_field(lead_field, noise)
+    if solver is None:
+        solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
 
-    # Regularizer Choice
-    if isinstance(mu, (tuple, list, np.ndarray)):
-        if len(mu) > 1:
-            mus = mu
-            do_crossvalidation = True
-        else:
-            mus = None
-            do_crossvalidation = False
-    elif isinstance(mu, float):
-        mus = None
-        do_crossvalidation = False
-    elif mu == 'auto':
-        mus = 'auto'
-        do_crossvalidation = True
-    else:
-        raise ValueError(f"invalid {mu=}, supports tuple, list, np.ndarray or scalar float optionally, may be left 'auto' if not sure")
-
-    if lead_field.get_dim('sensor') != ds.sensor_dim:
-        lead_field = lead_field.sub(sensor=ds.sensor_dim)
-
-    model = NCRF(lead_field, noise_cov, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf)
-    model.fit(ds, mu, do_crossvalidation, tol, verbose, mus=mus, n_splits=n_splits,
-              n_workers=n_workers, use_ES=use_ES, compute_explained_variance=True)
-    return model
-
-
-def get_scaling(
-        all_stims: list[list[NDVar]],
-        normalize: str,
-) -> tuple[list[NormalizationValue], list[NormalizationValue]]:
-    """Compute per-predictor centering and scaling values for stimulus normalization."""
-    stim_trials = [trials for trials in zip(*all_stims)]  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
-    n = sum(len(stim.time) for stim in stim_trials[0])
-    means = [sum(s.sum('time') for s in trials) / n for trials in stim_trials]
-    stim_trials = [[s - mean for s in stims] for mean, stims in zip(means, stim_trials)]
-    if normalize == 'l1':
-        scales = [sum(s.abs().sum('time') for s in trials) / n for trials in stim_trials]
-    else:
-        scales = [(sum((s ** 2).sum('time') for s in trials) / n) ** 0.5 for trials in stim_trials]
-    return means, scales
+    return estimator.fit(
+        ds,
+        solver,
+        cv=CrossValidation(n_splits, n_workers),
+        verbose=verbose,
+        compute_explained_variance=True,
+    )

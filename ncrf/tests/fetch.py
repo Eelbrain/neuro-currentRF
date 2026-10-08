@@ -41,7 +41,7 @@ def fetch_dataset(force_download: bool = False) -> Path:
     ver_fname = final_path / "version.txt"
     outdated = False
     if ver_fname.exists():
-        with open(ver_fname, 'r') as fid:
+        with open(ver_fname) as fid:
             data_version = fid.readline().strip()
         outdated = operator.gt(want_version, data_version)
     else:

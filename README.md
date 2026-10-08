@@ -11,11 +11,28 @@ This repository contains the implementation of our direct TRF estimation algorit
 
 For code examples using real datasets, see the [Example gallery](https://eelbrain.github.io/neuro-currentRF/auto_examples/index.html).
 
+The optimization algorithm is configurable independently of the forward model.
+For a prepared `RegressionData` dataset, the lower-level API is:
+
+```python
+from ncrf import ChampLasso, NCRFEstimator
+
+estimator = NCRFEstimator.from_lead_field(lead_field, noise_covariance)
+solver = ChampLasso(mu='auto', n_iter=30, n_iterc=10, n_iterf=100)
+result = estimator.fit(data, solver)
+```
+
+All solvers return a common predictive `NCRF` in `result.model`; training explained variance
+is available as `result.scores['explained_variance']`. To score other data,
+`result.model.evaluate(data, [explained_variance, l2_error])` predicts once and
+returns all requested metrics. Solver-specific state is available as
+`result.solver_fit`.
+
 
 ## How to use:
 run
 ```python
-model = fit_ncrf(meg, stim, lead_field, noise, mu='auto', tstop=1.0, nlevels=2, n_splits=3, normalize='l1')
+result = fit_ncrf(meg, stim, lead_field, noise_covariance, mu='auto', tstop=1.0, basis_stride=2, n_splits=3, scale='l1')
 ```
 to perform a 3-fold cross-validation and then construct the model for 1s long TRF with the regularization weight among the given range that gives least generalization error. The signature of the ``meg`` and ``stim`` could be as follows:
 
@@ -24,7 +41,7 @@ to perform a 3-fold cross-validation and then construct the model for 1s long TR
 
 For more options, please look at the docstring. The learned TRF, `h` can be retrieved using:
 ```python
-h = model.h
+h = result.model.h
 ```
 
 ## Results

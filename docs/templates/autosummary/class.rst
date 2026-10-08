@@ -20,3 +20,19 @@
 {%- endfor %}
 {% endif %}
 {% endblock %}
+
+{% block attributes %}
+{% if attributes %}
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+{% for item in attributes %}
+   {%- if not item.startswith('_') %}
+   ~{{ name }}.{{ item }}
+   {%- endif -%}
+{%- endfor %}
+{% endif %}
+{% endblock %}

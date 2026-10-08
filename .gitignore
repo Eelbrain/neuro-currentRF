@@ -1,5 +1,5 @@
 docs/_build
-docs/api/generated
+docs/generated
 docs/auto_examples
 docs/sg_execution_times.rst
 ncrf.egg-info
