@@ -342,13 +342,18 @@ def test_forward_rank_threshold():
     """Directions far below the largest eigenvalue are dropped; measured ones are kept."""
     lead_field = np.ones((3, 4))
     source = Scalar('source', range(4))
-    assert ForwardModel(lead_field, np.diag([1., 1e-8, 1e-11]), source, SENSOR, None).rank == 3
-    assert ForwardModel(lead_field, np.diag([1., 1e-8, 1e-13]), source, SENSOR, None).rank == 2
+    # eigenvectors spread over the channels, so that dropping one does not drop a channel
+    q, _ = np.linalg.qr(np.random.RandomState(0).normal(size=(3, 3)))
+    assert ForwardModel(lead_field, (q * [1., 1e-8, 1e-11]) @ q.T, source, SENSOR, None).rank == 3
+    assert ForwardModel(lead_field, (q * [1., 1e-8, 1e-13]) @ q.T, source, SENSOR, None).rank == 2
     with pytest.raises(ValueError, match="no positive eigenvalues"):
         ForwardModel(lead_field, -np.eye(3), source, SENSOR, None)
-    # a channel without noise is rejected rather than silently projected out
-    with pytest.raises(ValueError, match="noise covariance has flat channels: b"):
+    # a channel without noise is rejected rather than silently projected out, whether
+    # it is exactly flat or merely far below the others
+    with pytest.raises(ValueError, match="noise covariance has channels without noise: b"):
         ForwardModel(lead_field, np.diag([1., 0., 1.]), source, SENSOR, None)
+    with pytest.raises(ValueError, match="noise covariance has channels without noise: b"):
+        ForwardModel(lead_field, np.diag([1., 1e-20, 1.]), source, SENSOR, None)
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])

@@ -173,15 +173,18 @@ class ForwardModel:
         ``lead_field_scaling``, and ``whitened_noise_covariance``.  Neither
         ``lead_field`` nor ``noise_covariance`` is modified.
         """
-        # A channel without noise would be projected out of the whitened space, silently ignoring its data
-        flat = np.flatnonzero(np.diag(self.noise_covariance) == 0)
-        if flat.size:
-            raise ValueError(f"noise covariance has flat channels: {', '.join(self.sensor.names[i] for i in flat)}; exclude them from the data (mark them as bad) or supply noise for them")
         e, v = linalg.eigh(self.noise_covariance)  # ascending eigenvalues
         if e[-1] <= 0:
             raise ValueError("noise covariance has no positive eigenvalues; whitening requires noise in at least one direction")
         rank = self.rank = int((e > _RANK_TOL * e[-1]).sum())
         e, v = e[-rank:], v[:, -rank:]
+        # A channel without noise (flat, or far below the others) lies in the dropped
+        # directions and would be projected out of the whitened space, silently
+        # ignoring its data; the squared rows of v are the fraction of each channel
+        # that the whitened space retains
+        flat = np.flatnonzero((v ** 2).sum(1) < 1e-3)
+        if flat.size:
+            raise ValueError(f"noise covariance has channels without noise: {', '.join(self.sensor.names[i] for i in flat)}; exclude them from the data (mark them as bad) or supply noise for them")
         self.whitening_filter = v.T / np.sqrt(e)[:, None]
         self.whitened_lead_field = np.dot(self.whitening_filter, self.lead_field)
         # wf @ C @ wf.T is the identity by construction (the kept eigenvectors are orthonormal)
