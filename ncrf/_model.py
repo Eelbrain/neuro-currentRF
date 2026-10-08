@@ -506,11 +506,22 @@ class NCRFFit:
         Solver-specific fitted state and iteration history (for ChampLasso,
         ``solver_fit.history``).
     scores
-        Prediction metrics on the training data, keyed by name: the
-        solver-independent model metrics plus whatever the solver contributes
-        through :meth:`SolverFit.score` (for ChampLasso, ``cross_fit`` and
-        ``weighted_l2_error``). For an arbitrary dataset use
-        :meth:`NCRF.evaluate`.
+        Scores of the fitted model on the training data, keyed by name. All of
+        them are computed in whitened sensor space and merge two sources:
+
+        - The solver-independent model metrics from :meth:`NCRF.evaluate`,
+          ``explained_variance`` and ``l2_error``, which compare the model's
+          predictions with the observed sensor data.
+        - Solver-specific scores from the ``score`` method of the solver's fit
+          class, typically the solver's own objective, which can depend on
+          fitted state beyond the TRF. For :class:`ChampLasso` these are
+          ``cross_fit`` and ``weighted_l2_error``; :meth:`ChampLassoFit.score`
+          defines them.
+
+        Because they are computed on the data the model was fitted to, these
+        scores describe the goodness of fit rather than predictive performance.
+        The same scores computed on held-out data are in :class:`CVResult`, and
+        :meth:`NCRF.evaluate` scores the model metrics on an arbitrary dataset.
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).

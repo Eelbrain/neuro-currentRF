@@ -40,7 +40,14 @@ class SolverFit:
     Parameters
     ----------
     theta
-        Fitted source-space coefficients over the regression design basis.
+        Coefficients of the TRFs over the Gaussian basis atoms, shape
+        ``(n_sources, n_coefficients)`` with one column per basis atom and
+        stimulus channel (see :attr:`TRFDesign.n_coefficients`). This is not
+        the response function itself: the covariates were projected onto the
+        basis before fitting, so the TRF is recovered by multiplying the
+        coefficients with the basis. Use :attr:`ncrf.NCRF.h` (or
+        :attr:`ncrf.NCRF.h_scaled` for original stimulus units) to get the
+        expanded response functions.
     """
 
     theta: FloatArray
@@ -53,12 +60,24 @@ class SolverFit:
             forward: ForwardModel,
             data: RegressionData,
     ) -> dict[str, float]:
-        """Solver-specific scores for ``data``, e.g. the training objective.
+        """Solver-specific scores for ``data``, keyed by name.
 
-        Merged with the solver-independent model metrics wherever a fit is
-        scored: on the training data in :attr:`NCRFFit.scores`, and per fold
-        in ``CVResult.scores``. Keys that collide with a metric name are
+        A solver can contribute quantities that the solver-independent model
+        metrics (``explained_variance``, ``l2_error``) do not capture, typically
+        its own objective, which may depend on fitted state beyond ``theta``.
+        Subclasses should document exactly what each score reflects and whether
+        lower or higher is better. The scores are merged with the model metrics
+        wherever a fit is scored: on the training data in :attr:`NCRFFit.scores`,
+        and on held-out data in ``CVResult.scores``, where a solver's search can
+        select among candidates by them. Keys that collide with a metric name are
         rejected by ``merge_scores``.
+
+        Parameters
+        ----------
+        forward
+            Forward model the fit was computed with.
+        data
+            Whitened data to score.
         """
         return {}
 

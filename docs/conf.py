@@ -50,6 +50,8 @@ nitpick_ignore = [
     ("py:class", "numpy._typing._array_like.NDArray"),
     ("py:class", "numpy.float64"),
     ("py:class", "numpy.int64"),
+    # Documented through ChampLassoFit.history, no page of its own
+    ("py:class", "ncrf._solvers.champ_lasso.ChampLassoHistory"),
 ]
 
 # A list of ignored prefixes for module index sorting.

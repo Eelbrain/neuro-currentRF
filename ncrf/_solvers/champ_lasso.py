@@ -468,7 +468,29 @@ class _ChampLassoState:
 
 @dataclass(frozen=True, repr=False)
 class ChampLassoFit(SolverFit):
-    """Fitted state produced by :class:`ChampLasso`."""
+    """Fitted state produced by :class:`ChampLasso`.
+
+    Parameters
+    ----------
+    theta
+        Coefficients of the TRFs over the Gaussian basis atoms, shape
+        ``(n_sources, n_coefficients)`` with one column per basis atom and
+        stimulus channel (see :attr:`TRFDesign.n_coefficients`). This is not
+        the response function itself: the covariates were projected onto the
+        basis before fitting, so the TRF is recovered by multiplying the
+        coefficients with the basis. Use :attr:`ncrf.NCRF.h` (or
+        :attr:`ncrf.NCRF.h_scaled` for original stimulus units) to get the
+        expanded response functions.
+    history
+        Per-iteration record of the quantities selected with ``ChampLasso(store=...)``.
+    gamma
+        Per-segment source covariance estimates, as a list of per-source
+        covariance matrices for each segment.
+    sigma_b
+        Per-segment estimates of the sensor covariance of the whitened data under
+        the model, i.e. the whitened noise covariance plus the lead field
+        projection of ``gamma``. These weight the residual in :meth:`score`.
+    """
 
     history: ChampLassoHistory
     gamma: list
@@ -482,7 +504,36 @@ class ChampLassoFit(SolverFit):
             forward: ForwardModel,
             data: RegressionData,
     ) -> dict[str, float]:
-        """Likelihood objective on whitened ``data`` and its weighted-L2 term."""
+        r"""ChampLasso's likelihood objective on whitened ``data``, and its residual term.
+
+        Both scores are averaged over the segments of ``data``, and lower is
+        better. For a segment with whitened sensor data :math:`y` and model
+        prediction :math:`\hat y`, let :math:`r = y - \hat y` be the whitened
+        residual and :math:`\Sigma_b` the segment's :attr:`sigma_b`:
+
+        ``weighted_l2_error``
+            The squared residual weighted by the inverse of the estimated data
+            covariance, :math:`\tfrac{1}{2}\,\mathrm{tr}(\Sigma_b^{-1} r r^\top)`.
+            Compared with the model metric ``l2_error``,
+            :math:`\tfrac{1}{2}\,\mathrm{tr}(r r^\top)`, the residual is
+            additionally scaled down in sensor directions that the model
+            attributes to source activity.
+        ``cross_fit``
+            The weighted residual plus the log-determinant term,
+            :math:`\tfrac{1}{2}\,\mathrm{tr}(\Sigma_b^{-1} r r^\top) + \tfrac{1}{2}\log\det\Sigma_b`.
+            This is the Gaussian type-II likelihood cost function that Champagne
+            minimizes :cite:p:`das2020neuro`, without the :math:`\ell_1` penalty
+            on the TRF, which makes it comparable across values of ``mu``. It is
+            the criterion by which :class:`ChampLasso` selects ``mu`` in
+            cross-validation.
+
+        On the training data (:attr:`NCRFFit.scores`) both reflect how well the
+        final TRF and covariance estimates account for the data they were fitted
+        to. On held-out data (``CVResult.scores``) the residual comes from the
+        held-out window while :math:`\Sigma_b` was estimated on the training
+        folds, so the scores measure how well the fitted covariance model
+        generalizes.
+        """
         cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, self.sigma_b, data)
         return {'cross_fit': cross_fit, 'weighted_l2_error': weighted_l2_error}
 
