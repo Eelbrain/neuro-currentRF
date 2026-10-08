@@ -136,8 +136,9 @@ class NCRF:
         -------
         list
             Predicted arrays, one per segment, each shaped
-            ``(n_sensors, n_samples)``; column ``i`` is the prediction for time
-            sample ``data.samples[i]`` of the segment.
+            ``(n_sensors, n_samples)`` (``(rank, n_samples)`` when ``whitened``,
+            see :class:`~ncrf.ForwardModel`); column ``i`` is the prediction for
+            time sample ``data.samples[i]`` of the segment.
         """
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)

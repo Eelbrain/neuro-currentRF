@@ -426,8 +426,8 @@ class RegressionData:
     def responses(self) -> list[FloatArray]:
         """M/EEG arrays for the solver, one per segment, each shaped ``(n_sensors, n_samples)``.
 
-        The retained samples of ``meg``, whitened if a ``forward`` model is set, and
-        divided by :attr:`norm_factor`.
+        The retained samples of ``meg``, whitened if a ``forward`` model is set
+        (then shaped ``(forward.rank, n_samples)``), and divided by :attr:`norm_factor`.
         """
         responses = []
         for m in self.meg:

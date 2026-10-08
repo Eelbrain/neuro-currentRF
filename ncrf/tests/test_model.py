@@ -298,6 +298,59 @@ def _model(design: TRFDesign, n_coefficients: int, seed: int = 1) -> NCRF:
     return NCRF(_forward(seed), rng.normal(size=(4, n_coefficients)), design)
 
 
+def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, FloatArray]:
+    """Covariance of noise with one direction removed, as ICA component removal does; returns (covariance, projector)."""
+    u = rng.normal(size=3)
+    u /= np.linalg.norm(u)
+    projector = np.eye(3) - np.outer(u, u)
+    noise = np.dot(projector, rng.normal(size=(3, 500)))
+    return np.dot(noise, noise.T) / 500, projector
+
+
+def test_forward_rank_deficient():
+    """A rank-deficient noise covariance whitens into its noise subspace rather than being rejected."""
+    rng = np.random.RandomState(0)
+    covariance, projector = _rank_deficient_covariance(rng)
+    forward = _forward(noise_covariance=covariance)
+
+    assert forward.rank == 2
+    assert forward.whitening_filter.shape == (2, 3)
+    assert forward.whitened_lead_field.shape == (2, 4)
+    np.testing.assert_allclose(np.dot(np.dot(forward.whitening_filter, covariance), forward.whitening_filter.T), np.eye(2), atol=1e-12)
+    np.testing.assert_array_equal(forward.whitened_noise_covariance, np.eye(2))
+    np.testing.assert_allclose(np.linalg.norm(forward.whitened_lead_field, 2), 1)
+    # the removed direction is invisible to the whitened space
+    x = rng.normal(size=(3, 10))
+    np.testing.assert_allclose(np.dot(forward.whitening_filter, x), np.dot(forward.whitening_filter, np.dot(projector, x)), atol=1e-12)
+    assert '3 sensors (rank 2)' in repr(forward)
+    assert '(rank' not in repr(_forward())
+
+    # the rank in effect is pickled, and the derived quantities are reproduced
+    restored = pickle.loads(pickle.dumps(forward))
+    assert restored.rank == 2
+    np.testing.assert_array_equal(restored.whitening_filter, forward.whitening_filter)
+
+    # whitened data has rank channels; the rank is part of the forward model's identity
+    data = _synthetic_data('l2').whiten(forward)
+    assert data.responses[0].shape[0] == 2
+    assert data.whiten(_forward(noise_covariance=covariance)) is data
+    with pytest.raises(ValueError, match="already whitened with a different forward model"):
+        data.whiten(_forward(noise_covariance=covariance + np.eye(3)))
+
+
+def test_forward_rank_threshold():
+    """Directions far below the largest eigenvalue are dropped; measured ones are kept."""
+    lead_field = np.ones((3, 4))
+    source = Scalar('source', range(4))
+    assert ForwardModel(lead_field, np.diag([1., 1e-8, 1e-11]), source, SENSOR, None).rank == 3
+    assert ForwardModel(lead_field, np.diag([1., 1e-8, 1e-13]), source, SENSOR, None).rank == 2
+    with pytest.raises(ValueError, match="no positive eigenvalues"):
+        ForwardModel(lead_field, -np.eye(3), source, SENSOR, None)
+    # a channel without noise is rejected rather than silently projected out
+    with pytest.raises(ValueError, match="noise covariance has flat channels: b"):
+        ForwardModel(lead_field, np.diag([1., 0., 1.]), source, SENSOR, None)
+
+
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
 def test_normalize_matches_from_data(scale):
     """Applying normalization to covariates == applying it to the stimulus."""
