@@ -1,0 +1,6 @@
+ncrf.ChampLassoFit.score
+========================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLassoFit.score

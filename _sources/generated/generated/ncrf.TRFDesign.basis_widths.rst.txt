@@ -1,0 +1,6 @@
+ncrf.TRFDesign.basis\_widths
+============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.basis_widths

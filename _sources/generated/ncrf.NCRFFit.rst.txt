@@ -1,0 +1,23 @@
+﻿ncrf.NCRFFit
+============
+
+.. currentmodule:: ncrf
+
+.. autoclass:: NCRFFit
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRFFit.cv_info
+
+
+
+
+

@@ -1,0 +1,6 @@
+ncrf.ChampLassoFit.theta
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLassoFit.theta

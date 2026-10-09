@@ -1,0 +1,6 @@
+ncrf.CrossValidation.n\_splits
+==============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: CrossValidation.n_splits

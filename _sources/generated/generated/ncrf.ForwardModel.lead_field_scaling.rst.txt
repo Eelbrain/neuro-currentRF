@@ -1,0 +1,6 @@
+ncrf.ForwardModel.lead\_field\_scaling
+======================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.lead_field_scaling

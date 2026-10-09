@@ -1,0 +1,43 @@
+﻿ncrf.ChampLasso
+===============
+
+.. currentmodule:: ncrf
+
+.. autoclass:: ChampLasso
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ChampLasso.auto_candidates
+   ~ChampLasso.candidates
+   ~ChampLasso.cv_table
+   ~ChampLasso.search
+   ~ChampLasso.solve
+   ~ChampLasso.without_history
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ChampLasso.mu
+   ~ChampLasso.n_iter
+   ~ChampLasso.n_iterc
+   ~ChampLasso.n_iterf
+   ~ChampLasso.store
+   ~ChampLasso.tol
+   ~ChampLasso.use_es
+

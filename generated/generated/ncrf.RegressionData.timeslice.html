@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.RegressionData.timeslice &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=36cfc4e5" />
+    <script src="../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="ncrf.RegressionData.whiten" href="ncrf.RegressionData.whiten.html" />
+    <link rel="prev" title="ncrf.RegressionData.normalize" href="ncrf.RegressionData.normalize.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-regressiondata-timeslice">
+<h1>ncrf.RegressionData.timeslice<a class="headerlink" href="#ncrf-regressiondata-timeslice" title="Link to this heading">¶</a></h1>
+<dl class="py method">
+<dt class="sig sig-object py" id="ncrf.RegressionData.timeslice">
+<span class="sig-prename descclassname"><span class="pre">RegressionData.</span></span><span class="sig-name descname"><span class="pre">timeslice</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">idx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.RegressionData.timeslice" title="Link to this definition">¶</a></dt>
+<dd><p>Return a new dataset restricted to a subset of this dataset’s samples.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>idx</strong> – Samples to retain, as integer indices or a boolean mask into this
+dataset’s <code class="docutils literal notranslate"><span class="pre">samples</span></code>.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The slice’s arrays are the corresponding rows of this dataset’s arrays,
+rescaled to the slice’s own <a class="reference internal" href="ncrf.RegressionData.norm_factor.html#ncrf.RegressionData.norm_factor" title="ncrf.RegressionData.norm_factor"><code class="xref py py-attr docutils literal notranslate"><span class="pre">norm_factor</span></code></a>. Slicing them is much
+cheaper than rebuilding them from the NDVars, so this dataset’s arrays are
+built once and shared by all slices, such as cross-validation folds.</p>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../guide.html">Guide</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../api.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#high-level-interface">High-level interface</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../../api.html#fitting-pipeline">Fitting pipeline</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#models-and-fits">Models and fits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#solvers">Solvers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#model-components">Model components</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../../api.html">API reference</a><ul>
+  <li><a href="../ncrf.RegressionData.html">ncrf.RegressionData</a><ul>
+      <li>Previous: <a href="ncrf.RegressionData.normalize.html" title="previous chapter">ncrf.RegressionData.normalize</a></li>
+      <li>Next: <a href="ncrf.RegressionData.whiten.html" title="next chapter">ncrf.RegressionData.whiten</a></li>
+  </ul></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../../_sources/generated/generated/ncrf.RegressionData.timeslice.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,42 @@
+﻿ncrf.ForwardModel
+=================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: ForwardModel
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ForwardModel.source_block
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ForwardModel.dc
+   ~ForwardModel.mne_initializer
+   ~ForwardModel.lead_field
+   ~ForwardModel.noise_covariance
+   ~ForwardModel.source
+   ~ForwardModel.sensor
+   ~ForwardModel.space
+   ~ForwardModel.whitening_filter
+   ~ForwardModel.whitened_lead_field
+   ~ForwardModel.whitened_noise_covariance
+   ~ForwardModel.lead_field_scaling
+

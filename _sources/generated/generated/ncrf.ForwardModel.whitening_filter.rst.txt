@@ -1,0 +1,6 @@
+ncrf.ForwardModel.whitening\_filter
+===================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.whitening_filter

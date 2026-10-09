@@ -1,0 +1,6 @@
+ncrf.ForwardModel.space
+=======================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.space

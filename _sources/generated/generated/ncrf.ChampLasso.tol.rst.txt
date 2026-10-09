@@ -1,0 +1,6 @@
+ncrf.ChampLasso.tol
+===================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.tol

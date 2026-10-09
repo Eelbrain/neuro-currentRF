@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stop\_samples
+============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.stop_samples

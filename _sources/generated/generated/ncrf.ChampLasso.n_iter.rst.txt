@@ -1,0 +1,6 @@
+ncrf.ChampLasso.n\_iter
+=======================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.n_iter

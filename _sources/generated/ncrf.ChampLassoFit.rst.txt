@@ -1,0 +1,35 @@
+﻿ncrf.ChampLassoFit
+==================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: ChampLassoFit
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ChampLassoFit.score
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~ChampLassoFit.history
+   ~ChampLassoFit.gamma
+   ~ChampLassoFit.sigma_b
+   ~ChampLassoFit.theta
+

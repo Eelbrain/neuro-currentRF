@@ -1,0 +1,6 @@
+ncrf.TRFDesign.basis\_stride
+============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.basis_stride

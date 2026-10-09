@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_is\_single
+===============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.stim_is_single

@@ -1,0 +1,6 @@
+ncrf.TRFDesign.per\_predictor
+=============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: TRFDesign.per_predictor

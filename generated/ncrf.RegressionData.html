@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.RegressionData &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=36cfc4e5" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="ncrf.RegressionData.from_data" href="generated/ncrf.RegressionData.from_data.html" />
+    <link rel="prev" title="ncrf.fit_ncrf" href="ncrf.fit_ncrf.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-regressiondata">
+<h1>ncrf.RegressionData<a class="headerlink" href="#ncrf-regressiondata" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="ncrf.RegressionData">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">ncrf.</span></span><span class="sig-name descname"><span class="pre">RegressionData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">meg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">design</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forward</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.RegressionData" title="Link to this definition">¶</a></dt>
+<dd><p>Dataset for NCRF fitting: M/EEG segments, their predictors, and the design.</p>
+<p>Use <a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">from_data()</span></code></a> to derive the design, including its normalization, from
+the data itself.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">meg</span></code> and <code class="docutils literal notranslate"><span class="pre">stim</span></code> NDVars are referenced rather than copied, and the
+arrays are built from them when first accessed. Do not modify the NDVars in
+place while the dataset, or one derived from it, is in use: arrays built
+afterwards would reflect the change, but the normalization recorded on the
+design would not.</p>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>meg</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><em>list</em></a><em>[</em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.NDVar</em></a><em>]</em>) – M/EEG segments, each an NDVar with <code class="docutils literal notranslate"><span class="pre">sensor</span></code> and <code class="docutils literal notranslate"><span class="pre">time</span></code> dimensions. All
+segments share the sensor dimension and the time axis length and step.</p></li>
+<li><p><strong>stim</strong> (<a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#list" title="(in Python v3.15)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Sequence" title="(in Python v3.15)"><em>collections.abc.Sequence</em></a><em>[</em><a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.NDVar</em></a><em>]</em><em>]</em>) – Predictors, one list per segment with one NDVar per predictor variable.
+Each predictor may be 1-D over time or carry one feature dimension before
+time, and shares the time axis of its segment’s <code class="docutils literal notranslate"><span class="pre">meg</span></code>.</p></li>
+<li><p><strong>design</strong> (<a class="reference internal" href="ncrf.TRFDesign.html#ncrf.TRFDesign" title="ncrf._trf_design.TRFDesign"><em>ncrf._trf_design.TRFDesign</em></a>) – Design describing the predictors, the TRF lags and basis, and the
+normalization to apply to the covariates.</p></li>
+<li><p><strong>samples</strong> (<em>numpy._typing._array_like.NDArray</em><em>[</em><em>numpy.int64</em><em>] </em><em>| </em><em>None</em>) – Indices of the time samples the dataset covers, into the time axis of
+<code class="docutils literal notranslate"><span class="pre">meg</span></code>; <code class="docutils literal notranslate"><span class="pre">None</span></code> for all samples. <a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">from_data()</span></code></a> drops samples whose
+lag window extends beyond the stimulus, and <a class="reference internal" href="generated/ncrf.RegressionData.timeslice.html#ncrf.RegressionData.timeslice" title="ncrf.RegressionData.timeslice"><code class="xref py py-meth docutils literal notranslate"><span class="pre">timeslice()</span></code></a> selects
+cross-validation folds.</p></li>
+<li><p><strong>forward</strong> (<a class="reference internal" href="ncrf.ForwardModel.html#ncrf.ForwardModel" title="ncrf._forward.ForwardModel"><em>ncrf._forward.ForwardModel</em></a><em> | </em><em>None</em>) – Forward model whose whitening filter is applied to the responses, or
+<code class="docutils literal notranslate"><span class="pre">None</span></code> for raw data. Set by <a class="reference internal" href="generated/ncrf.RegressionData.whiten.html#ncrf.RegressionData.whiten" title="ncrf.RegressionData.whiten"><code class="xref py py-meth docutils literal notranslate"><span class="pre">whiten()</span></code></a>; whitened data thus carries
+the forward model it is fit with, and recording it lets <a class="reference internal" href="generated/ncrf.RegressionData.whiten.html#ncrf.RegressionData.whiten" title="ncrf.RegressionData.whiten"><code class="xref py py-meth docutils literal notranslate"><span class="pre">whiten()</span></code></a>
+distinguish a no-op (same filter) from an error (different filter).</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The stored fields are the raw inputs. The arrays the solver consumes,
+<a class="reference internal" href="generated/ncrf.RegressionData.responses.html#ncrf.RegressionData.responses" title="ncrf.RegressionData.responses"><code class="xref py py-attr docutils literal notranslate"><span class="pre">responses</span></code></a> and <a class="reference internal" href="generated/ncrf.RegressionData.covariates.html#ncrf.RegressionData.covariates" title="ncrf.RegressionData.covariates"><code class="xref py py-attr docutils literal notranslate"><span class="pre">covariates</span></code></a>, are derived from them on demand
+according to <a class="reference internal" href="generated/ncrf.RegressionData.design.html#ncrf.RegressionData.design" title="ncrf.RegressionData.design"><code class="xref py py-attr docutils literal notranslate"><span class="pre">design</span></code></a>, which fixes the TRF lags, the Gaussian basis the
+predictors are projected onto, and the centering and scaling of the
+covariates.</p>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-obj docutils literal notranslate"><span class="pre">from_data</span></code></a>(meg, stim, tstart, tstop[, ...])</p></td>
+<td><p>Construct a dataset from MEG and stimulus NDVars, deriving the design from them.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.normalize.html#ncrf.RegressionData.normalize" title="ncrf.RegressionData.normalize"><code class="xref py py-obj docutils literal notranslate"><span class="pre">normalize</span></code></a>(design)</p></td>
+<td><p>Return a dataset whose covariates are centered and scaled.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.timeslice.html#ncrf.RegressionData.timeslice" title="ncrf.RegressionData.timeslice"><code class="xref py py-obj docutils literal notranslate"><span class="pre">timeslice</span></code></a>(idx)</p></td>
+<td><p>Return a new dataset restricted to a subset of this dataset's samples.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.whiten.html#ncrf.RegressionData.whiten" title="ncrf.RegressionData.whiten"><code class="xref py py-obj docutils literal notranslate"><span class="pre">whiten</span></code></a>(forward)</p></td>
+<td><p>Return a dataset whose responses are whitened with <code class="docutils literal notranslate"><span class="pre">forward</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.EtE.html#ncrf.RegressionData.EtE" title="ncrf.RegressionData.EtE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">EtE</span></code></a></p></td>
+<td><p>Per-segment <code class="docutils literal notranslate"><span class="pre">E.T</span> <span class="pre">&#64;</span> <span class="pre">E</span></code> covariate Gram matrices.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.bE.html#ncrf.RegressionData.bE" title="ncrf.RegressionData.bE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">bE</span></code></a></p></td>
+<td><p>Per-segment <code class="docutils literal notranslate"><span class="pre">B</span> <span class="pre">&#64;</span> <span class="pre">E</span></code> cross-product matrices.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.bbt.html#ncrf.RegressionData.bbt" title="ncrf.RegressionData.bbt"><code class="xref py py-obj docutils literal notranslate"><span class="pre">bbt</span></code></a></p></td>
+<td><p>Per-segment <code class="docutils literal notranslate"><span class="pre">B</span> <span class="pre">&#64;</span> <span class="pre">B.T</span></code> matrices of the responses.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.covariates.html#ncrf.RegressionData.covariates" title="ncrf.RegressionData.covariates"><code class="xref py py-obj docutils literal notranslate"><span class="pre">covariates</span></code></a></p></td>
+<td><p>Covariate matrices for the solver, one per segment, each shaped <code class="docutils literal notranslate"><span class="pre">(n_samples,</span> <span class="pre">n_coefficients)</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.forward.html#ncrf.RegressionData.forward" title="ncrf.RegressionData.forward"><code class="xref py py-obj docutils literal notranslate"><span class="pre">forward</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.is_whitened.html#ncrf.RegressionData.is_whitened" title="ncrf.RegressionData.is_whitened"><code class="xref py py-obj docutils literal notranslate"><span class="pre">is_whitened</span></code></a></p></td>
+<td><p>Whether the responses are transformed by a whitening filter (see <code class="docutils literal notranslate"><span class="pre">forward</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.norm_factor.html#ncrf.RegressionData.norm_factor" title="ncrf.RegressionData.norm_factor"><code class="xref py py-obj docutils literal notranslate"><span class="pre">norm_factor</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">sqrt(n_samples)</span></code> that responses and covariates are divided by.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.responses.html#ncrf.RegressionData.responses" title="ncrf.RegressionData.responses"><code class="xref py py-obj docutils literal notranslate"><span class="pre">responses</span></code></a></p></td>
+<td><p>M/EEG arrays for the solver, one per segment, each shaped <code class="docutils literal notranslate"><span class="pre">(n_sensors,</span> <span class="pre">n_samples)</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.samples.html#ncrf.RegressionData.samples" title="ncrf.RegressionData.samples"><code class="xref py py-obj docutils literal notranslate"><span class="pre">samples</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.sensor_dim.html#ncrf.RegressionData.sensor_dim" title="ncrf.RegressionData.sensor_dim"><code class="xref py py-obj docutils literal notranslate"><span class="pre">sensor_dim</span></code></a></p></td>
+<td><p>Sensor dimension shared by all MEG segments.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.meg.html#ncrf.RegressionData.meg" title="ncrf.RegressionData.meg"><code class="xref py py-obj docutils literal notranslate"><span class="pre">meg</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.stim.html#ncrf.RegressionData.stim" title="ncrf.RegressionData.stim"><code class="xref py py-obj docutils literal notranslate"><span class="pre">stim</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.RegressionData.design.html#ncrf.RegressionData.design" title="ncrf.RegressionData.design"><code class="xref py py-obj docutils literal notranslate"><span class="pre">design</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide.html">Guide</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../api.html#high-level-interface">High-level interface</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#fitting-pipeline">Fitting pipeline</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#models-and-fits">Models and fits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#solvers">Solvers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#model-components">Model components</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="../api.html">API reference</a><ul>
+      <li>Previous: <a href="ncrf.fit_ncrf.html" title="previous chapter">ncrf.fit_ncrf</a></li>
+      <li>Next: <a href="generated/ncrf.RegressionData.from_data.html" title="next chapter">ncrf.RegressionData.from_data</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../_sources/generated/ncrf.RegressionData.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

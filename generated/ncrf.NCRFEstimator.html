@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.NCRFEstimator &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=36cfc4e5" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="ncrf.NCRFEstimator.fit" href="generated/ncrf.NCRFEstimator.fit.html" />
+    <link rel="prev" title="ncrf.RegressionData.design" href="generated/ncrf.RegressionData.design.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-ncrfestimator">
+<h1>ncrf.NCRFEstimator<a class="headerlink" href="#ncrf-ncrfestimator" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="ncrf.NCRFEstimator">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">ncrf.</span></span><span class="sig-name descname"><span class="pre">NCRFEstimator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lead_field</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">noise_covariance</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">noise_channels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.NCRFEstimator" title="Link to this definition">¶</a></dt>
+<dd><p>Estimator for neuro-current response functions (NCRFs).</p>
+<p>Construct with <a class="reference internal" href="generated/ncrf.NCRFEstimator.from_lead_field.html#ncrf.NCRFEstimator.from_lead_field" title="ncrf.NCRFEstimator.from_lead_field"><code class="xref py py-meth docutils literal notranslate"><span class="pre">from_lead_field()</span></code></a> from a lead field and noise
+covariance, then call <a class="reference internal" href="generated/ncrf.NCRFEstimator.fit.html#ncrf.NCRFEstimator.fit" title="ncrf.NCRFEstimator.fit"><code class="xref py py-meth docutils literal notranslate"><span class="pre">fit()</span></code></a> with a <a class="reference internal" href="ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a> instance
+to obtain an <a class="reference internal" href="ncrf.NCRFFit.html#ncrf.NCRFFit" title="ncrf.NCRFFit"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFFit</span></code></a>.</p>
+<p>The estimator stores its inputs in full; the whitened
+<a class="reference internal" href="ncrf.ForwardModel.html#ncrf.ForwardModel" title="ncrf.ForwardModel"><code class="xref py py-class docutils literal notranslate"><span class="pre">ForwardModel</span></code></a> is derived by <a class="reference internal" href="generated/ncrf.NCRFEstimator.fit.html#ncrf.NCRFEstimator.fit" title="ncrf.NCRFEstimator.fit"><code class="xref py py-meth docutils literal notranslate"><span class="pre">fit()</span></code></a> for exactly the
+channels of the data being fit, since whitening is not separable per
+channel.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lead_field</strong> (<a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><em>eelbrain._data_obj.NDVar</em></a><em> | </em><em>None</em>) – Full forward solution with <code class="docutils literal notranslate"><span class="pre">sensor</span></code> and <code class="docutils literal notranslate"><span class="pre">source</span></code> dimensions and an
+optional <code class="docutils literal notranslate"><span class="pre">space</span></code> dimension for free orientation.</p></li>
+<li><p><strong>noise_covariance</strong> (<em>numpy._typing._array_like.NDArray</em><em>[</em><em>numpy.float64</em><em>] </em><em>| </em><em>None</em>) – Sensor-space noise covariance for <a class="reference internal" href="generated/ncrf.NCRFEstimator.noise_channels.html#ncrf.NCRFEstimator.noise_channels" title="ncrf.NCRFEstimator.noise_channels"><code class="xref py py-attr docutils literal notranslate"><span class="pre">noise_channels</span></code></a>, in their order.</p></li>
+<li><p><strong>noise_channels</strong> (<a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Sequence" title="(in Python v3.15)"><em>collections.abc.Sequence</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/builtins/stdtypes.html#str" title="(in Python v3.15)"><em>str</em></a><em>] </em><em>| </em><em>None</em>) – Channel names of <code class="docutils literal notranslate"><span class="pre">noise_covariance</span></code>, in its order: a subset of the
+lead field’s channels. Alignment to the data’s channels happens by name
+when the forward model is derived.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Use <a class="reference internal" href="generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">RegressionData.from_data()</span></code></a> to prepare the M/EEG and predictor
+segments, initialize this estimator with the matching forward inputs, and
+call <a class="reference internal" href="generated/ncrf.NCRFEstimator.fit.html#ncrf.NCRFEstimator.fit" title="ncrf.NCRFEstimator.fit"><code class="xref py py-meth docutils literal notranslate"><span class="pre">fit()</span></code></a> with a configured <a class="reference internal" href="ncrf.Solver.html#ncrf.Solver" title="ncrf.Solver"><code class="xref py py-class docutils literal notranslate"><span class="pre">Solver</span></code></a>. The returned
+<a class="reference internal" href="ncrf.NCRFFit.html#ncrf.NCRFFit" title="ncrf.NCRFFit"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFFit</span></code></a> keeps the reusable model separate from solver-specific
+fitted state.</p>
+<p>Derived forward models are cached by channel set, so repeated fits to data
+with the same channels share one. The estimator’s inputs are treated as
+immutable; replace the estimator rather than modifying them.</p>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.fit.html#ncrf.NCRFEstimator.fit" title="ncrf.NCRFEstimator.fit"><code class="xref py py-obj docutils literal notranslate"><span class="pre">fit</span></code></a>(data, solver, *[, cv, verbose, ...])</p></td>
+<td><p>Fit a configured solver to a regression dataset.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.from_lead_field.html#ncrf.NCRFEstimator.from_lead_field" title="ncrf.NCRFEstimator.from_lead_field"><code class="xref py py-obj docutils literal notranslate"><span class="pre">from_lead_field</span></code></a>(lead_field, noise_covariance)</p></td>
+<td><p>Construct from a lead-field <a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><code class="xref py py-class docutils literal notranslate"><span class="pre">NDVar</span></code></a> and noise covariance.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.lead_field.html#ncrf.NCRFEstimator.lead_field" title="ncrf.NCRFEstimator.lead_field"><code class="xref py py-obj docutils literal notranslate"><span class="pre">lead_field</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.noise_channels.html#ncrf.NCRFEstimator.noise_channels" title="ncrf.NCRFEstimator.noise_channels"><code class="xref py py-obj docutils literal notranslate"><span class="pre">noise_channels</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.noise_covariance.html#ncrf.NCRFEstimator.noise_covariance" title="ncrf.NCRFEstimator.noise_covariance"><code class="xref py py-obj docutils literal notranslate"><span class="pre">noise_covariance</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide.html">Guide</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../api.html#high-level-interface">High-level interface</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#fitting-pipeline">Fitting pipeline</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#models-and-fits">Models and fits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#solvers">Solvers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#model-components">Model components</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="../api.html">API reference</a><ul>
+      <li>Previous: <a href="generated/ncrf.RegressionData.design.html" title="previous chapter">ncrf.RegressionData.design</a></li>
+      <li>Next: <a href="generated/ncrf.NCRFEstimator.fit.html" title="next chapter">ncrf.NCRFEstimator.fit</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../_sources/generated/ncrf.NCRFEstimator.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

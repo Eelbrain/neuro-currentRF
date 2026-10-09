@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Guide &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=36cfc4e5" />
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API reference" href="api.html" />
+    <link rel="prev" title="Contributing" href="development.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="guide">
+<h1>Guide<a class="headerlink" href="#guide" title="Link to this heading">¶</a></h1>
+<p>The simplest entry point is <a class="reference internal" href="generated/ncrf.fit_ncrf.html#ncrf.fit_ncrf" title="ncrf.fit_ncrf"><code class="xref py py-func docutils literal notranslate"><span class="pre">ncrf.fit_ncrf()</span></code></a>, which accepts Eelbrain
+<a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><code class="xref py py-class docutils literal notranslate"><span class="pre">NDVar</span></code></a> objects, prepares the regression design, selects a
+regularization value when needed, and returns a structured fit report:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ncrf</span><span class="w"> </span><span class="kn">import</span> <span class="n">fit_ncrf</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">fit_ncrf</span><span class="p">(</span>
+    <span class="n">meg</span><span class="p">,</span>
+    <span class="n">stim</span><span class="p">,</span>
+    <span class="n">lead_field</span><span class="p">,</span>
+    <span class="n">noise</span><span class="p">,</span>
+    <span class="n">mu</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+    <span class="n">tstop</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">n_splits</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">trf</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">h</span>
+<span class="n">training_scores</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">scores</span>
+</pre></div>
+</div>
+<p>The fitted <a class="reference internal" href="generated/ncrf.NCRF.html#ncrf.NCRF" title="ncrf.NCRF"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRF</span></code></a> in <code class="docutils literal notranslate"><span class="pre">result.model</span></code> is independent of the
+optimizer that produced it. It can predict or evaluate another compatible
+<a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a> dataset. Optimization diagnostics remain in
+<code class="docutils literal notranslate"><span class="pre">result.solver_fit</span></code>, and cross-validation results can be inspected with
+<a class="reference internal" href="generated/generated/ncrf.NCRFFit.cv_info.html#ncrf.NCRFFit.cv_info" title="ncrf.NCRFFit.cv_info"><code class="xref py py-meth docutils literal notranslate"><span class="pre">cv_info()</span></code></a>.</p>
+<section id="normalization">
+<h2>Normalization<a class="headerlink" href="#normalization" title="Link to this heading">¶</a></h2>
+<p>The covariates that an NCRF is fit against can be centered and scaled.
+<a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a> handles this normalization: the values are recorded
+on its <code class="docutils literal notranslate"><span class="pre">design</span></code> and applied whenever the covariates are built from the
+predictors, and <a class="reference internal" href="generated/generated/ncrf.RegressionData.from_data.html#ncrf.RegressionData.from_data" title="ncrf.RegressionData.from_data"><code class="xref py py-meth docutils literal notranslate"><span class="pre">from_data()</span></code></a> derives them from the data.</p>
+<p>Each predictor’s mean is subtracted, and each covariate channel is
+divided by a scaling factor, determined through the <code class="docutils literal notranslate"><span class="pre">scale</span></code> argument:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">'spectral'</span></code> (the default): the average spectral norm of the channel’s
+covariates. This equalizes covariate scales across predictor variables, so that
+one regularization parameter is appropriate for all of them.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">'l1'</span></code>/<code class="docutils literal notranslate"><span class="pre">'l2'</span></code>: the predictor’s mean absolute deviation or standard
+deviation.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: leave the covariates on their raw scale, without centering.</p></li>
+</ul>
+<p>The centering and the <code class="docutils literal notranslate"><span class="pre">'l1'</span></code>/<code class="docutils literal notranslate"><span class="pre">'l2'</span></code> factors are properties of the predictor,
+and are measured on all of its samples. The <code class="docutils literal notranslate"><span class="pre">'spectral'</span></code> norm is a property of
+the covariates that were built from it, and is measured on the samples that carry
+a complete lag window.</p>
+<p>Centering and scaling are a single choice because they only make sense together.
+M/EEG data is high-pass filtered, so an uncentered predictor’s mean would
+contribute a constant <code class="docutils literal notranslate"><span class="pre">mean</span> <span class="pre">*</span> <span class="pre">sum(h)</span></code> to the prediction, which the fit has to
+reconcile with zero-mean data – in effect constraining the response function to
+sum to zero. And the scale factors measure variation around the mean rather than
+raw magnitude, since a predictor’s offset would otherwise dominate its scale and
+leave its variation over-regularized.</p>
+<p><a class="reference internal" href="generated/generated/ncrf.NCRF.h.html#ncrf.NCRF.h" title="ncrf.NCRF.h"><code class="xref py py-attr docutils literal notranslate"><span class="pre">h</span></code></a> is in units of the normalized covariates.
+<a class="reference internal" href="generated/generated/ncrf.NCRF.h_scaled.html#ncrf.NCRF.h_scaled" title="ncrf.NCRF.h_scaled"><code class="xref py py-attr docutils literal notranslate"><span class="pre">h_scaled</span></code></a> restores the original stimulus scale,
+and is the appropriate representation for comparing response
+functions across predictors or across models.</p>
+<section id="applying-a-model-to-new-data">
+<h3>Applying a model to new data<a class="headerlink" href="#applying-a-model-to-new-data" title="Link to this heading">¶</a></h3>
+<p>A fitted model can only be applied to covariates on the scale it was fit on –
+multiplying coefficients learned from <code class="docutils literal notranslate"><span class="pre">(stim</span> <span class="pre">-</span> <span class="pre">baseline)</span> <span class="pre">/</span> <span class="pre">scaling</span></code> with a raw
+stimulus would silently produce wrong predictions and scores. New data therefore
+has to carry the same normalization as the training data. Apply the model’s own
+normalization with <a class="reference internal" href="generated/generated/ncrf.RegressionData.normalize.html#ncrf.RegressionData.normalize" title="ncrf.RegressionData.normalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">normalize()</span></code></a>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">test_data</span> <span class="o">=</span> <span class="n">RegressionData</span><span class="o">.</span><span class="n">from_data</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">test_meg</span><span class="p">],</span>
+    <span class="p">[[</span><span class="n">test_stim</span><span class="p">]],</span>
+    <span class="n">tstart</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">tstop</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">stim_is_single</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">scale</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">test_data</span> <span class="o">=</span> <span class="n">test_data</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">design</span><span class="p">)</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">test_data</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Note that this uses the training data’s normalization values, which is what
+makes the scores comparable; values derived from the test data would put the
+covariates on a different scale. The covariates are built from the raw
+predictors, so a dataset can be normalized any number of times with any
+compatible design; <code class="docutils literal notranslate"><span class="pre">scale=None</span></code> merely skips deriving values that
+<a class="reference internal" href="generated/generated/ncrf.RegressionData.normalize.html#ncrf.RegressionData.normalize" title="ncrf.RegressionData.normalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">normalize()</span></code></a> would replace anyway.</p>
+<p><a class="reference internal" href="generated/generated/ncrf.NCRF.predict.html#ncrf.NCRF.predict" title="ncrf.NCRF.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict()</span></code></a>, <a class="reference internal" href="generated/generated/ncrf.NCRF.evaluate.html#ncrf.NCRF.evaluate" title="ncrf.NCRF.evaluate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">evaluate()</span></code></a> and
+<a class="reference internal" href="generated/generated/ncrf.NCRF.voxelwise_explained_variance.html#ncrf.NCRF.voxelwise_explained_variance" title="ncrf.NCRF.voxelwise_explained_variance"><code class="xref py py-meth docutils literal notranslate"><span class="pre">voxelwise_explained_variance()</span></code></a> raise an error when <code class="docutils literal notranslate"><span class="pre">data</span></code>
+carries a different normalization, or when its design describes different
+predictors, TRF timings, or a different basis.</p>
+</section>
+<section id="prediction-units">
+<h3>Prediction units<a class="headerlink" href="#prediction-units" title="Link to this heading">¶</a></h3>
+<p><a class="reference internal" href="generated/generated/ncrf.NCRF.predict.html#ncrf.NCRF.predict" title="ncrf.NCRF.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict()</span></code></a> returns predictions in the units of the M/EEG data the
+dataset was built from, so they can be compared with the original recording
+directly.</p>
+<p><a class="reference internal" href="generated/generated/ncrf.NCRF.evaluate.html#ncrf.NCRF.evaluate" title="ncrf.NCRF.evaluate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">evaluate()</span></code></a> instead scores in <em>whitened</em> sensor space, where the
+noise covariance is the identity and channels are therefore comparable. This is
+the space the solver optimizes in and the one cross-validation compares
+candidates in, which is what makes <code class="docutils literal notranslate"><span class="pre">result.scores</span></code> and the cross-validation
+scores commensurable. Pass <code class="docutils literal notranslate"><span class="pre">whitened=True</span></code> to <a class="reference internal" href="generated/generated/ncrf.NCRF.predict.html#ncrf.NCRF.predict" title="ncrf.NCRF.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">predict()</span></code></a> to see
+the predictions the metrics are computed on.</p>
+</section>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="development.html">Contributing</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#normalization">Normalization</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="development.html" title="previous chapter">Contributing</a></li>
+      <li>Next: <a href="api.html" title="next chapter">API reference</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/guide.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

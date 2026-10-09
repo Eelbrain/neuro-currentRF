@@ -1,0 +1,6 @@
+ncrf.RegressionData.responses
+=============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.responses

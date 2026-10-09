@@ -1,0 +1,35 @@
+﻿ncrf.NCRF
+=========
+
+.. currentmodule:: ncrf
+
+.. autoclass:: NCRF
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRF.evaluate
+   ~NCRF.predict
+   ~NCRF.voxelwise_explained_variance
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRF.h
+   ~NCRF.h_scaled
+

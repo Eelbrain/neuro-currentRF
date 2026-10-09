@@ -1,0 +1,6 @@
+ncrf.TRFDesign.tstep
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.tstep

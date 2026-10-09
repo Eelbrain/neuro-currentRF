@@ -1,0 +1,6 @@
+ncrf.NCRF.predict
+=================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.predict

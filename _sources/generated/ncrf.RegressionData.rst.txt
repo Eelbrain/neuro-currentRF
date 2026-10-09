@@ -1,0 +1,47 @@
+﻿ncrf.RegressionData
+===================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: RegressionData
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~RegressionData.from_data
+   ~RegressionData.normalize
+   ~RegressionData.timeslice
+   ~RegressionData.whiten
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~RegressionData.EtE
+   ~RegressionData.bE
+   ~RegressionData.bbt
+   ~RegressionData.covariates
+   ~RegressionData.forward
+   ~RegressionData.is_whitened
+   ~RegressionData.norm_factor
+   ~RegressionData.responses
+   ~RegressionData.samples
+   ~RegressionData.sensor_dim
+   ~RegressionData.meg
+   ~RegressionData.stim
+   ~RegressionData.design
+

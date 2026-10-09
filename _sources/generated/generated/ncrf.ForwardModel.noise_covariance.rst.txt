@@ -1,0 +1,6 @@
+ncrf.ForwardModel.noise\_covariance
+===================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.noise_covariance

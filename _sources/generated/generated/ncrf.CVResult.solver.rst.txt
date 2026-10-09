@@ -1,0 +1,6 @@
+ncrf.CVResult.solver
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: CVResult.solver

@@ -1,0 +1,6 @@
+ncrf.Solver.cv\_table
+=====================
+
+.. currentmodule:: ncrf
+
+.. automethod:: Solver.cv_table

@@ -1,0 +1,6 @@
+ncrf.ChampLasso.n\_iterc
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.n_iterc

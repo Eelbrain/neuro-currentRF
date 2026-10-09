@@ -1,0 +1,6 @@
+ncrf.TRFDesign.tstart
+=====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.tstart

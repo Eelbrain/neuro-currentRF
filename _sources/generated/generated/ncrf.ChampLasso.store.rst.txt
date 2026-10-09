@@ -1,0 +1,6 @@
+ncrf.ChampLasso.store
+=====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.store

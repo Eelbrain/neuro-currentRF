@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ncrf.NCRF &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="../_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=36cfc4e5" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="ncrf.NCRF.evaluate" href="generated/ncrf.NCRF.evaluate.html" />
+    <link rel="prev" title="ncrf.crossvalidate" href="ncrf.crossvalidate.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="ncrf-ncrf">
+<h1>ncrf.NCRF<a class="headerlink" href="#ncrf-ncrf" title="Link to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="ncrf.NCRF">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">ncrf.</span></span><span class="sig-name descname"><span class="pre">NCRF</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">forward</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">design</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ncrf.NCRF" title="Link to this definition">¶</a></dt>
+<dd><p>Fitted NCRF model that can be applied to compatible datasets.</p>
+<p>Holds the estimated weights together with the forward model and stimulus
+design needed to reconstruct response functions, predict whitened sensor
+data, and evaluate predictions. Reusable and picklable; produced by
+<a class="reference internal" href="generated/ncrf.NCRFEstimator.fit.html#ncrf.NCRFEstimator.fit" title="ncrf.NCRFEstimator.fit"><code class="xref py py-meth docutils literal notranslate"><span class="pre">NCRFEstimator.fit()</span></code></a> and exposed as <a class="reference internal" href="ncrf.NCRFFit.html#ncrf.NCRFFit.model" title="ncrf.NCRFFit.model"><code class="xref py py-attr docutils literal notranslate"><span class="pre">NCRFFit.model</span></code></a>.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ncrf.NCRF.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><a class="headerlink" href="#ncrf.NCRF.forward" title="Link to this definition">¶</a></dt>
+<dd><p>The internal forward-model state (lead field, whitening filter, and
+source, sensor, and orientation dimensions).</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ncrf.NCRF.theta">
+<span class="sig-name descname"><span class="pre">theta</span></span><a class="headerlink" href="#ncrf.NCRF.theta" title="Link to this definition">¶</a></dt>
+<dd><p>Fitted NCRF coefficients over the Gaussian basis, shape
+<code class="docutils literal notranslate"><span class="pre">(source,</span> <span class="pre">stimulus</span> <span class="pre">*</span> <span class="pre">lag)</span></code>: rows are the source dipoles in
+lead-field order (orientation varying fastest), columns are
+the predictors of <a class="reference internal" href="#ncrf.NCRF.design" title="ncrf.NCRF.design"><code class="xref py py-attr docutils literal notranslate"><span class="pre">design</span></code></a> concatenated, each ordered by stimulus
+with lag varying fastest.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ncrf.NCRF.design">
+<span class="sig-name descname"><span class="pre">design</span></span><a class="headerlink" href="#ncrf.NCRF.design" title="Link to this definition">¶</a></dt>
+<dd><p>Stimulus, basis, and normalization metadata of the data the model was fit
+on, including the TRF timing (<code class="docutils literal notranslate"><span class="pre">design.tstart</span></code>, <code class="docutils literal notranslate"><span class="pre">design.tstep</span></code>,
+<code class="docutils literal notranslate"><span class="pre">design.tstop</span></code>) and the Gaussian-basis width (<code class="docutils literal notranslate"><span class="pre">design.basis_std</span></code>).
+Pass it to <a class="reference internal" href="generated/ncrf.RegressionData.normalize.html#ncrf.RegressionData.normalize" title="ncrf.RegressionData.normalize"><code class="xref py py-meth docutils literal notranslate"><span class="pre">normalize()</span></code></a> to bring another
+dataset onto the same scale.</p>
+</dd></dl>
+
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRF.evaluate.html#ncrf.NCRF.evaluate" title="ncrf.NCRF.evaluate"><code class="xref py py-obj docutils literal notranslate"><span class="pre">evaluate</span></code></a>(data[, metrics])</p></td>
+<td><p>Score predictions on <code class="docutils literal notranslate"><span class="pre">data</span></code> with one or more metrics.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.NCRF.predict.html#ncrf.NCRF.predict" title="ncrf.NCRF.predict"><code class="xref py py-obj docutils literal notranslate"><span class="pre">predict</span></code></a>(data, *[, whitened])</p></td>
+<td><p>Predict sensor-space data for each segment.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRF.voxelwise_explained_variance.html#ncrf.NCRF.voxelwise_explained_variance" title="ncrf.NCRF.voxelwise_explained_variance"><code class="xref py py-obj docutils literal notranslate"><span class="pre">voxelwise_explained_variance</span></code></a>(data)</p></td>
+<td><p>Compute each source's contribution to explained variance.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/ncrf.NCRF.h.html#ncrf.NCRF.h" title="ncrf.NCRF.h"><code class="xref py py-obj docutils literal notranslate"><span class="pre">h</span></code></a></p></td>
+<td><p>The spatio-temporal response function as (list of) <a class="reference external" href="https://eelbrain.readthedocs.io/en/stable/generated/eelbrain.NDVar.html#eelbrain.NDVar" title="(in Eelbrain v0.41)"><code class="xref py py-class docutils literal notranslate"><span class="pre">eelbrain.NDVar</span></code></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/ncrf.NCRF.h_scaled.html#ncrf.NCRF.h_scaled" title="ncrf.NCRF.h_scaled"><code class="xref py py-obj docutils literal notranslate"><span class="pre">h_scaled</span></code></a></p></td>
+<td><p><a class="reference internal" href="generated/ncrf.NCRF.h.html#ncrf.NCRF.h" title="ncrf.NCRF.h"><code class="xref py py-attr docutils literal notranslate"><span class="pre">h</span></code></a> with the covariate normalization undone.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guide.html">Guide</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../api.html#high-level-interface">High-level interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#fitting-pipeline">Fitting pipeline</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="../api.html#models-and-fits">Models and fits</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#solvers">Solvers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#metrics">Metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api.html#model-components">Model components</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+  <li><a href="../api.html">API reference</a><ul>
+      <li>Previous: <a href="ncrf.crossvalidate.html" title="previous chapter">ncrf.crossvalidate</a></li>
+      <li>Next: <a href="generated/ncrf.NCRF.evaluate.html" title="next chapter">ncrf.NCRF.evaluate</a></li>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../_sources/generated/ncrf.NCRF.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

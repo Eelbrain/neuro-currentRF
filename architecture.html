@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Architecture &#8212; NCRF</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery.css?v=c83e6b79" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-binder.css?v=f4aeca0c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-dataframe.css?v=2082cf3c" />
+    <link rel="stylesheet" type="text/css" href="_static/sg_gallery-rendered-html.css?v=1277b6f3" />
+    <link rel="stylesheet" type="text/css" href="_static/custom.css?v=36cfc4e5" />
+    <script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/sg-tags.js?v=d80f6fa4"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="References" href="references.html" />
+    <link rel="prev" title="Surface source Example" href="auto_examples/01_example-surf-src.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="architecture">
+<h1>Architecture<a class="headerlink" href="#architecture" title="Link to this heading">¶</a></h1>
+<p>Neuro-currentRF separates input preparation, forward-model handling,
+optimization, and prediction. This keeps the fitted model reusable and allows
+optimization algorithms to be changed without changing the prediction API.</p>
+<section id="pipeline">
+<h2>Pipeline<a class="headerlink" href="#pipeline" title="Link to this heading">¶</a></h2>
+<p>The most important classes are:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a> holds the sensor data and predictors together
+with the design, and derives the arrays the solver consumes from them.</p></li>
+<li><p><a class="reference internal" href="generated/ncrf.NCRFEstimator.html#ncrf.NCRFEstimator" title="ncrf.NCRFEstimator"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFEstimator</span></code></a> owns the forward model and whitening transform,
+selects a solver candidate through cross-validation, and runs the final fit.</p></li>
+<li><p><a class="reference internal" href="generated/ncrf.Solver.html#ncrf.Solver" title="ncrf.Solver"><code class="xref py py-class docutils literal notranslate"><span class="pre">Solver</span></code></a> implementations, such as <a class="reference internal" href="generated/ncrf.ChampLasso.html#ncrf.ChampLasso" title="ncrf.ChampLasso"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChampLasso</span></code></a>,
+define optimization and candidate-selection behavior.</p></li>
+<li><p><a class="reference internal" href="generated/ncrf.NCRFFit.html#ncrf.NCRFFit" title="ncrf.NCRFFit"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFFit</span></code></a> provides access to the reusable <a class="reference internal" href="generated/ncrf.NCRF.html#ncrf.NCRF" title="ncrf.NCRF"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRF</span></code></a> model
+from the selected solver, along with solver-specific fit state, scores, and diagnostics.</p></li>
+</ul>
+<p>The high-level data flow is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">M</span><span class="o">/</span><span class="n">EEG</span> <span class="o">+</span> <span class="n">stimulus</span> <span class="o">+</span> <span class="n">lead</span> <span class="n">field</span> <span class="o">+</span> <span class="n">noise</span>
+                <span class="o">|</span>
+                <span class="n">v</span>
+            <span class="n">fit_ncrf</span>
+                <span class="o">|</span>
+      <span class="o">+---------+----------+</span>
+      <span class="o">|</span>                    <span class="o">|</span>
+<span class="n">RegressionData</span>       <span class="n">NCRFEstimator</span>
+<span class="p">(</span><span class="n">M</span><span class="o">/</span><span class="n">EEG</span><span class="p">,</span> <span class="n">predictors</span>    <span class="p">(</span><span class="n">forward</span> <span class="n">model</span> <span class="ow">and</span>
+ <span class="ow">and</span> <span class="n">TRF</span> <span class="n">design</span><span class="p">)</span>       <span class="n">whitening</span><span class="p">)</span>
+      <span class="o">|</span>                    <span class="o">|</span>
+      <span class="o">+---------+----------+</span>
+                <span class="o">|</span>
+       <span class="n">Solver</span><span class="o">.</span><span class="n">search</span>
+    <span class="p">(</span><span class="n">optional</span> <span class="n">cross</span><span class="o">-</span><span class="n">validation</span><span class="p">)</span>
+                <span class="o">|</span>
+         <span class="n">final</span> <span class="n">solver</span> <span class="n">run</span>
+                <span class="o">|</span>
+                <span class="n">v</span>
+             <span class="n">NCRFFit</span>
+      <span class="o">+---------+----------+</span>
+      <span class="o">|</span>                    <span class="o">|</span>
+    <span class="n">NCRF</span>                <span class="n">SolverFit</span>
+<span class="p">(</span><span class="n">prediction</span> <span class="ow">and</span>       <span class="p">(</span><span class="n">optimizer</span> <span class="n">state</span>
+ <span class="n">reconstructed</span> <span class="n">TRFs</span><span class="p">)</span>   <span class="ow">and</span> <span class="n">diagnostics</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><a class="reference internal" href="generated/ncrf.fit_ncrf.html#ncrf.fit_ncrf" title="ncrf.fit_ncrf"><code class="xref py py-func docutils literal notranslate"><span class="pre">fit_ncrf()</span></code></a> is the convenience layer. It accepts the supported input
+layouts, creates <a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a>, and delegates the fit to
+<a class="reference internal" href="generated/ncrf.NCRFEstimator.html#ncrf.NCRFEstimator" title="ncrf.NCRFEstimator"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFEstimator</span></code></a>.</p>
+</section>
+<section id="data-and-design">
+<h2>Data and design<a class="headerlink" href="#data-and-design" title="Link to this heading">¶</a></h2>
+<p><a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a> holds the M/EEG segments and their predictors as
+NDVars. Its design records the TRF lags, basis, predictor dimensions and names,
+and the covariates’ normalization (<code class="docutils literal notranslate"><span class="pre">stim_baseline</span></code> and <code class="docutils literal notranslate"><span class="pre">stim_scaling</span></code>); the
+sensor arrays and the lagged, basis-projected covariates the solver consumes are
+derived from the raw data and the design on demand. The same compact metadata is stored on
+the fitted model, so that <code class="docutils literal notranslate"><span class="pre">NCRF.h</span></code> can reconstruct labeled source-space TRFs
+without retaining the training dataset, and so that the model can check that new
+data is on the scale it was fit on.</p>
+<p><a class="reference internal" href="generated/ncrf.NCRFEstimator.html#ncrf.NCRFEstimator" title="ncrf.NCRFEstimator"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFEstimator</span></code></a> holds a lead field and a sensor noise covariance,
+matched by channel name: the noise channels have to be a subset of the lead
+field’s channels. At fit time it derives the whitened forward model for exactly
+the sensors of the data, since whitening is not separable per channel; a data
+channel missing from the lead field or the noise covariance is an error. The
+derived forward model is attached to the whitened <a class="reference internal" href="generated/ncrf.RegressionData.html#ncrf.RegressionData" title="ncrf.RegressionData"><code class="xref py py-class docutils literal notranslate"><span class="pre">RegressionData</span></code></a>,
+and the fitted <a class="reference internal" href="generated/ncrf.NCRF.html#ncrf.NCRF" title="ncrf.NCRF"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRF</span></code></a> retains it to apply the same transform when
+predicting.</p>
+</section>
+<section id="solvers-and-cross-validation">
+<h2>Solvers and cross-validation<a class="headerlink" href="#solvers-and-cross-validation" title="Link to this heading">¶</a></h2>
+<p>A <a class="reference internal" href="generated/ncrf.Solver.html#ncrf.Solver" title="ncrf.Solver"><code class="xref py py-class docutils literal notranslate"><span class="pre">Solver</span></code></a> is a configuration for estimating the coefficient
+matrix (the NCRF). A solver that has more than one configuration to choose from
+selects one in <a class="reference internal" href="generated/generated/ncrf.Solver.search.html#ncrf.Solver.search" title="ncrf.Solver.search"><code class="xref py py-meth docutils literal notranslate"><span class="pre">search()</span></code></a>, using a <a class="reference internal" href="generated/ncrf.CrossValidation.html#ncrf.CrossValidation" title="ncrf.CrossValidation"><code class="xref py py-class docutils literal notranslate"><span class="pre">CrossValidation</span></code></a>
+configuration describing the folds.
+<a class="reference internal" href="generated/ncrf.ChampLasso.html#ncrf.ChampLasso" title="ncrf.ChampLasso"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChampLasso</span></code></a> uses it to score its <code class="docutils literal notranslate"><span class="pre">mu</span></code> grid, extend the
+grid when the winner is on a boundary, and apply the estimation-stability
+criterion. The estimator then fits the selected configuration on all of the data.</p>
+<p>The generic <a class="reference internal" href="generated/ncrf.SolverFit.html#ncrf.SolverFit" title="ncrf.SolverFit"><code class="xref py py-class docutils literal notranslate"><span class="pre">SolverFit</span></code></a> contains the fitted coefficient matrix;
+concrete solvers can add algorithm-specific state and scores. For example,
+<a class="reference internal" href="generated/ncrf.ChampLasso.html#ncrf.ChampLasso" title="ncrf.ChampLasso"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChampLasso</span></code></a> adds its covariance estimates and iteration history.
+These details remain in <a class="reference internal" href="generated/ncrf.NCRFFit.html#ncrf.NCRFFit.solver_fit" title="ncrf.NCRFFit.solver_fit"><code class="xref py py-attr docutils literal notranslate"><span class="pre">ncrf.NCRFFit.solver_fit</span></code></a> rather than becoming
+part of the predictive model.</p>
+</section>
+<section id="lower-level-fitting">
+<h2>Lower-level fitting<a class="headerlink" href="#lower-level-fitting" title="Link to this heading">¶</a></h2>
+<p>Use the component API when data preparation and solver configuration need to be
+controlled independently:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">ncrf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChampLasso</span><span class="p">,</span> <span class="n">CrossValidation</span><span class="p">,</span> <span class="n">NCRFEstimator</span><span class="p">,</span> <span class="n">RegressionData</span>
+
+<span class="n">data</span> <span class="o">=</span> <span class="n">RegressionData</span><span class="o">.</span><span class="n">from_data</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">meg</span><span class="p">],</span>
+    <span class="p">[[</span><span class="n">stim</span><span class="p">]],</span>
+    <span class="n">tstart</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">tstop</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">stim_is_single</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">estimator</span> <span class="o">=</span> <span class="n">NCRFEstimator</span><span class="o">.</span><span class="n">from_lead_field</span><span class="p">(</span><span class="n">lead_field</span><span class="p">,</span> <span class="n">noise_covariance</span><span class="p">)</span>
+<span class="n">solver</span> <span class="o">=</span> <span class="n">ChampLasso</span><span class="p">(</span><span class="n">mu</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">n_iter</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">n_iterc</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">n_iterf</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">estimator</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+    <span class="n">data</span><span class="p">,</span>
+    <span class="n">solver</span><span class="p">,</span>
+    <span class="n">cv</span><span class="o">=</span><span class="n">CrossValidation</span><span class="p">(</span><span class="n">n_splits</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>With a numeric <code class="docutils literal notranslate"><span class="pre">mu</span></code>, <a class="reference internal" href="generated/ncrf.ChampLasso.html#ncrf.ChampLasso" title="ncrf.ChampLasso"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChampLasso</span></code></a> exposes a single candidate and
+the cross-validation step is skipped.</p>
+</section>
+<section id="model-and-fit-report">
+<h2>Model and fit report<a class="headerlink" href="#model-and-fit-report" title="Link to this heading">¶</a></h2>
+<p><a class="reference internal" href="generated/ncrf.NCRFFit.html#ncrf.NCRFFit" title="ncrf.NCRFFit"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRFFit</span></code></a> is the report for one fit. Its main attributes have
+deliberately separate lifetimes and responsibilities:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">model</span></code></dt><dd><p>The fitted <a class="reference internal" href="generated/ncrf.NCRF.html#ncrf.NCRF" title="ncrf.NCRF"><code class="xref py py-class docutils literal notranslate"><span class="pre">NCRF</span></code></a>, including coefficients, forward state, TRF
+reconstruction, prediction, and solver-independent evaluation.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">solver</span></code></dt><dd><p>The fixed solver configuration selected for the final fit.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">solver_fit</span></code></dt><dd><p>Solver-specific fitted state and iteration diagnostics.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">scores</span></code></dt><dd><p>Training-set prediction metrics plus any scores contributed by the solver.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">voxelwise_explained_variance</span></code></dt><dd><p>Optional source-wise training diagnostic.</p>
+</dd>
+</dl>
+<p>To evaluate new data, prepare it with the same predictor layout, time step, and
+TRF settings, and apply the training-data normalization to it (see
+<a class="reference internal" href="guide.html"><span class="doc">Guide</span></a>):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">test_data</span> <span class="o">=</span> <span class="n">test_data</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">design</span><span class="p">)</span>
+<span class="n">predictions</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">test_data</span><span class="p">)</span>
+<span class="n">scores</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">test_data</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><a class="reference internal" href="generated/generated/ncrf.NCRF.predict.html#ncrf.NCRF.predict" title="ncrf.NCRF.predict"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ncrf.NCRF.predict()</span></code></a> returns predictions in the units of the M/EEG data
+(pass <code class="docutils literal notranslate"><span class="pre">whitened=True</span></code> for the space the model is fit in), whereas metrics are
+computed in whitened sensor space (see <a class="reference internal" href="guide.html"><span class="doc">Guide</span></a>). Calling
+<a class="reference internal" href="generated/generated/ncrf.NCRF.evaluate.html#ncrf.NCRF.evaluate" title="ncrf.NCRF.evaluate"><code class="xref py py-meth docutils literal notranslate"><span class="pre">ncrf.NCRF.evaluate()</span></code></a> with several metrics predicts the dataset only once.</p>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">NCRF</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installing.html">Installing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="changes.html">Changes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="development.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="guide.html">Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="auto_examples/index.html">Example gallery</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#pipeline">Pipeline</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-and-design">Data and design</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#solvers-and-cross-validation">Solvers and cross-validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#lower-level-fitting">Lower-level fitting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#model-and-fit-report">Model and fit report</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="references.html">References</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="auto_examples/01_example-surf-src.html" title="previous chapter">Surface source Example</a></li>
+      <li>Next: <a href="references.html" title="next chapter">References</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2026, Proloy Das and Christian Brodbeck.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/architecture.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
