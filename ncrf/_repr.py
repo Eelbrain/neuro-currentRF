@@ -23,4 +23,8 @@ def _theta_repr(theta: FloatArray) -> str:
 def _forward_summary(forward: ForwardModel) -> str:
     """User-relevant dimensions of a forward model."""
     orientation = 'free' if forward.space else 'fixed'
-    return f"{_count_repr(len(forward.source), 'source')}, {_count_repr(len(forward.sensor), 'sensor')}, {orientation} orientation"
+    n_sensors = len(forward.sensor)
+    sensors = _count_repr(n_sensors, 'sensor')
+    if forward.rank != n_sensors:
+        sensors = f'{sensors} (rank {forward.rank})'
+    return f"{_count_repr(len(forward.source), 'source')}, {sensors}, {orientation} orientation"

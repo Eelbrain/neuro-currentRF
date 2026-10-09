@@ -426,8 +426,8 @@ class RegressionData:
     def responses(self) -> list[FloatArray]:
         """M/EEG arrays for the solver, one per segment, each shaped ``(n_sensors, n_samples)``.
 
-        The retained samples of ``meg``, whitened if a ``forward`` model is set, and
-        divided by :attr:`norm_factor`.
+        The retained samples of ``meg``, whitened if a ``forward`` model is set
+        (then shaped ``(forward.rank, n_samples)``), and divided by :attr:`norm_factor`.
         """
         responses = []
         for m in self.meg:
@@ -601,7 +601,7 @@ class RegressionData:
         _assert_sensors_equal(self.sensor_dim.names, forward.sensor.names, 'data', 'forward model')
         if self.forward is not None:
             current = self.forward
-            if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field) and np.allclose(current.noise_covariance, forward.noise_covariance)):
+            if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field, atol=0) and np.allclose(current.noise_covariance, forward.noise_covariance, atol=0)):
                 return self
             raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
         data = replace(self, forward=forward)

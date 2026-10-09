@@ -12,10 +12,22 @@ import numpy as np
 from scipy import linalg
 
 from ._initialization import MNEInitializer
-from ._linalg import _inv_sqrtm
 from ._pickle import pickle_state
 from ._repr import _forward_summary
 from ._typing import FloatArray, NoiseArg
+
+#: Relative eigenvalue threshold below which a direction of the noise covariance is
+#: treated as absent. Directions removed exactly (ICA components, SSP projections,
+#: the SSS complement) leave eigenvalues at or below ~1e-15 of the largest, while
+#: measured noise directions stay above ~1e-8 even for unscaled magnetometer plus
+#: gradiometer data, so 1e-12 sits well clear of both; it also caps the whitening
+#: gain at 1e6, above MNE-Python's instability warning (condition number 1e10).
+#: This assumes a single channel type: multiple channel types are currently not
+#: supported, as with channel types in different units (e.g. EEG in V and MEG in
+#: T) the smaller-scale type would fall below the threshold and be dropped as a
+#: whole; supporting them would require scaling the channel types to comparable
+#: variance before the eigendecomposition.
+_RANK_TOL = 1e-12
 
 
 def _assert_sensors_equal(
@@ -88,6 +100,15 @@ class ForwardModel:
     rather than stored.  A single instance is shared read-only across
     cross-validation folds.
 
+    Whitening projects sensor space onto the :attr:`rank` leading eigenvectors of
+    the noise covariance, so the whitened quantities have ``rank`` rather than
+    ``n_sensors`` channels. For a full-rank covariance the two coincide; for a
+    rank-deficient one (e.g. after ICA component removal, Maxwell filtering, or
+    SSP projection) the directions without noise are dropped, as data cleaned
+    the same way carries no signal there either. The rank is the number of
+    eigenvalues above a small fraction of the largest, chosen to separate removed
+    directions from measured noise (see ``_RANK_TOL`` in the source).
+
     Parameters
     ----------
     lead_field
@@ -109,11 +130,14 @@ class ForwardModel:
     source: SourceSpace | VolumeSourceSpace
     sensor: Sensor
     space: Space | None
-    #: Inverse square root of :attr:`~ncrf.ForwardModel.noise_covariance` used to whiten sensor data.
+    #: Rank of :attr:`~ncrf.ForwardModel.noise_covariance`, i.e. the number of whitened channels.
+    rank: int = field(init=False)
+    #: Whitening filter, shape ``(rank, n_sensors)``: the inverse square root of
+    #: :attr:`~ncrf.ForwardModel.noise_covariance` restricted to its ``rank`` leading eigenvectors.
     whitening_filter: FloatArray = field(init=False)
-    #: Whitened and spectrally normalized :attr:`~ncrf.ForwardModel.lead_field` used by solvers.
+    #: Whitened and spectrally normalized :attr:`~ncrf.ForwardModel.lead_field` used by solvers, shape ``(rank, n_sources)``.
     whitened_lead_field: FloatArray = field(init=False)
-    #: :attr:`~ncrf.ForwardModel.noise_covariance` transformed by :attr:`~ncrf.ForwardModel.whitening_filter`.
+    #: :attr:`~ncrf.ForwardModel.noise_covariance` transformed by :attr:`~ncrf.ForwardModel.whitening_filter`: the ``(rank, rank)`` identity.
     whitened_noise_covariance: FloatArray = field(init=False)
     #: Spectral norm removed from the whitened lead field.
     lead_field_scaling: float = field(init=False)
@@ -149,16 +173,26 @@ class ForwardModel:
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.
 
-        Writes ``whitening_filter``, ``whitened_lead_field``, ``lead_field_scaling``,
-        and ``whitened_noise_covariance``.  Neither ``lead_field`` nor
-        ``noise_covariance`` is modified.
+        Writes ``rank``, ``whitening_filter``, ``whitened_lead_field``,
+        ``lead_field_scaling``, and ``whitened_noise_covariance``.  Neither
+        ``lead_field`` nor ``noise_covariance`` is modified.
         """
-        wf = _inv_sqrtm(self.noise_covariance)
-        if (np.var(wf, axis=1) == 0).any():
-            raise ValueError("Noise covariance data is rank deficient, check if contains flat channels, or have projectors activated.")
-        self.whitening_filter = wf
-        self.whitened_lead_field = np.dot(wf, self.lead_field)
-        self.whitened_noise_covariance = wf.dot(self.noise_covariance).dot(wf.T)
+        e, v = linalg.eigh(self.noise_covariance)  # ascending eigenvalues
+        if e[-1] <= 0:
+            raise ValueError("noise covariance has no positive eigenvalues; whitening requires noise in at least one direction")
+        rank = self.rank = int((e > _RANK_TOL * e[-1]).sum())
+        e, v = e[-rank:], v[:, -rank:]
+        # A channel without noise (flat, or far below the others) lies in the dropped
+        # directions and would be projected out of the whitened space, silently
+        # ignoring its data; the squared rows of v are the fraction of each channel
+        # that the whitened space retains
+        flat = np.flatnonzero((v ** 2).sum(1) < 1e-3)
+        if flat.size:
+            raise ValueError(f"noise covariance has channels without noise: {', '.join(self.sensor.names[i] for i in flat)}; exclude them from the data (mark them as bad) or supply noise for them")
+        self.whitening_filter = v.T / np.sqrt(e)[:, None]
+        self.whitened_lead_field = np.dot(self.whitening_filter, self.lead_field)
+        # wf @ C @ wf.T is the identity by construction (the kept eigenvectors are orthonormal)
+        self.whitened_noise_covariance = np.eye(rank)
         self.lead_field_scaling = linalg.norm(self.whitened_lead_field, 2)
         self.whitened_lead_field /= self.lead_field_scaling
 
