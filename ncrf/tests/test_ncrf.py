@@ -76,14 +76,14 @@ def test_ncrf():
     # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
-    np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)
-    np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.004410796436808832, rtol=0.001)
-    np.testing.assert_allclose(result.scores['cross_fit'], 178.512, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.006780584215243968, rtol=0.001)
+    np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.0053790649440054175, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 178.523, rtol=0.001)
     # check scaling
     stim_baseline = stim.mean()
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim_baseline)
     np.testing.assert_equal(result.model.design.stim_scaling[0], (stim - stim_baseline).abs().mean())
-    np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 9.240443e-10, rtol=0.001)
     # by default, objective/relative_change accumulate but trajectories are not stored
     assert len(result.solver_fit.history.objective) > 0
     assert len(result.solver_fit.history.relative_change) > 0
@@ -119,7 +119,7 @@ def test_ncrf():
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
-    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 7.0088e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 4.3177e-10, rtol=0.001)
 
     # 2 stimuli, different tstarts (-ve)
     diff = stim.diff('time')
@@ -129,19 +129,19 @@ def test_ncrf():
     result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
 
     # check residual and explained var
-    np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
-    np.testing.assert_allclose(result.scores['cross_fit'], 177.15021740565106, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.021405417036547858, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 177.16340907078322, rtol=0.001)
     # check start and stop
     np.testing.assert_equal(result.model.design.tstart, tstart)
     np.testing.assert_equal(result.model.design.tstop, tstop)
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
-    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 6.6065539e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 7.3105016e-10, rtol=0.001)
 
     # cross-validation
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2)
-    np.testing.assert_allclose(result.solver.mu, 0.0203, rtol=0.001)
+    np.testing.assert_allclose(result.solver.mu, 0.020424, rtol=0.001)
     result.cv_info()
 
     # test without multiprocessing

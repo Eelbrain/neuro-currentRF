@@ -223,24 +223,24 @@ def _synthetic_data(
 def test_subset():
     """A subset's arrays are views into the full dataset's, rescaled to its own norm factor."""
     data = _synthetic_data('l2', n_segments=2).whiten(_forward())
-    assert data.blocks == [(0, 5, 200), (1, 5, 200)]
+    assert data.blocks == [(0, 4, 200), (1, 4, 200)]  # lags 0-4 samples: the first 4 samples lack a full lag window
     assert len(data) == 2
 
     fold = data.subset([[10, 50], [195, 230]])
 
-    assert fold.blocks == [(0, 10, 50), (0, 195, 200), (1, 5, 30)]
+    assert fold.blocks == [(0, 10, 50), (0, 195, 200), (1, 4, 30)]
     assert fold.is_whitened
-    assert fold.n_samples == 70
+    assert fold.n_samples == 71
     # the covariates are built once, on the source dataset, and sliced from there
     assert fold._segment_covariates is data._segment_covariates
     assert np.shares_memory(fold.covariates[0], data.covariates[0])
-    np.testing.assert_array_equal(fold.covariates[0], data.covariates[0][5:45])
-    np.testing.assert_array_equal(fold.covariates[2], data.covariates[1][:25])
+    np.testing.assert_array_equal(fold.covariates[0], data.covariates[0][6:46])
+    np.testing.assert_array_equal(fold.covariates[2], data.covariates[1][:26])
     # the responses are views too, whitened once on the source dataset
     assert fold._segment_responses is data._segment_responses
     assert np.shares_memory(fold.responses[0], data.responses[0])
-    np.testing.assert_array_equal(fold.responses[0], data.responses[0][:, 5:45])
-    np.testing.assert_array_equal(fold.responses[2], data.responses[1][:, :25])
+    np.testing.assert_array_equal(fold.responses[0], data.responses[0][:, 6:46])
+    np.testing.assert_array_equal(fold.responses[2], data.responses[1][:, :26])
     # the Gram matrices apply the norm factor
     np.testing.assert_allclose(fold.bbt[0], fold.responses[0] @ fold.responses[0].T / fold.norm_factor ** 2)
     np.testing.assert_allclose(fold.bE[0], fold.responses[0] @ fold.covariates[0] / fold.norm_factor ** 2)
@@ -628,7 +628,7 @@ def test_h_scaled_matches_unscaled_fit():
         np.testing.assert_allclose(actual.x, expected.x)
 
 
-@pytest.mark.parametrize('tstop, n_atoms', [(0.02, 1), (0.05, 4)])
+@pytest.mark.parametrize('tstop, n_atoms', [(0.03, 1), (0.06, 4)])
 def test_h_with_narrow_basis(tstop, n_atoms):
     """A predictor with a single basis function still expands into a full TRF."""
     rng = np.random.RandomState(0)
@@ -636,7 +636,7 @@ def test_h_with_narrow_basis(tstop, n_atoms):
     meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
     bands = Categorial('band', ['low', 'high'])
     onsets = Categorial('onset', ['on', 'off', 'both'])
-    n_lags = int(round(tstop / 0.01)) + 1
+    n_lags = int(round(tstop / 0.01))  # tstop is exclusive
     for stim, dimnames, shape in [
         (NDVar(rng.normal(size=200), (time,), name='x'), ('source', 'time'), (4, n_lags)),
         (NDVar(rng.normal(size=(2, 200)), (bands, time), name='x'), ('band', 'source', 'time'), (2, 4, n_lags)),
