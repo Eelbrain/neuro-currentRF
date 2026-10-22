@@ -129,13 +129,13 @@ class RegressionData:
     Notes
     -----
     The arrays the solver consumes, :attr:`responses` and :attr:`covariates`,
-    are derived from the segments on demand according to :attr:`design`, which
-    fixes the TRF lags and the Gaussian basis the predictors are projected onto.
-    Both are normalized by :attr:`norm_factor`: the responses are divided by it,
-    whereas the covariates are views into the per-segment covariate matrices
-    (shared by all datasets derived from this one through :meth:`subset` and
-    :meth:`whiten`), and the factor is applied in the derived Gram matrices
-    (:attr:`bE`, :attr:`EtE`) and in predictions instead.
+    are views into per-segment arrays that are built once and shared by all
+    datasets derived from this one through :meth:`subset`: the whitened M/EEG
+    data, and the covariates according to :attr:`design`, which fixes the TRF
+    lags and the Gaussian basis the predictors are projected onto. Neither is
+    divided by :attr:`norm_factor`; the factor is applied in the derived Gram
+    matrices (:attr:`bbt`, :attr:`bE`, :attr:`EtE`), in residuals and in
+    predictions instead.
     """
 
     data: DeconvolutionData
@@ -264,19 +264,25 @@ class RegressionData:
         return self.forward is not None
 
     @cached_property
+    def _segment_responses(self) -> list[FloatArray]:
+        """M/EEG arrays of the complete data segments, ``(n_sensors, n_times)``, whitened if a ``forward`` model is set.
+
+        Shared by all datasets derived from this one through :meth:`subset`.
+        """
+        segments = [y.astype(np.float64, copy=False) for y in self.data.y.segments]
+        if self.forward is None:
+            return segments
+        return [np.dot(self.forward.whitening_filter, y) for y in segments]
+
+    @property
     def responses(self) -> list[FloatArray]:
         """M/EEG arrays for the solver, one per block, each shaped ``(n_sensors, n_samples)``.
 
-        The samples of each block, whitened if a ``forward`` model is set, and
-        divided by :attr:`norm_factor`.
+        Views into the arrays of the complete segments; not divided by
+        :attr:`norm_factor` (see the class notes).
         """
-        responses = []
-        for i, start, stop in self.blocks:
-            y = self.data.y.segments[i][:, start:stop] / self.norm_factor
-            if self.forward is not None:
-                y = np.dot(self.forward.whitening_filter, y)
-            responses.append(y)
-        return responses
+        responses = self._segment_responses
+        return [responses[i][:, start:stop] for i, start, stop in self.blocks]
 
     @cached_property
     def _segment_covariates(self) -> list[FloatArray]:
@@ -327,13 +333,13 @@ class RegressionData:
 
     @cached_property
     def bbt(self) -> list[FloatArray]:
-        """Per-block ``B @ B.T`` matrices of the responses."""
-        return [np.dot(b, b.T) for b in self.responses]
+        """Per-block ``B @ B.T`` matrices of the responses (with ``B`` normalized)."""
+        return [np.dot(b, b.T) / self.norm_factor ** 2 for b in self.responses]
 
     @cached_property
     def bE(self) -> list[FloatArray]:
-        """Per-block ``B @ E`` cross-product matrices (with ``E`` normalized)."""
-        return [np.dot(b, E) / self.norm_factor for b, E in zip(self.responses, self.covariates)]
+        """Per-block ``B @ E`` cross-product matrices (with ``B`` and ``E`` normalized)."""
+        return [np.dot(b, E) / self.norm_factor ** 2 for b, E in zip(self.responses, self.covariates)]
 
     @cached_property
     def EtE(self) -> list[FloatArray]:
@@ -353,8 +359,7 @@ class RegressionData:
         ----------
         **changes
             Field values for the new dataset. The covariates are shared unless
-            the design changes, the responses unless the blocks or the forward
-            model change.
+            the design changes, the responses unless the forward model changes.
         """
         out = replace(self, **changes)
         shared = []
@@ -362,8 +367,10 @@ class RegressionData:
             shared.append('_segment_covariates')
             if 'blocks' not in changes:
                 shared.append('EtE')
-        if 'blocks' not in changes and 'forward' not in changes:
-            shared.extend(('responses', 'bbt'))
+        if 'forward' not in changes:
+            shared.append('_segment_responses')
+            if 'blocks' not in changes:
+                shared.append('bbt')
         for key in shared:
             if key in self.__dict__:
                 out.__dict__[key] = self.__dict__[key]
@@ -491,9 +498,9 @@ class RegressionData:
 
         Notes
         -----
-        The subset shares the covariate matrices of the complete segments with
-        this dataset, so cross-validation folds cost no more than their
-        responses.
+        The subset shares the per-segment responses and covariate matrices with
+        this dataset, so cross-validation folds cost no more than their Gram
+        matrices.
 
         Raises
         ------
@@ -508,6 +515,7 @@ class RegressionData:
         if not blocks:
             raise ValueError(f"{ranges=}: contains none of the dataset's samples")
         out = self._derive(blocks=blocks)
-        # build the per-segment covariates here, so that all subsets share them
+        # build the per-segment arrays here, so that all subsets share them
+        out.__dict__['_segment_responses'] = self._segment_responses
         out.__dict__['_segment_covariates'] = self._segment_covariates
         return out

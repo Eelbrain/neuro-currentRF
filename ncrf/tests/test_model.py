@@ -195,7 +195,7 @@ def test_whiten_shares_covariates():
 
     assert data._segment_covariates is raw._segment_covariates
     assert data.EtE is ete
-    assert 'responses' not in data.__dict__
+    assert '_segment_responses' not in data.__dict__
 
 
 def _synthetic_data(
@@ -236,12 +236,14 @@ def test_subset():
     assert np.shares_memory(fold.covariates[0], data.covariates[0])
     np.testing.assert_array_equal(fold.covariates[0], data.covariates[0][5:45])
     np.testing.assert_array_equal(fold.covariates[2], data.covariates[1][:25])
-    # the responses carry the subset's norm factor
-    mul = data.norm_factor / fold.norm_factor
-    np.testing.assert_allclose(fold.responses[0], data.responses[0][:, 5:45] * mul)
-    np.testing.assert_allclose(fold.responses[2], data.responses[1][:, :25] * mul)
-    # the Gram matrices are consistent with the normalized arrays
-    np.testing.assert_allclose(fold.bE[0], fold.responses[0] @ fold.covariates[0] / fold.norm_factor)
+    # the responses are views too, whitened once on the source dataset
+    assert fold._segment_responses is data._segment_responses
+    assert np.shares_memory(fold.responses[0], data.responses[0])
+    np.testing.assert_array_equal(fold.responses[0], data.responses[0][:, 5:45])
+    np.testing.assert_array_equal(fold.responses[2], data.responses[1][:, :25])
+    # the Gram matrices apply the norm factor
+    np.testing.assert_allclose(fold.bbt[0], fold.responses[0] @ fold.responses[0].T / fold.norm_factor ** 2)
+    np.testing.assert_allclose(fold.bE[0], fold.responses[0] @ fold.covariates[0] / fold.norm_factor ** 2)
     np.testing.assert_allclose(fold.EtE[0], fold.covariates[0].T @ fold.covariates[0] / fold.norm_factor ** 2)
     # a subset of a subset
     assert fold.subset([[0, 30]]).blocks == [(0, 10, 30)]
@@ -256,7 +258,7 @@ def test_pickle_ships_raw_inputs():
 
     restored = pickle.loads(pickle.dumps(data))
 
-    assert 'responses' not in restored.__dict__ and '_segment_covariates' not in restored.__dict__
+    assert '_segment_responses' not in restored.__dict__ and '_segment_covariates' not in restored.__dict__
     assert restored.blocks == data.blocks
     np.testing.assert_array_equal(restored.forward.whitening_filter, data.forward.whitening_filter)
     np.testing.assert_allclose(restored.responses[0], responses[0])

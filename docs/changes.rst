@@ -22,9 +22,10 @@ API changes
   per-segment covariates are built once and shared by the datasets derived from
   it. The ``samples`` field and ``timeslice()`` are replaced by ``blocks`` and
   :meth:`~ncrf.RegressionData.subset`, and
+  :attr:`~ncrf.RegressionData.responses` and
   :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
-  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices
-  and predictions instead).
+  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices,
+  residuals and predictions instead).
 - **Cross-validation uses Eelbrain's partitioning.** The default scheme is
   unchanged: the last ``n_splits`` windows of every segment are held out one
   at a time for validation, with the candidates fit to the data preceding the

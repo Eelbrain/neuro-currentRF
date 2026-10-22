@@ -170,9 +170,9 @@ def _residual_factor(
     per-source iterations of ``_solve()``.
 
     ``norm_factor`` is the dataset's :attr:`RegressionData.norm_factor`, which
-    the covariates are not divided by.
+    neither the responses nor the covariates are divided by.
     """
-    y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T) / norm_factor
+    y = (meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T)) / norm_factor
     return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
 
 
@@ -215,7 +215,7 @@ def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list, list[
     init_sigma_b = []
     for y, _ in data:
         t = y.shape[1]
-        gamma, data_cov = forward.mne_initializer(y * (t ** 0.5))
+        gamma, data_cov = forward.mne_initializer(y * (t ** 0.5 / data.norm_factor))
         gamma = np.reshape(gamma, (-1, forward.dc))
         init_gamma.append([np.diag(g) for g in gamma])
         init_sigma_b.append(forward.whitened_noise_covariance + data_cov)

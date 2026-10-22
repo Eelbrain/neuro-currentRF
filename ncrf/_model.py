@@ -174,7 +174,8 @@ class NCRF:
         """
         data = data.whiten(self.forward)
         self._theta_for(data)
-        observed = [meg for meg, _ in data]
+        # score in the normalized space the solver fits in
+        observed = [meg / data.norm_factor for meg, _ in data]
         predicted = [self._predict_whitened(covariate, data.norm_factor) for _, covariate in data]
         return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
@@ -188,15 +189,16 @@ class NCRF:
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
+        # variance ratios are invariant to the scale, so work with the responses as they are
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - self._predict_whitened(covariate, data.norm_factor)
+            y_full = meg - np.dot(self._whitened_projection, covariate.T)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
                 # to the prediction, so add that contribution back to the residual.
                 block = self.forward.source_block(i)
-                contribution = np.dot(np.dot(W_leadfield[:, block], theta[block]), covariate.T) / data.norm_factor
+                contribution = np.dot(np.dot(W_leadfield[:, block], theta[block]), covariate.T)
                 y_i = y_full + contribution
                 temp[i] += np.nansum((np.var(y_i, axis=1) - base_var) / total_var) / meg.shape[0]
 
