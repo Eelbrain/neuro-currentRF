@@ -80,8 +80,9 @@ def fit_ncrf(
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
     tstop
-        Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
-        specifies one stop time per predictor.
+        Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+        :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+        applies to all predictors; a sequence specifies one stop time per predictor.
     basis_stride
         Spacing between neighboring Gabor atoms, in samples: with the default of
         ``1`` the atoms are one sample apart, and larger values make the basis

@@ -90,7 +90,7 @@ def _default_blocks(
     else:
         # lag_matrix() fills the full time axis with padded lag histories; keep
         # only samples whose complete lag window lies inside the stimulus
-        drop_start = max(0, *design.stop_samples)
+        drop_start = max(0, max(design.stop_samples) - 1)  # the largest lag
         drop_stop = max(0, *(-s for s in design.start_samples))
     blocks = [(i, drop_start, n - drop_stop) for i, n in enumerate(data.segment_n_times) if drop_start < n - drop_stop]
     if not blocks:
@@ -199,8 +199,10 @@ class RegressionData:
             Start of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one start time per predictor.
         tstop
-            Stop of the TRF in seconds. A scalar applies to all predictors; a
-            sequence specifies one stop time per predictor.
+            Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+            :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+            applies to all predictors; a sequence specifies one stop time per
+            predictor.
         basis_stride
             Spacing between neighboring Gabor basis atoms, in samples: with the
             default of ``1`` the atoms are one sample apart, and larger values

@@ -68,17 +68,17 @@ def test_make_folds():
     assert len(folds) == 2
     train, validate = folds[0]
     assert validate.blocks == [(0, 90, 95), (1, 90, 95), (2, 90, 95), (3, 90, 95)]
-    assert train.blocks == [(0, 5, 90), (1, 5, 90), (2, 5, 90), (3, 5, 90)]
+    assert train.blocks == [(0, 4, 90), (1, 4, 90), (2, 4, 90), (3, 4, 90)]
     assert train._segment_covariates is data._segment_covariates
     assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
-    assert folds[1][0].blocks == [(0, 5, 95), (1, 5, 95), (2, 5, 95), (3, 5, 95)]
+    assert folds[1][0].blocks == [(0, 4, 95), (1, 4, 95), (2, 4, 95), (3, 4, 95)]
     # continuous data
     data = RegressionData.from_data(meg[0], stim[0], 0, 0.05, scale=None)
     folds = cv._make_folds(data, cv._make_splits(data, 2))
     assert folds[0][1].blocks == [(0, 90, 95)]
-    assert folds[0][0].blocks == [(0, 5, 90)]
+    assert folds[0][0].blocks == [(0, 4, 90)]
     assert folds[1][1].blocks == [(0, 95, 100)]
-    assert folds[1][0].blocks == [(0, 5, 95)]
+    assert folds[1][0].blocks == [(0, 4, 95)]
 
 
 def test_score_candidate_uses_fit_primitive(monkeypatch):

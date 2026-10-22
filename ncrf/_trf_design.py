@@ -14,25 +14,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from eelbrain.trf import DeconvolutionData, RowBlock
+from eelbrain.trf import DeconvolutionData, RowBlock, lag_window
 import numpy as np
 
 from ._linalg import gaussian_basis
 from ._typing import FloatArray, IndexArray, ScaleArg
-
-
-def time_samples(times: Sequence[float], tstep: float) -> list[int]:
-    """Convert TRF times in seconds to sample offsets."""
-    return [int(round(t / tstep)) for t in times]
-
-
-def filter_lengths(
-        tstart: Sequence[float],
-        tstop: Sequence[float],
-        tstep: float,
-) -> list[int]:
-    """TRF length in samples, one value per predictor."""
-    return [stop - start + 1 for start, stop in zip(time_samples(tstart, tstep), time_samples(tstop, tstep))]
 
 
 @dataclass(frozen=True, eq=False, repr=False)
@@ -48,7 +34,8 @@ class TRFDesign:
         ``basis[i]`` is shape ``(n_lags, n_atoms)``: each column is a
         Gaussian bump centered on a distinct lag.
     tstart, tstep, tstop
-        TRF timing; ``tstart``/``tstop`` hold one value per predictor.
+        TRF timing; ``tstart``/``tstop`` hold one value per predictor (``tstop``
+        is exclusive, see :func:`eelbrain.trf.lag_window`).
     basis_std
         Standard deviation of the Gaussian basis functions in seconds.
     stim_is_single
@@ -103,8 +90,10 @@ class TRFDesign:
             Start of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one start time per predictor.
         tstop
-            Stop of the TRF in seconds. A scalar applies to all predictors; a
-            sequence specifies one stop time per predictor.
+            Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+            :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+            applies to all predictors; a sequence specifies one stop time per
+            predictor.
         basis_stride
             Spacing between neighboring Gabor basis atoms, in samples: with the
             default of ``1`` the atoms are one sample apart, and larger values
@@ -113,19 +102,19 @@ class TRFDesign:
             Standard deviation of the Gaussian basis functions in seconds.
         """
         blocks = list(data.x.blocks)
-        tstart = list(tstart) if isinstance(tstart, Sequence) else [tstart] * len(blocks)
-        tstop = list(tstop) if isinstance(tstop, Sequence) else [tstop] * len(blocks)
-        if len(tstart) != len(blocks) or len(tstop) != len(blocks):
-            raise ValueError(f"{tstart=}, {tstop=}: need one value per predictor ({len(blocks)})")
+        tstep = data.time.tstep
+        starts, stops = lag_window(tstart, tstop, tstep, len(blocks))
+        tstart = list(tstart) if isinstance(tstart, (Sequence, np.ndarray)) else [tstart] * len(blocks)
+        tstop = list(tstop) if isinstance(tstop, (Sequence, np.ndarray)) else [tstop] * len(blocks)
         if basis_stride < 1:
             raise ValueError(f"{basis_stride=}: need an integer >= 1")
-        tstep = data.time.tstep
         basis = []
-        for ts, te, fl in zip(tstart, tstop, filter_lengths(tstart, tstop, tstep)):
-            n_atoms = int(round((fl - 1) / basis_stride)) - 1
+        for ts, te, start, stop in zip(tstart, tstop, starts, stops):
+            n_lags = stop - start
+            n_atoms = int(round((n_lags - 1) / basis_stride)) - 1
             if n_atoms < 1:
-                raise ValueError(f"{basis_stride=}: too coarse for the TRF from {ts} to {te} s ({fl} samples), which leaves no basis atoms")
-            basis.append(gaussian_basis(n_atoms, np.linspace(ts, te, fl), basis_std))
+                raise ValueError(f"{basis_stride=}: too coarse for the TRF from {ts} to {te} s ({n_lags} samples), which leaves no basis atoms")
+            basis.append(gaussian_basis(n_atoms, np.arange(start, stop) * tstep, basis_std))
         return cls(basis, tstart, tstep, tstop, basis_std, not data.multiple_x, blocks, basis_stride)
 
     def __repr__(self) -> str:
@@ -147,19 +136,23 @@ class TRFDesign:
         return [block.n_rows for block in self.blocks]
 
     @property
+    def _lag_window(self) -> tuple[list[int], list[int]]:
+        return lag_window(self.tstart, self.tstop, self.tstep, len(self.blocks))
+
+    @property
     def start_samples(self) -> list[int]:
-        """:attr:`~ncrf.TRFDesign.tstart` in samples, one value per predictor."""
-        return time_samples(self.tstart, self.tstep)
+        """:attr:`~ncrf.TRFDesign.tstart` in samples (the first lag), one value per predictor."""
+        return self._lag_window[0]
 
     @property
     def stop_samples(self) -> list[int]:
-        """:attr:`~ncrf.TRFDesign.tstop` in samples, one value per predictor."""
-        return time_samples(self.tstop, self.tstep)
+        """:attr:`~ncrf.TRFDesign.tstop` in samples (exclusive), one value per predictor."""
+        return self._lag_window[1]
 
     @property
     def filter_length(self) -> list[int]:
         """TRF length in samples, one value per predictor."""
-        return filter_lengths(self.tstart, self.tstop, self.tstep)
+        return [stop - start for start, stop in zip(*self._lag_window)]
 
     @property
     def n_coefficients(self) -> int:
