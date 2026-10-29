@@ -95,7 +95,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     selected_solver = _ZeroSolver()
     cv_results = [Mock()]
     searching_solver.search.return_value = (selected_solver, cv_results)
-    cv = CrossValidation(n_splits=4, n_workers=0)
+    cv = CrossValidation(splits=4, n_workers=0)
 
     result = estimator.fit(data, searching_solver, cv=cv)
 

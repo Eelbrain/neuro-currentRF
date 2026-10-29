@@ -84,10 +84,12 @@ A :class:`~ncrf.Solver` is a configuration for estimating the coefficient
 matrix (the NCRF). A solver that has more than one configuration to choose from
 selects one in :meth:`~ncrf.Solver.search`, using a :class:`~ncrf.CrossValidation`
 configuration describing the folds. The data is partitioned with Eelbrain's
-cross-validation machinery (shared with :func:`eelbrain.boosting`): the last
-few windows of every segment are held out one at a time for validation, and
-the candidates are fit to the data preceding the window (``split='ncrf'`` in
-:func:`eelbrain.trf.split_data`).
+cross-validation machinery (shared with :func:`eelbrain.boosting`). By
+default, the last few windows of every segment are held out one at a time for
+validation, and the candidates are fit to the data preceding the window
+(``split='ncrf'`` in :func:`eelbrain.trf.split_data`). To use one of
+Eelbrain's other partitioning schemes, pass an :class:`eelbrain.trf.Splits`
+object as ``CrossValidation(splits=...)``.
 :class:`~ncrf.ChampLasso` uses it to score its ``mu`` grid, extend the
 grid when the winner is on a boundary, and apply the estimation-stability
 criterion. The estimator then fits the selected configuration on all of the data.
@@ -117,7 +119,7 @@ controlled independently::
     result = estimator.fit(
         data,
         solver,
-        cv=CrossValidation(n_splits=3),
+        cv=CrossValidation(splits=3),
     )
 
 With a numeric ``mu``, :class:`~ncrf.ChampLasso` exposes a single candidate and

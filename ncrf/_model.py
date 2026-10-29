@@ -456,8 +456,10 @@ class NCRFEstimator:
             Solver configuration. A solver with more than one configuration to
             choose from selects one through cross-validation before the final fit.
         cv
-            Cross-validation configuration. Defaults to :class:`CrossValidation`;
-            unused when the solver does not cross-validate.
+            Cross-validation configuration: the folds (a number of partitions,
+            or an :class:`eelbrain.trf.Splits` object) and the worker count.
+            Defaults to :class:`CrossValidation`; unused when the solver does
+            not cross-validate.
         verbose
             If set True prints intermediate values of the cost functions (default ``False``).
         compute_explained_variance

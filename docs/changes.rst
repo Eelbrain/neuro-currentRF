@@ -36,7 +36,9 @@ API changes
   at a time for validation, with the candidates fit to the data preceding the
   window (now ``split='ncrf'`` in :func:`eelbrain.trf.split_data`). The gap
   of one TRF length between training and validation data is gone, so the
-  selected ``mu`` can differ slightly from previous versions.
+  selected ``mu`` can differ slightly from previous versions. Any other
+  Eelbrain scheme can be used by passing an :class:`eelbrain.trf.Splits`
+  object as ``CrossValidation(splits=...)``.
 - **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
   time)``.
 
