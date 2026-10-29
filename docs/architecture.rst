@@ -55,14 +55,18 @@ layouts, creates :class:`~ncrf.RegressionData`, and delegates the fit to
 Data and design
 ---------------
 
-:class:`~ncrf.RegressionData` holds the M/EEG segments and their predictors as
-NDVars. Its design records the TRF lags, basis, predictor dimensions and names,
-and the covariates' normalization (``stim_baseline`` and ``stim_scaling``); the
-sensor arrays and the lagged, basis-projected covariates the solver consumes are
-derived from the raw data and the design on demand. The same compact metadata is stored on
-the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
-without retaining the training dataset, and so that the model can check that new
-data is on the scale it was fit on.
+:class:`~ncrf.RegressionData` holds the M/EEG segments and their predictors in
+Eelbrain's deconvolution dataset, which is shared with :func:`eelbrain.boosting`:
+one array per segment, which is a view into the input NDVar data where possible,
+and the normalization of the predictors (recorded on the design as
+``stim_baseline`` and ``stim_scaling``). The design further records the TRF lags,
+basis, and predictor dimensions and names. The lagged, basis-projected covariates
+the solver consumes are derived from the segments and the design on demand, once
+per segment; datasets derived from one another (cross-validation folds, whitened
+data) share them. The same compact metadata is stored on the fitted model, so
+that ``NCRF.h`` can reconstruct labeled source-space TRFs without retaining the
+training dataset, and so that the model can check that new data is on the scale
+it was fit on.
 
 :class:`~ncrf.NCRFEstimator` holds a lead field and a sensor noise covariance,
 matched by channel name: the noise channels have to be a subset of the lead
@@ -79,7 +83,13 @@ Solvers and cross-validation
 A :class:`~ncrf.Solver` is a configuration for estimating the coefficient
 matrix (the NCRF). A solver that has more than one configuration to choose from
 selects one in :meth:`~ncrf.Solver.search`, using a :class:`~ncrf.CrossValidation`
-configuration describing the folds.
+configuration describing the folds. The data is partitioned with Eelbrain's
+cross-validation machinery (shared with :func:`eelbrain.boosting`). By
+default, the last few windows of every segment are held out one at a time for
+validation, and the candidates are fit to the data preceding the window
+(``split='ncrf'`` in :func:`eelbrain.trf.split_data`). To use one of
+Eelbrain's other partitioning schemes, pass an :class:`eelbrain.trf.Splits`
+object as ``CrossValidation(splits=...)``.
 :class:`~ncrf.ChampLasso` uses it to score its ``mu`` grid, extend the
 grid when the winner is on a boundary, and apply the estimation-stability
 criterion. The estimator then fits the selected configuration on all of the data.
@@ -99,18 +109,17 @@ controlled independently::
     from ncrf import ChampLasso, CrossValidation, NCRFEstimator, RegressionData
 
     data = RegressionData.from_data(
-        [meg],
-        [[stim]],
+        meg,
+        stim,
         tstart=0.0,
         tstop=1.0,
-        stim_is_single=True,
     )
     estimator = NCRFEstimator.from_lead_field(lead_field, noise_covariance)
     solver = ChampLasso(mu="auto", n_iter=30, n_iterc=10, n_iterf=100)
     result = estimator.fit(
         data,
         solver,
-        cv=CrossValidation(n_splits=3),
+        cv=CrossValidation(splits=3),
     )
 
 With a numeric ``mu``, :class:`~ncrf.ChampLasso` exposes a single candidate and

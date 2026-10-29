@@ -2,7 +2,7 @@
 
 Estimation works in a compact Gabor-basis coefficient space (``theta``).
 :class:`~ncrf.TRFDesign` holds the stimulus and basis metadata that defines this
-space: :meth:`~ncrf.TRFDesign.from_stim` derives it from the predictors, and its
+space: :meth:`~ncrf.TRFDesign.from_data` derives it from the predictors, and its
 layout metadata is what :attr:`~ncrf.NCRF.h` uses to expand coefficients back
 into response functions. It is small and picklable, and is stored both on
 :class:`~ncrf.RegressionData` and on the fitted :class:`~ncrf.NCRF`, so that
@@ -14,53 +14,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from eelbrain import NDVar
+from eelbrain.trf import DeconvolutionData, RowBlock, lag_window
 import numpy as np
 
 from ._linalg import gaussian_basis
-from ._typing import FloatArray, IndexArray, ScaleArg, StimDimensions
-
-
-def time_samples(times: Sequence[float], tstep: float) -> list[int]:
-    """Convert TRF times in seconds to sample offsets."""
-    return [int(round(t / tstep)) for t in times]
-
-
-def filter_lengths(
-        tstart: Sequence[float],
-        tstop: Sequence[float],
-        tstep: float,
-) -> list[int]:
-    """TRF length in samples, one value per predictor."""
-    return [stop - start + 1 for start, stop in zip(time_samples(tstart, tstep), time_samples(tstop, tstep))]
-
-
-def stim_dimensions(stim: Sequence[NDVar]) -> list[StimDimensions | None]:
-    """Return the feature dimension of each predictor (``None`` when scalar).
-
-    Parameters
-    ----------
-    stim
-        Predictors for one segment. Each must have a ``time`` axis and may carry
-        at most one feature dimension before time.
-    """
-    dims = []
-    for x in stim:
-        if x.ndim == 1:
-            dims.append(None)
-        elif x.ndim == 2:
-            dim, _ = x.get_dims((None, 'time'))
-            dims.append(dim)
-        else:
-            raise ValueError(f"stim {x!r}: more than 2 dimensions")
-    return dims
+from ._typing import FloatArray, IndexArray, ScaleArg
 
 
 @dataclass(frozen=True, eq=False, repr=False)
 class TRFDesign:
     """Stimulus and basis metadata defining the coefficient space.
 
-    Use :meth:`from_stim` to derive a design from predictor NDVars.
+    Use :meth:`from_data` to derive a design from a dataset's predictors.
 
     Parameters
     ----------
@@ -69,22 +34,25 @@ class TRFDesign:
         ``basis[i]`` is shape ``(n_lags, n_atoms)``: each column is a
         Gaussian bump centered on a distinct lag.
     tstart, tstep, tstop
-        TRF timing; ``tstart``/``tstop`` hold one value per predictor.
+        TRF timing; ``tstart``/``tstop`` hold one value per predictor (``tstop``
+        is exclusive, see :func:`eelbrain.trf.lag_window`).
     basis_std
         Standard deviation of the Gaussian basis functions in seconds.
     stim_is_single
-        Whether the original stimulus input was a single predictor per segment;
+        Whether the original stimulus input was a single predictor;
         controls whether reconstruction returns a bare NDVar or a list.
-    stim_dims
-        Feature dimension for each predictor (``None`` for scalar predictors).
-    stim_names
-        Name of each predictor variable.
+    blocks
+        The predictor variables as Eelbrain describes the rows of the predictor
+        array: name, feature dimensions and row index of each (see
+        :class:`eelbrain.trf.RowBlock`). The rows of all predictors
+        concatenated are the covariate channels. Blocks compare equal when they
+        describe the same rows, which is how a design identifies its data.
     basis_stride
         Spacing between neighboring basis atoms in samples, as passed to
-        :meth:`from_stim`. ``None`` when the design was constructed directly with
+        :meth:`from_data`. ``None`` when the design was constructed directly with
         a custom :attr:`~ncrf.TRFDesign.basis`, since no single stride describes it then.
     stim_baseline, stim_scaling
-        Centering and scaling of the covariates, one value per expanded covariate
+        Centering and scaling of the covariates, one value per covariate
         channel, or ``None`` when that step is not applied.
     scale
         Which scaling produced :attr:`~ncrf.TRFDesign.stim_scaling` (``'l1'``, ``'l2'`` or
@@ -97,67 +65,57 @@ class TRFDesign:
     tstop: list[float]
     basis_std: float
     stim_is_single: bool
-    stim_dims: list[StimDimensions | None]
-    stim_names: list[str]
+    blocks: list[RowBlock]
     basis_stride: int | None = None
     stim_baseline: FloatArray | None = None
     stim_scaling: FloatArray | None = None
     scale: ScaleArg = None
 
     @classmethod
-    def from_stim(
+    def from_data(
             cls,
-            stim: Sequence[NDVar],
-            tstep: float,
+            data: DeconvolutionData,
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
             basis_stride: int = 1,
             basis_std: float = 0.0085,
-            stim_is_single: bool = False,
     ) -> TRFDesign:
-        """Derive the design from the predictors of one segment.
+        """Derive the design from the predictors of a dataset.
 
         Parameters
         ----------
-        stim
-            Predictors for one segment, one NDVar per predictor variable. Each may
-            be 1-D over time or carry one feature dimension before time.
-        tstep
-            Sample spacing in seconds.
+        data
+            Dataset whose predictors the design describes.
         tstart
             Start of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one start time per predictor.
         tstop
-            Stop of the TRF in seconds. A scalar applies to all predictors; a
-            sequence specifies one stop time per predictor.
+            Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+            :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+            applies to all predictors; a sequence specifies one stop time per
+            predictor.
         basis_stride
             Spacing between neighboring Gabor basis atoms, in samples: with the
             default of ``1`` the atoms are one sample apart, and larger values
             make the basis sparser. ``basis_stride > 2`` should be used with caution.
         basis_std
             Standard deviation of the Gaussian basis functions in seconds.
-        stim_is_single
-            Whether the original stimulus input was a single predictor per segment.
         """
-        stim_dims = stim_dimensions(stim)
-        tstart = list(tstart) if isinstance(tstart, Sequence) else [tstart] * len(stim_dims)
-        tstop = list(tstop) if isinstance(tstop, Sequence) else [tstop] * len(stim_dims)
-        if len(tstart) != len(stim_dims) or len(tstop) != len(stim_dims):
-            raise ValueError(f"{tstart=}, {tstop=}: need one value per predictor ({len(stim_dims)})")
-
+        blocks = list(data.x.blocks)
+        tstep = data.time.tstep
+        starts, stops = lag_window(tstart, tstop, tstep, len(blocks))
+        tstart = list(tstart) if isinstance(tstart, (Sequence, np.ndarray)) else [tstart] * len(blocks)
+        tstop = list(tstop) if isinstance(tstop, (Sequence, np.ndarray)) else [tstop] * len(blocks)
         if basis_stride < 1:
             raise ValueError(f"{basis_stride=}: need an integer >= 1")
         basis = []
-        for ts, te, fl in zip(tstart, tstop, filter_lengths(tstart, tstop, tstep)):
-            n_atoms = int(round((fl - 1) / basis_stride)) - 1
+        for ts, te, start, stop in zip(tstart, tstop, starts, stops):
+            n_lags = stop - start
+            n_atoms = int(round((n_lags - 1) / basis_stride)) - 1
             if n_atoms < 1:
-                raise ValueError(f"{basis_stride=}: too coarse for the TRF from {ts} to {te} s ({fl} samples), which leaves no basis atoms")
-            basis.append(gaussian_basis(n_atoms, np.linspace(ts, te, fl), basis_std))
-        return cls(
-            basis=basis, tstart=tstart, tstep=tstep, tstop=tstop, basis_std=basis_std,
-            stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=[x.name for x in stim],
-            basis_stride=basis_stride,
-        )
+                raise ValueError(f"{basis_stride=}: too coarse for the TRF from {ts} to {te} s ({n_lags} samples), which leaves no basis atoms")
+            basis.append(gaussian_basis(n_atoms, np.arange(start, stop) * tstep, basis_std))
+        return cls(basis, tstart, tstep, tstop, basis_std, not data.multiple_x, blocks, basis_stride)
 
     def __repr__(self) -> str:
         predictors = tuple(self.stim_names)
@@ -168,24 +126,33 @@ class TRFDesign:
         return f'<{type(self).__name__}: {predictors=}, {basis_counts=}, {lags=}, {tstep=}, {basis_std=}, {centered=}, {scale=}>'
 
     @property
+    def stim_names(self) -> list[str | None]:
+        """Name of each predictor variable."""
+        return [block.name for block in self.blocks]
+
+    @property
     def stim_lens(self) -> list[int]:
-        """Number of expanded covariate channels contributed by each predictor."""
-        return [len(dim) if dim else 1 for dim in self.stim_dims]
+        """Number of covariate channels contributed by each predictor."""
+        return [block.n_rows for block in self.blocks]
+
+    @property
+    def _lag_window(self) -> tuple[list[int], list[int]]:
+        return lag_window(self.tstart, self.tstop, self.tstep, len(self.blocks))
 
     @property
     def start_samples(self) -> list[int]:
-        """:attr:`~ncrf.TRFDesign.tstart` in samples, one value per predictor."""
-        return time_samples(self.tstart, self.tstep)
+        """:attr:`~ncrf.TRFDesign.tstart` in samples (the first lag), one value per predictor."""
+        return self._lag_window[0]
 
     @property
     def stop_samples(self) -> list[int]:
-        """:attr:`~ncrf.TRFDesign.tstop` in samples, one value per predictor."""
-        return time_samples(self.tstop, self.tstep)
+        """:attr:`~ncrf.TRFDesign.tstop` in samples (exclusive), one value per predictor."""
+        return self._lag_window[1]
 
     @property
     def filter_length(self) -> list[int]:
         """TRF length in samples, one value per predictor."""
-        return filter_lengths(self.tstart, self.tstop, self.tstep)
+        return [stop - start for start, stop in zip(*self._lag_window)]
 
     @property
     def n_coefficients(self) -> int:
@@ -194,7 +161,7 @@ class TRFDesign:
 
     @property
     def basis_widths(self) -> IndexArray:
-        """Number of basis functions of each expanded covariate channel."""
+        """Number of basis functions of each covariate channel."""
         return np.repeat([basis.shape[1] for basis in self.basis], self.stim_lens)
 
     @property
@@ -210,20 +177,6 @@ class TRFDesign:
     def expand(self, values: FloatArray) -> FloatArray:
         """Expand one value per covariate channel to one value per covariate column."""
         return np.repeat(values, self.basis_widths)
-
-    def per_predictor(self, values: FloatArray) -> list[NDVar | float]:
-        """Split one value per covariate channel into one item per predictor.
-
-        Predictors with a feature dimension yield an :class:`~eelbrain.NDVar` over
-        that dimension; scalar predictors yield a :class:`float`.
-        """
-        out = []
-        i = 0
-        for dim, n in zip(self.stim_dims, self.stim_lens):
-            chunk = values[i:i + n]
-            out.append(NDVar(chunk, (dim,)) if dim else float(chunk[0]))
-            i += n
-        return out
 
     def assert_same_normalization(self, other: TRFDesign) -> None:
         """Check that ``other`` records the same centering and scaling as this design.
@@ -266,7 +219,9 @@ class TRFDesign:
         """
         if other is self:
             return
-        for attr in ('stim_names', 'stim_dims', 'tstart', 'tstop', 'tstep', 'basis_std'):
+        if other.blocks != self.blocks:
+            raise ValueError(f"incompatible design: predictors {other.stim_names} with rows {[block.names() for block in other.blocks]} instead of {self.stim_names} with rows {[block.names() for block in self.blocks]}")
+        for attr in ('tstart', 'tstop', 'tstep', 'basis_std'):
             mine, theirs = getattr(self, attr), getattr(other, attr)
             if mine != theirs:
                 raise ValueError(f"incompatible design: {attr} is {theirs} instead of {mine}")

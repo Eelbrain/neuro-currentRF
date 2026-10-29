@@ -10,14 +10,13 @@ import numpy as np
 import pytest
 
 from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
-from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._metrics import merge_scores
 from ncrf._model import _score_fit
 from ncrf._typing import FloatArray
-from .fetch import load
+from eelbrain.trf import DeconvolutionData
 
-from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
+from eelbrain import Categorial, Datalist, NDVar, Scalar, Sensor, UTS
 
 
 SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
@@ -96,7 +95,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     selected_solver = _ZeroSolver()
     cv_results = [Mock()]
     searching_solver.search.return_value = (selected_solver, cv_results)
-    cv = CrossValidation(n_splits=4, n_workers=0)
+    cv = CrossValidation(splits=4, n_workers=0)
 
     result = estimator.fit(data, searching_solver, cv=cv)
 
@@ -194,9 +193,9 @@ def test_whiten_shares_covariates():
 
     data = raw.whiten(_forward())
 
-    assert data.covariates is raw.covariates
+    assert data._segment_covariates is raw._segment_covariates
     assert data.EtE is ete
-    assert 'responses' not in data.__dict__
+    assert '_segment_responses' not in data.__dict__
 
 
 def _synthetic_data(
@@ -204,50 +203,52 @@ def _synthetic_data(
         seed: int = 0,
         tstop: float = 0.05,
         names: tuple[str, str] = ('loud', 'quiet'),
+        sensor: Sensor = SENSOR,
+        n_segments: int = 1,
 ) -> RegressionData:
     """Two-predictor dataset on strongly mismatched stimulus scales."""
     rng = np.random.RandomState(seed)
     time = UTS(0, 0.01, 200)
-    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
-    stim = [[
-        NDVar(rng.normal(size=200) * 100 + 20, (time,), name=names[0]),
-        NDVar(rng.normal(size=200) * 0.01 + 0.5, (time,), name=names[1]),
-    ]]
+    meg = NDVar(rng.normal(size=(n_segments, 3, 200)), ('case', sensor, time))
+    stim = [
+        NDVar(rng.normal(size=(n_segments, 200)) * 100 + 20, ('case', time), name=names[0]),
+        NDVar(rng.normal(size=(n_segments, 200)) * 0.01 + 0.5, ('case', time), name=names[1]),
+    ]
+    if n_segments == 1:
+        meg = meg[0]
+        stim = [x[0] for x in stim]
     return RegressionData.from_data(meg, stim, 0, tstop, scale=scale)
 
 
-def test_timeslice_boolean_mask():
-    data = _synthetic_data()
-    mask = np.zeros(len(data.samples), dtype=bool)
-    mask[10:50] = True
+def test_subset():
+    """A subset's arrays are views into the full dataset's, rescaled to its own norm factor."""
+    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
+    assert data.blocks == [(0, 4, 200), (1, 4, 200)]  # lags 0-4 samples: the first 4 samples lack a full lag window
+    assert len(data) == 2
 
-    by_mask = data.timeslice(mask)
-    by_index = data.timeslice(np.flatnonzero(mask))
+    fold = data.subset([[10, 50], [195, 230]])
 
-    np.testing.assert_array_equal(by_mask.samples, by_index.samples)
-    np.testing.assert_array_equal(by_mask.responses[0], by_index.responses[0])
-    np.testing.assert_array_equal(by_mask.covariates[0], by_index.covariates[0])
-    assert by_mask.norm_factor == by_index.norm_factor
-
-
-def test_timeslice_rescales():
-    """A slice's arrays are the full dataset's rows, rescaled to the slice's own norm factor."""
-    data = _synthetic_data('l2').whiten(_forward())
-    idx = np.arange(10, 50)
-
-    fold = data.timeslice(idx)
-
+    assert fold.blocks == [(0, 10, 50), (0, 195, 200), (1, 4, 30)]
     assert fold.is_whitened
-    # the arrays are built once, on the source dataset, and sliced from there
-    assert 'responses' in data.__dict__ and 'covariates' in data.__dict__
-    assert 'responses' in fold.__dict__ and 'covariates' in fold.__dict__
-    mul = data.norm_factor / fold.norm_factor
-    np.testing.assert_allclose(fold.responses[0], data.responses[0][:, idx] * mul)
-    np.testing.assert_allclose(fold.covariates[0], data.covariates[0][idx] * mul)
-    # and equal the arrays built from the NDVars for the same samples
-    rebuilt = replace(fold, samples=fold.samples)
-    np.testing.assert_allclose(rebuilt.responses[0], fold.responses[0])
-    np.testing.assert_allclose(rebuilt.covariates[0], fold.covariates[0])
+    assert fold.n_samples == 71
+    # the covariates are built once, on the source dataset, and sliced from there
+    assert fold._segment_covariates is data._segment_covariates
+    assert np.shares_memory(fold.covariates[0], data.covariates[0])
+    np.testing.assert_array_equal(fold.covariates[0], data.covariates[0][6:46])
+    np.testing.assert_array_equal(fold.covariates[2], data.covariates[1][:26])
+    # the responses are views too, whitened once on the source dataset
+    assert fold._segment_responses is data._segment_responses
+    assert np.shares_memory(fold.responses[0], data.responses[0])
+    np.testing.assert_array_equal(fold.responses[0], data.responses[0][:, 6:46])
+    np.testing.assert_array_equal(fold.responses[2], data.responses[1][:, :26])
+    # the Gram matrices apply the norm factor
+    np.testing.assert_allclose(fold.bbt[0], fold.responses[0] @ fold.responses[0].T / fold.norm_factor ** 2)
+    np.testing.assert_allclose(fold.bE[0], fold.responses[0] @ fold.covariates[0] / fold.norm_factor ** 2)
+    np.testing.assert_allclose(fold.EtE[0], fold.covariates[0].T @ fold.covariates[0] / fold.norm_factor ** 2)
+    # a subset of a subset
+    assert fold.subset([[0, 30]]).blocks == [(0, 10, 30)]
+    with pytest.raises(ValueError, match="contains none of the dataset's samples"):
+        fold.subset([[100, 150]])
 
 
 def test_pickle_ships_raw_inputs():
@@ -257,8 +258,8 @@ def test_pickle_ships_raw_inputs():
 
     restored = pickle.loads(pickle.dumps(data))
 
-    assert 'responses' not in restored.__dict__ and 'covariates' not in restored.__dict__
-    np.testing.assert_array_equal(restored.samples, data.samples)
+    assert '_segment_responses' not in restored.__dict__ and '_segment_covariates' not in restored.__dict__
+    assert restored.blocks == data.blocks
     np.testing.assert_array_equal(restored.forward.whitening_filter, data.forward.whitening_filter)
     np.testing.assert_allclose(restored.responses[0], responses[0])
     np.testing.assert_allclose(restored.covariates[0], covariates[0])
@@ -267,22 +268,25 @@ def test_pickle_ships_raw_inputs():
 def test_rejects_inconsistent_inputs():
     """Directly constructed datasets have to match their design."""
     data = _synthetic_data()
-    meg, stim = data.meg[0], data.stim[0]
+    time = UTS(0, 0.01, 200)
+    rng = np.random.RandomState(0)
+    stim = NDVar(rng.normal(size=200), (time,), name='loud')
 
-    with pytest.raises(ValueError, match="1 MEG segment but 2 stimulus lists"):
-        replace(data, stim=[stim, stim])
-    with pytest.raises(ValueError, match="segment 1: combining data segments with different sensor"):
-        replace(data, meg=[meg, meg.sub(sensor=['a', 'b'])], stim=[stim, stim])
-    with pytest.raises(ValueError, match="segment 0: stim dimensions"):
-        replace(data, stim=[stim[:1]])
-    with pytest.raises(ValueError, match="time axis incompatible with meg"):
-        replace(data, stim=[[stim[0], NDVar(stim[1].x, (UTS(1, 0.01, 200),), name='quiet')]])
+    with pytest.raises(ValueError, match="needs a sensor and a time dimension"):
+        replace(data, data=DeconvolutionData(stim, NDVar(rng.normal(size=(3, 2, 200)), (SENSOR, Categorial('rep', ['a', 'b']), time))))
+    with pytest.raises(ValueError, match="do not match the design"):
+        replace(data, data=DeconvolutionData(stim, NDVar(rng.normal(size=(3, 200)), (SENSOR, time))))
+    with pytest.raises(ValueError, match="no M/EEG data"):
+        replace(data, data=DeconvolutionData(stim))
     with pytest.raises(ValueError, match="does not match design.tstep"):
         replace(data, design=replace(data.design, tstep=0.02))
-    with pytest.raises(ValueError, match="samples out of range"):
-        replace(data, samples=[0, 200])
-    with pytest.raises(ValueError, match="samples is empty"):
-        replace(data, samples=[])
+    with pytest.raises(ValueError, match="segment index out of range"):
+        replace(data, blocks=[(1, 0, 100)])
+    with pytest.raises(ValueError, match="out of range for segment with 200 samples"):
+        replace(data, blocks=[(0, 100, 201)])
+    # mismatched inputs are rejected by the Eelbrain data layer
+    with pytest.raises(ValueError, match="same time dimension"):
+        RegressionData.from_data(NDVar(rng.normal(size=(3, 200)), (SENSOR, time)), NDVar(stim.x, (UTS(1, 0.01, 200),)), 0, 0.05)
 
 
 def _forward(seed: int = 1, noise_covariance: FloatArray | None = None) -> ForwardModel:
@@ -307,8 +311,9 @@ def test_normalize_matches_from_data(scale):
 
     normalized = raw.normalize(expected.design)
     np.testing.assert_allclose(normalized.covariates[0], expected.covariates[0])
-    # the source dataset is unchanged
-    np.testing.assert_allclose(raw.covariates[0], _synthetic_data().covariates[0])
+    # the predictors are normalized in place, so the source dataset shares them
+    assert normalized.data is raw.data
+    np.testing.assert_array_equal(raw.data.x.mean, expected.design.stim_baseline)
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
@@ -333,19 +338,18 @@ def test_normalize_derives_scale(scale):
         _synthetic_data('l3')
 
 
-def test_normalize_replaces_normalization():
-    """Covariates are built from the raw predictors, so any normalization can be swapped for another."""
+def test_normalize_rejects_renormalization():
+    """The predictors are normalized in place, so a normalized dataset cannot be normalized differently."""
     spectral = _synthetic_data('spectral')
     l2 = _synthetic_data('l2')
 
-    renormalized = spectral.normalize(l2.design)
-
-    assert renormalized.design is l2.design
-    np.testing.assert_allclose(renormalized.covariates[0], l2.covariates[0])
-    # the source dataset is unchanged
-    assert spectral.design.scale == 'spectral'
+    with pytest.raises(ValueError, match="already normalized, and can not be normalized with a different design"):
+        spectral.normalize(l2.design)
+    with pytest.raises(ValueError, match="already normalized with scale='spectral'"):
+        spectral.normalize('l2')
     # applying the same normalization again is a no-op
-    np.testing.assert_array_equal(spectral.normalize(spectral.design).covariates[0], spectral.covariates[0])
+    assert spectral.normalize(spectral.design) is spectral
+    assert spectral.normalize(replace(spectral.design, basis_stride=None)) is spectral
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
@@ -353,7 +357,7 @@ def test_rejects_constant_predictor(scale):
     """A predictor without variation has no scale, and dividing by it destroys its covariates."""
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
-    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
+    meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
     varying = NDVar(rng.normal(size=200), (time,), name='varying')
     constant = NDVar(np.full(200, 2.5), (time,), name='constant')
     unnamed = NDVar(np.full(200, 2.5), (time,))
@@ -362,28 +366,36 @@ def test_rejects_constant_predictor(scale):
     x[1] = 7.
     bands = NDVar(x, (Categorial('band', ['low', 'high']), time), name='bands')
 
-    with pytest.raises(ValueError, match="constant: predictor is constant over time"):
-        RegressionData.from_data(meg, [[varying, constant]], 0, 0.05, scale=scale)
-    with pytest.raises(ValueError, match="<unnamed>: predictor is constant over time"):
-        RegressionData.from_data(meg, [[varying, unnamed]], 0, 0.05, scale=scale)
-    with pytest.raises(ValueError, match=r"bands\[1\]: predictor is constant over time"):
-        RegressionData.from_data(meg, [[varying, bands]], 0, 0.05, scale=scale)
+    with pytest.raises(ValueError, match="x: flat data in constant"):
+        RegressionData.from_data(meg, [varying, constant], 0, 0.05, scale=scale)
+    with pytest.raises(ValueError, match="x: flat data in <NDVar>"):
+        RegressionData.from_data(meg, [varying, unnamed], 0, 0.05, scale=scale)
+    with pytest.raises(ValueError, match="x: flat data in bands-high"):
+        RegressionData.from_data(meg, [varying, bands], 0, 0.05, scale=scale)
+    # a NaN would silently poison every scale
+    nan = NDVar(np.where(np.arange(200) == 7, np.nan, 1.), (time,), name='nan')
+    with pytest.raises(ValueError, match="x: NaN in nan"):
+        RegressionData.from_data(meg, [varying, nan], 0, 0.05, scale=scale)
 
     # without scaling there is nothing to divide by
-    data = RegressionData.from_data(meg, [[varying, constant]], 0, 0.05, scale=None)
+    data = RegressionData.from_data(meg, [varying, constant], 0, 0.05, scale=None)
     assert np.isfinite(data.covariates[0]).all()
 
 
 def test_from_data_rejects_flat_channels():
-    """A flat channel makes the noise covariance rank deficient, so it is rejected up front."""
+    """A flat channel (or NaN) corrupts the whitened data and the metrics, so it is rejected up front."""
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
-    flat = rng.normal(size=(3, 200))
-    flat[1] = 0
-    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time)), NDVar(flat, (SENSOR, time))]
-    stim = [[NDVar(rng.normal(size=200), (time,), name='x')] for _ in meg]
+    x = rng.normal(size=(2, 3, 200))
+    x[:, 1] = 0
+    meg = Datalist([NDVar(x_seg, (SENSOR, time)) for x_seg in x])
+    stim = Datalist([NDVar(rng.normal(size=200), (time,), name='x') for _ in meg])
 
-    with pytest.raises(ValueError, match=r"segment 1 has flat channels \(b\)"):
+    with pytest.raises(ValueError, match="flat data in <NDVar>-b"):
+        RegressionData.from_data(meg, stim, 0, 0.05)
+    x[:, 1] = rng.normal(size=(2, 200))
+    x[1, 2, 10] = np.nan
+    with pytest.raises(ValueError, match="NaN in <NDVar>-c"):
         RegressionData.from_data(meg, stim, 0, 0.05)
 
 
@@ -404,7 +416,7 @@ def test_normalize_rejects_invalid_scaling(factor):
 def test_normalize_rejects_incompatible_design():
     data = _synthetic_data()
 
-    with pytest.raises(ValueError, match="stim_names"):
+    with pytest.raises(ValueError, match="predictors"):
         data.normalize(_synthetic_data(names=('quiet', 'loud')).design)
     with pytest.raises(ValueError, match="tstop"):
         data.normalize(_synthetic_data(tstop=0.06).design)
@@ -420,10 +432,10 @@ def test_predict_requires_fit_normalization():
         model.predict(raw)
     with pytest.raises(ValueError, match="different scaling"):
         model.predict(raw.normalize(replace(normalized.design, stim_scaling=None, scale=None)))
-    with pytest.raises(ValueError, match="stim_names"):
+    with pytest.raises(ValueError, match="predictors"):
         model.predict(_synthetic_data(names=('quiet', 'loud')))
 
-    for expected, actual in zip(model.predict(normalized), model.predict(raw.normalize(model.design))):
+    for expected, actual in zip(model.predict(normalized), model.predict(_synthetic_data().normalize(model.design))):
         np.testing.assert_allclose(expected, actual)
 
 
@@ -457,9 +469,8 @@ def test_predict_rejects_mismatched_normalization():
 def test_rejects_sensor_mismatch():
     """Data whose sensors differ from the forward model must not be whitened silently."""
     data = _synthetic_data('l2')
-    meg = data.meg[0]
     # same channels in a different order: whitening would apply to the wrong channels
-    reordered = replace(data, meg=[NDVar(meg.x, (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']), meg.time))])
+    reordered = _synthetic_data('l2', sensor=Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']))
 
     model = _model(data.design, data.design.n_coefficients)
     with pytest.raises(ValueError, match="same channels in a different order"):
@@ -468,7 +479,7 @@ def test_rejects_sensor_mismatch():
         model.evaluate(reordered)
 
     # a genuinely different channel set names the channels that differ
-    renamed = replace(data, meg=[NDVar(meg.x, (Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']), meg.time))])
+    renamed = _synthetic_data('l2', sensor=Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']))
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
 
@@ -542,9 +553,9 @@ def test_fit_trims_forward_to_data():
 
     time = UTS(0, 0.01, 200)
     sensor_sub = Sensor([[0., 0, 1], [1., 0, 0]], ['c', 'a'])
-    meg = [NDVar(rng.normal(size=(2, 200)), (sensor_sub, time))]
-    stim = [[NDVar(rng.normal(size=200), (time,), name='x')]]
-    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None, stim_is_single=True)
+    meg = NDVar(rng.normal(size=(2, 200)), (sensor_sub, time))
+    stim = NDVar(rng.normal(size=200), (time,), name='x')
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
 
     result = estimator.fit(data, _ShapedZeroSolver())
 
@@ -567,8 +578,8 @@ def test_fit_trims_forward_to_data():
 
     # data with channels the lead field does not cover is an error naming the lead field
     sensor_extra = Sensor([[1., 0, 0], [0, 0.5, 0.5]], ['a', 'z'])
-    meg_extra = [NDVar(rng.normal(size=(2, 200)), (sensor_extra, time))]
-    data_extra = RegressionData.from_data(meg_extra, stim, 0, 0.05, scale=None, stim_is_single=True)
+    meg_extra = NDVar(rng.normal(size=(2, 200)), (sensor_extra, time))
+    data_extra = RegressionData.from_data(meg_extra, stim, 0, 0.05, scale=None)
     with pytest.raises(ValueError, match=r"data channels missing from the lead field: \['z'\]"):
         estimator.fit(data_extra, _ShapedZeroSolver())
 
@@ -581,8 +592,8 @@ def test_fit_trims_forward_to_data():
 
     # a channel with a lead field but no noise estimate blames the noise covariance
     estimator_sub = NCRFEstimator.from_lead_field(lead_field, mne.Covariance(noise.data[:2, :2], names[:2], [], [], 0))
-    meg_full = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
-    data_full = RegressionData.from_data(meg_full, stim, 0, 0.05, scale=None, stim_is_single=True)
+    meg_full = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
+    data_full = RegressionData.from_data(meg_full, stim, 0, 0.05, scale=None)
     with pytest.raises(ValueError, match=r"data channels missing from the noise covariance: \['c'\]"):
         estimator_sub.fit(data_full, _ShapedZeroSolver())
 
@@ -617,19 +628,21 @@ def test_h_scaled_matches_unscaled_fit():
         np.testing.assert_allclose(actual.x, expected.x)
 
 
-@pytest.mark.parametrize('tstop, n_atoms', [(0.02, 1), (0.05, 4)])
+@pytest.mark.parametrize('tstop, n_atoms', [(0.03, 1), (0.06, 4)])
 def test_h_with_narrow_basis(tstop, n_atoms):
     """A predictor with a single basis function still expands into a full TRF."""
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
-    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
+    meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
     bands = Categorial('band', ['low', 'high'])
-    n_lags = int(round(tstop / 0.01)) + 1
+    onsets = Categorial('onset', ['on', 'off', 'both'])
+    n_lags = int(round(tstop / 0.01))  # tstop is exclusive
     for stim, dimnames, shape in [
         (NDVar(rng.normal(size=200), (time,), name='x'), ('source', 'time'), (4, n_lags)),
         (NDVar(rng.normal(size=(2, 200)), (bands, time), name='x'), ('band', 'source', 'time'), (2, 4, n_lags)),
+        (NDVar(rng.normal(size=(2, 3, 200)), (bands, onsets, time), name='x'), ('band', 'onset', 'source', 'time'), (2, 3, 4, n_lags)),
     ]:
-        data = RegressionData.from_data(meg, [[stim]], 0, tstop, scale=None, stim_is_single=True)
+        data = RegressionData.from_data(meg, stim, 0, tstop, scale=None)
         assert data.design.basis[0].shape[1] == n_atoms
         model = _model(data.design, data.design.n_coefficients)
 
@@ -637,6 +650,11 @@ def test_h_with_narrow_basis(tstop, n_atoms):
 
         assert h.dimnames == dimnames
         assert h.shape == shape
+        # the scaling is undone along the predictor's feature dimensions
+        scaled = RegressionData.from_data(meg, stim, 0, tstop, scale='l2')
+        h_scaled = _model(scaled.design, scaled.design.n_coefficients).h_scaled
+        assert h_scaled.dimnames == dimnames
+        np.testing.assert_allclose(h_scaled.x, h.x / scaled.design.stim_scaling.reshape((*stim.shape[:-1], 1, 1)))
 
 
 def test_design_timing_per_predictor():
@@ -644,12 +662,12 @@ def test_design_timing_per_predictor():
     time = UTS(0, 0.01, 200)
     stim = [NDVar(np.zeros(200), (time,), name='a'), NDVar(np.zeros(200), (time,), name='b')]
 
-    design = TRFDesign.from_stim(stim, 0.01, -0.1, [0.2, 0.3])
+    design = TRFDesign.from_data(DeconvolutionData(stim), -0.1, [0.2, 0.3])
     assert design.tstart == [-0.1, -0.1]
     assert design.tstop == [0.2, 0.3]
     # a one-element sequence is not broadcast
     with pytest.raises(ValueError, match="need one value per predictor"):
-        TRFDesign.from_stim(stim, 0.01, [-0.1], 0.2)
+        TRFDesign.from_data(DeconvolutionData(stim), [-0.1], 0.2)
 
 
 def test_gaussian_basis():
@@ -658,34 +676,3 @@ def test_gaussian_basis():
 
     assert basis.shape == (11, 4)
     np.testing.assert_allclose(basis, shifted_basis)
-
-
-def test_covariate_from_stim():
-    stim = load('stim')[0]
-    # Test if difference between list of stimuli and concatenated stimuli
-    diff = stim.diff('time')
-
-    start = [-20, -20]
-    stop = [20, 20]
-    filter_lengths = np.subtract(stop, start) + 1
-    covariates = covariate_from_stim([stim, diff], filter_lengths, start)
-
-    conc = concatenate([stim, diff.clip(0)], Categorial('rep', ['on', 'off']))
-    covariates_conc = covariate_from_stim([conc], filter_lengths, start)
-
-    assert np.array(covariates).shape == np.array(covariates_conc).shape
-    np.testing.assert_allclose(np.array(covariates)[0, 0, 0], np.array(covariates_conc)[0, 0, 0], rtol=0.001)
-
-    # Test if shifted covariate array is equal to unshifted
-    start = [-20]
-    stop = [20]
-    filter_lengths = np.subtract(stop, start) + 1
-    covariates = covariate_from_stim([stim], filter_lengths, start)
-
-    start = [0]
-    stop = [40]
-    filter_lengths = np.subtract(stop, start) + 1
-    covariates_shift = covariate_from_stim([stim], filter_lengths, start)
-
-    assert covariates[0].shape[0] == len(stim.get_dim('time'))
-    np.testing.assert_array_equal(covariates[0][:-20], covariates_shift[0][20:])

@@ -16,6 +16,7 @@ from typing import Any
 from collections.abc import Sequence
 
 from eelbrain import NDVar, Sensor, UTS, fmtxt
+from eelbrain.trf import package_values
 import numpy as np
 
 from ._crossvalidation import CrossValidation, CVResult
@@ -29,9 +30,9 @@ from ._solvers import Solver, SolverFit
 from ._typing import FloatArray, NoiseArg
 
 
-#: Layout of the NCRF pickle state; bump on incompatible attribute changes.
+#: Layout of the NCRF pickle state (including the design); bump on incompatible attribute changes.
 #: Pre-0.5 pickles carry no stamp and load as version 0.
-_PICKLE_VERSION = 1
+_PICKLE_VERSION = 2
 
 
 class NCRF:
@@ -106,9 +107,9 @@ class NCRF:
         """``whitened_lead_field @ theta``, the segment-independent part of whitened prediction."""
         return np.dot(self.forward.whitened_lead_field, self.theta)
 
-    def _predict_whitened(self, covariate: FloatArray) -> FloatArray:
-        """Predicted whitened sensor data for one trial's covariate matrix."""
-        return np.dot(self._whitened_projection, covariate.T)
+    def _predict_whitened(self, covariate: FloatArray, norm_factor: float) -> FloatArray:
+        """Predicted whitened sensor data for one block's covariate matrix (see :attr:`RegressionData.norm_factor`)."""
+        return np.dot(self._whitened_projection, covariate.T) / norm_factor
 
     def predict(
             self,
@@ -135,19 +136,18 @@ class NCRF:
         Returns
         -------
         list
-            Predicted arrays, one per segment, each shaped
-            ``(n_sensors, n_samples)``; column ``i`` is the prediction for time
-            sample ``data.samples[i]`` of the segment.
+            Predicted arrays, one per block of ``data``, each shaped
+            ``(n_sensors, n_samples)``.
         """
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)
         if whitened:
-            return [self._predict_whitened(covariate) for covariate in data.covariates]
-        # Predicting through the un-whitened lead field, and undoing the norm_factor
-        # by which both MEG and covariates were divided, puts the prediction back into
-        # the units of the M/EEG data the dataset was built from.
+            return [self._predict_whitened(covariate, data.norm_factor) for covariate in data.covariates]
+        # Predicting through the un-whitened lead field, from the covariates that
+        # are not divided by the norm_factor, puts the prediction back into the
+        # units of the M/EEG data the dataset was built from.
         source = np.dot(self.forward.lead_field, theta) / self.forward.lead_field_scaling
-        return [np.dot(source, covariate.T) * data.norm_factor for covariate in data.covariates]
+        return [np.dot(source, covariate.T) for covariate in data.covariates]
 
     def evaluate(
             self,
@@ -174,8 +174,9 @@ class NCRF:
         """
         data = data.whiten(self.forward)
         self._theta_for(data)
-        observed = [meg for meg, _ in data]
-        predicted = [self._predict_whitened(covariate) for _, covariate in data]
+        # score in the normalized space the solver fits in
+        observed = [meg / data.norm_factor for meg, _ in data]
+        predicted = [self._predict_whitened(covariate, data.norm_factor) for _, covariate in data]
         return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
     def voxelwise_explained_variance(self, data: RegressionData) -> NDVar:
@@ -188,9 +189,10 @@ class NCRF:
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
+        # variance ratios are invariant to the scale, so work with the responses as they are
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - self._predict_whitened(covariate)
+            y_full = meg - np.dot(self._whitened_projection, covariate.T)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
@@ -220,20 +222,20 @@ class NCRF:
 
         h = []
         start = 0
-        for basis, stim_len, dim, name, tstart in zip(design.basis, design.stim_lens, design.stim_dims, design.stim_names, design.tstart):
+        for basis, block, tstart in zip(design.basis, design.blocks, design.tstart):
             # Index corresponding theta; theta shape: (source, stimulus * lag)
-            stop = start + basis.shape[1] * stim_len
+            stop = start + basis.shape[1] * block.n_rows
             x = self.theta[:, start:stop]
             start = stop
 
             # Reshape to (stimulus, source, lag)
-            x = x.reshape((self.theta.shape[0], stim_len, -1)).swapaxes(0, 1)
+            x = x.reshape((self.theta.shape[0], block.n_rows, -1)).swapaxes(0, 1)
             x = np.dot(x, basis.T) / self.forward.lead_field_scaling
 
             # Package in NDVar
             lag_dim = UTS(tstart, design.tstep, x.shape[-1])
-            dims = (dim, *source_dims, lag_dim) if dim else (*source_dims, lag_dim)
-            h.append(NDVar(x.reshape([len(d) for d in dims]), dims, name=name))
+            dims = (*block.dims, *source_dims, lag_dim)
+            h.append(NDVar(x.reshape([len(d) for d in dims]), dims, name=block.name))
 
         if design.stim_is_single:
             return h[0]
@@ -248,10 +250,11 @@ class NCRF:
         ``scale``. Identical to :attr:`~ncrf.NCRF.h` when the covariates were not
         scaled.
         """
-        if self.design.stim_scaling is None:
+        design = self.design
+        if design.stim_scaling is None:
             return self.h
-        scaling = self.design.per_predictor(self.design.stim_scaling)
-        if self.design.stim_is_single:
+        scaling = package_values(design.blocks, design.stim_scaling)
+        if design.stim_is_single:
             return self.h / scaling[0]
         return [h / s for h, s in zip(self.h, scaling)]
 
@@ -453,8 +456,10 @@ class NCRFEstimator:
             Solver configuration. A solver with more than one configuration to
             choose from selects one through cross-validation before the final fit.
         cv
-            Cross-validation configuration. Defaults to :class:`CrossValidation`;
-            unused when the solver does not cross-validate.
+            Cross-validation configuration: the folds (a number of partitions,
+            or an :class:`eelbrain.trf.Splits` object) and the worker count.
+            Defaults to :class:`CrossValidation`; unused when the solver does
+            not cross-validate.
         verbose
             If set True prints intermediate values of the cost functions (default ``False``).
         compute_explained_variance

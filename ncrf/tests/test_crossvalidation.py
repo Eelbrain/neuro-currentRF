@@ -5,7 +5,9 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, CrossValidation, crossvalidate
+from eelbrain import NDVar, Sensor, UTS
+from eelbrain.trf import split_data
+from ncrf import ChampLasso, CrossValidation, RegressionData, crossvalidate
 from ncrf import _crossvalidation as cv
 import ncrf._model
 from ncrf._solvers import champ_lasso
@@ -51,30 +53,43 @@ class _InlinePool:
         return map(function, values)
 
 
-def test_make_folds(monkeypatch):
-    train_data = object()
-    test_data = object()
-    data = Mock()
-    data.design.filter_length = [2, 5]
-    data.samples = np.arange(10)
-    data.timeslice.side_effect = [train_data, test_data]
+def test_make_folds():
+    """Folds are train/validation subsets of the data, sharing its covariates."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 100)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
+    meg = NDVar(rng.normal(size=(4, 2, 100)), ('case', sensor, time))
+    stim = NDVar(rng.normal(size=(4, 100)), ('case', time), name='x')
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
 
-    splitter = Mock()
-    splitter.split.return_value = [(np.array([0, 1]), np.array([2]))]
-    captured = {}
+    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
 
-    def make_splitter(**kwargs):
-        captured.update(kwargs)
-        return splitter
-
-    monkeypatch.setattr(cv, 'TimeSeriesSplit', make_splitter)
-
-    folds = cv._make_folds(data, 2)
-
-    # the gap must cover the longest TRF, so lagged training predictors
-    # cannot reach into the held-out window
-    assert captured == {'r': 0.05, 'p': 2, 'd': 5}
-    assert folds == [(train_data, test_data)]
+    # by default, the last 2 windows of 5% of every segment are held out in
+    # turn, trained on the data before the window
+    assert len(folds) == 2
+    train, validate = folds[0]
+    assert validate.blocks == [(0, 90, 95), (1, 90, 95), (2, 90, 95), (3, 90, 95)]
+    assert train.blocks == [(0, 4, 90), (1, 4, 90), (2, 4, 90), (3, 4, 90)]
+    assert train._segment_covariates is data._segment_covariates
+    assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
+    assert folds[1][0].blocks == [(0, 4, 95), (1, 4, 95), (2, 4, 95), (3, 4, 95)]
+    # an Eelbrain Splits object is used as is, with its own partitioning scheme
+    splits = split_data(data.data.segments, 2, validate=1, test=0, split='within_cases')
+    assert cv._make_splits(data, CrossValidation(splits)) is splits
+    folds = cv._make_folds(data, splits)
+    assert folds[0][1].blocks == [(0, 4, 50), (1, 4, 50), (2, 4, 50), (3, 4, 50)]
+    assert folds[0][0].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
+    # but it has to describe the data's segments
+    other = split_data(np.array([[0, 200], [200, 400]]), 2, validate=1, test=0)
+    with pytest.raises(ValueError, match="made for different data segments"):
+        cv._make_splits(data, CrossValidation(other))
+    # continuous data
+    data = RegressionData.from_data(meg[0], stim[0], 0, 0.05, scale=None)
+    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
+    assert folds[0][1].blocks == [(0, 90, 95)]
+    assert folds[0][0].blocks == [(0, 4, 90)]
+    assert folds[1][1].blocks == [(0, 95, 100)]
+    assert folds[1][0].blocks == [(0, 4, 95)]
 
 
 def test_score_candidate_uses_fit_primitive(monkeypatch):
@@ -109,19 +124,17 @@ def test_score_candidate_uses_fit_primitive(monkeypatch):
     }
 
 
-def test_time_series_split_rejects_empty_training_window():
-    splitter = cv.TimeSeriesSplit(r=0.05, p=3, d=100)
-
-    train, test = next(splitter.split(np.empty(400)))
-    assert (len(train), len(test)) == (240, 20)
-
-    with pytest.raises(ValueError, match="110 samples are not enough for 3 cross-validation folds"):
-        list(splitter.split(np.empty(110)))
-
-
-def test_cross_validation_rejects_no_folds():
-    with pytest.raises(ValueError, match="n_splits=0: need at least one cross-validation fold"):
-        CrossValidation(n_splits=0)
+def test_cross_validation_rejects_invalid_splits():
+    segments = np.array([[0, 100], [100, 200], [200, 300]])
+    with pytest.raises(ValueError, match="splits=0: need at least one cross-validation fold"):
+        CrossValidation(splits=0)
+    with pytest.raises(TypeError, match="need the number of partitions or an eelbrain Splits"):
+        CrossValidation(splits='3')
+    # true cross-validation with a test set is not implemented yet
+    with pytest.raises(NotImplementedError, match="test set is not implemented"):
+        CrossValidation(split_data(segments, 3, validate=1, test=1))
+    with pytest.raises(ValueError, match="no validation set"):
+        CrossValidation(split_data(segments, 3, validate=0, test=0))
 
 
 def test_extend_mu_grid():
@@ -152,14 +165,15 @@ def test_select_es_solver():
 def test_crossvalidate_progress(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
+    monkeypatch.setattr(cv, '_make_splits', lambda data, n_splits: None)
+    monkeypatch.setattr(cv, '_make_folds', lambda data, splits: [])
     monkeypatch.setattr(
         cv, '_score_candidate',
         lambda data, folds, solver: _cv_result(solver.mu),
     )
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
 
-    results = crossvalidate(object(), candidates, CrossValidation(n_splits=2, n_workers=0))
+    results = crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=0))
 
     assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
     assert progress.updates == [1, 1, 1]
@@ -170,7 +184,8 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
     monkeypatch.setattr(cv, 'Pool', _InlinePool)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
+    monkeypatch.setattr(cv, '_make_splits', lambda data, n_splits: None)
+    monkeypatch.setattr(cv, '_make_folds', lambda data, splits: [])
 
     def score_candidate(data, folds, solver):
         if solver.mu == 0.2:
@@ -181,7 +196,7 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2))
 
     with pytest.raises(RuntimeError, match="worker failed"):
-        crossvalidate(object(), candidates, CrossValidation(n_splits=2, n_workers=2))
+        crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=2))
 
     assert progress.updates == [1]
     assert progress.closed
@@ -213,7 +228,7 @@ def test_search_extends_grid_before_es_selection(monkeypatch):
     }
     calls = []
     data = Mock()
-    cv_config = CrossValidation(n_splits=2, n_workers=0)
+    cv_config = CrossValidation(splits=2, n_workers=0)
 
     def crossvalidate(called_data, candidates, called_cv):
         assert (called_data, called_cv) == (data, cv_config)

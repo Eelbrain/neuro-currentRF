@@ -15,7 +15,7 @@ import collections
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from eelbrain import NDVar
+from eelbrain import Datalist, NDVar
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
@@ -80,8 +80,9 @@ def fit_ncrf(
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
     tstop
-        Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
-        specifies one stop time per predictor.
+        Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+        :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+        applies to all predictors; a sequence specifies one stop time per predictor.
     basis_stride
         Spacing between neighboring Gabor atoms, in samples: with the default of
         ``1`` the atoms are one sample apart, and larger values make the basis
@@ -111,7 +112,10 @@ def fit_ncrf(
     verbose
         If True prints intermediate results, by default False.
     n_splits
-        Number of cross-validation folds. By default it uses 3-fold cross-validation.
+        Number of cross-validation folds (default 3): the last ``n_splits``
+        windows of every segment are held out one at a time for validation,
+        and the candidates are fit to the data preceding the window (see
+        :class:`~ncrf.CrossValidation`; requires segments of equal length).
     n_workers
         Number of worker processes for cross-validation. If ``None``, derive it
         from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).
@@ -178,49 +182,41 @@ def fit_ncrf(
     .. bibliography::
         :cited:
     """
-    # make meg/stim representation uniform:
-    meg_trials = []  # [trial_1, trial_2, ...]
-    stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
+    # bring meg/stim into the layout of RegressionData.from_data: trials along a
+    # case dimension or in a Datalist, and predictors as separate items
     if isinstance(meg, NDVar):
-        meg_list = [meg]
-        stim_list = [stim]
+        y, x = meg, stim
     elif isinstance(meg, collections.abc.Sequence):
         if len(stim) != len(meg):
             raise ValueError(f"{meg=}, {stim=}: different length")
-        meg_list = list(meg)
-        stim_list = list(stim)
+        y_trials = []  # [trial_1, trial_2, ...]
+        stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
+        stim_is_single = None
+        for meg_chunk, stim_chunk in zip(meg, stim):
+            if stim_is_single is None:
+                stim_is_single = isinstance(stim_chunk, NDVar)
+            elif stim_is_single != isinstance(stim_chunk, NDVar):
+                raise ValueError(f"{stim=}: inconsistent element types (NDVar/list)")
+            if stim_is_single:
+                stim_chunk = [stim_chunk]
+            if meg_chunk.has_case:
+                n_trials = len(meg_chunk)
+                if not all(s.has_case and len(s) == n_trials for s in stim_chunk):
+                    raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
+                y_trials.extend(meg_chunk)
+                stim_trials.extend(zip(*stim_chunk))
+            else:
+                if any(s.has_case for s in stim_chunk):
+                    raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
+                y_trials.append(meg_chunk)
+                stim_trials.append(stim_chunk)
+        y = Datalist(y_trials)
+        x = [Datalist(list(trials)) for trials in zip(*stim_trials)]
+        if stim_is_single:
+            x = x[0]
     else:
         raise TypeError(f"meg={meg!r}")
-    stim_is_single = None
-    for meg_chunk, stim_chunk in zip(meg_list, stim_list):
-        if meg_chunk.has_case:
-            n_trials = len(meg_chunk)
-            meg_trials.extend(meg_chunk)
-        else:
-            n_trials = 0
-            meg_trials.append(meg_chunk)
-
-        if stim_is_single is None:
-            stim_is_single = isinstance(stim_chunk, NDVar)
-        elif stim_is_single != isinstance(stim_chunk, NDVar):
-            raise ValueError(f"{stim=}: inconsistent element types (NDVar/list)")
-
-        if stim_is_single:
-            stim_chunk = [stim_chunk]
-
-        if n_trials:
-            if not all(s.has_case and len(s) == n_trials for s in stim_chunk):
-                raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
-            stim_trials.extend(zip(*stim_chunk))
-        else:
-            if any(s.has_case for s in stim_chunk):
-                raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
-            stim_trials.append(stim_chunk)
-
-    ds = RegressionData.from_data(
-        meg_trials, stim_trials, tstart, tstop, basis_stride,
-        scale, stim_is_single, basis_std=basis_std,
-    )
+    ds = RegressionData.from_data(y, x, tstart, tstop, basis_stride, scale, basis_std=basis_std)
 
     # the estimator trims the forward model to the noise channels, and its fit()
     # trims further to the sensors of the data

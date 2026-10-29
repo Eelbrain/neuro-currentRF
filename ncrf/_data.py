@@ -1,8 +1,9 @@
-"""Regression dataset and covariate construction for NCRF fitting.
+"""Regression dataset for NCRF fitting.
 
-``RegressionData`` holds Eelbrain objects and the ``TRFDesign`` describing how
-they map onto the regression, and derives the numeric arrays the solver consumes
-from them on demand.
+``RegressionData`` combines Eelbrain's deconvolution dataset (the M/EEG and
+predictor segments and their normalization) with the ``TRFDesign`` describing
+how the predictors map onto the regression, and derives the numeric arrays the
+solver consumes from them on demand.
 """
 from __future__ import annotations
 
@@ -12,119 +13,29 @@ from math import sqrt
 from typing import Any, get_args
 from collections.abc import Iterator, Sequence
 
-from eelbrain import NDVar, Sensor, UTS
+from eelbrain import Dataset, Sensor
+from eelbrain.trf import DeconvolutionData, lag_matrix
 import numpy as np
 import numpy.typing as npt
 from scipy import linalg
 
-from ._trf_design import TRFDesign, stim_dimensions
+from ._trf_design import TRFDesign
 from ._forward import ForwardModel, _assert_sensors_equal
 from ._pickle import pickle_state
 from ._repr import _count_repr
-from ._typing import FloatArray, IndexArray, Scale, ScaleArg, TrialData
+from ._typing import FloatArray, NDVarArg, Scale, ScaleArg, TrialData
 
 
 SCALES: tuple[Scale, ...] = get_args(Scale)
-
-
-def get_scaling(
-        stim: Sequence[Sequence[NDVar]],
-        design: TRFDesign,
-        scale: ScaleArg,
-) -> tuple[FloatArray, FloatArray | None]:
-    """Stimulus centering and scaling values, one per expanded covariate channel.
-
-    Parameters
-    ----------
-    stim
-        Stimulus lists, one per segment; each inner list contains one NDVar per
-        predictor.
-    design
-        Design describing the predictors.
-    scale
-        Compute the ``'l1'`` (mean absolute deviation) or ``'l2'`` (standard
-        deviation) scale of each predictor. Any other value yields ``None`` for the
-        scaling, since it is then not derived from the stimulus. The ``'spectral'``
-        scale is not a property of the predictor and is computed from the
-        covariates instead (see :meth:`RegressionData._spectral_norms`).
-
-    Returns
-    -------
-    baseline
-        The mean of each predictor.
-    scaling
-        The requested scale of each predictor, measured around its mean, or
-        ``None``.
-
-    Raises
-    ------
-    ValueError
-        If a predictor channel is constant over time, and hence has no variation
-        to scale by.
-    """
-    by_predictor = list(zip(*stim))  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
-    _check_not_constant(by_predictor, design)
-
-    n = sum(len(x.time) for x in by_predictor[0])
-    means = [sum(x.sum('time') for x in trials) / n for trials in by_predictor]
-    baseline = _channel_values(means, design.stim_lens)
-
-    # Scale by the variation around the mean, whether or not the covariates end up
-    # centered; the raw magnitude would let a predictor's offset dominate its scale
-    centered = [[x - mean for x in trials] for mean, trials in zip(means, by_predictor)]
-    if scale == 'l1':
-        scales = [sum(x.abs().sum('time') for x in trials) / n for trials in centered]
-    elif scale == 'l2':
-        scales = [(sum((x ** 2).sum('time') for x in trials) / n) ** 0.5 for trials in centered]
-    else:  # 'spectral' is computed after covariate construction
-        return baseline, None
-    return baseline, _channel_values(scales, design.stim_lens)
-
-
-def _check_not_constant(
-        by_predictor: Sequence[Sequence[NDVar]],
-        design: TRFDesign,
-) -> None:
-    """Check that every predictor channel varies over time.
-
-    Parameters
-    ----------
-    by_predictor
-        Segments of each predictor.
-    design
-        Design the predictors belong to, used to name the offending channels.
-
-    Raises
-    ------
-    ValueError
-        If a predictor channel has the same value at every time point.
-    """
-    constant = []
-    for name, trials in zip(design.stim_names, by_predictor):
-        # (n_channels, n_times) per segment
-        arrays = [np.atleast_2d(t.get_data(t.get_dimnames(last='time'))) for t in trials]
-        lo = np.min([x.min(1) for x in arrays], axis=0)
-        hi = np.max([x.max(1) for x in arrays], axis=0)
-        for i in np.flatnonzero(lo == hi):
-            desc = name or '<unnamed>'
-            if len(lo) > 1:
-                desc = f'{desc}[{i}]'
-            constant.append(desc)
-    if constant:
-        raise ValueError(f"{', '.join(constant)}: predictor is constant over time, so it has no variation to scale by; drop it, or prepare the data with scale=None")
-
-
-def _channel_values(
-        values: Sequence[NDVar | float],
-        stim_lens: Sequence[int],
-) -> FloatArray:
-    """Flatten one value per predictor into one value per covariate channel."""
-    return np.concatenate([x.x if isinstance(x, NDVar) else np.full(n, x) for x, n in zip(values, stim_lens)])
+#: A contiguous part of a data segment: ``(i_segment, start, stop)``, with
+#: ``start`` and ``stop`` as sample indices into the segment.
+Block = tuple[int, int, int]
 
 
 def _check_scaling(
         scaling: FloatArray,
-        design: TRFDesign,
+        scale: ScaleArg,
+        names: Sequence[str],
 ) -> None:
     """Check that scaling factors can be divided by without destroying the covariates.
 
@@ -136,8 +47,10 @@ def _check_scaling(
     ----------
     scaling
         Scaling factor of each covariate channel.
-    design
-        Design the factors belong to, used to name the offending channels.
+    scale
+        Which scaling the factors stem from, for the error message.
+    names
+        Name of each covariate channel, for the error message.
 
     Raises
     ------
@@ -147,125 +60,66 @@ def _check_scaling(
     bad = ~(np.isfinite(scaling) & (scaling > 0))
     if not bad.any():
         return
-    channels = [name if n == 1 else f'{name}[{i}]' for name, n in zip(design.stim_names, design.stim_lens) for i in range(n)]
-    items = ', '.join(f'{channels[i]}={scaling[i]:g}' for i in np.flatnonzero(bad))
-    raise ValueError(f"invalid {design.scale!r} scaling ({items}): scaling factors must be finite and > 0; a predictor that is constant over time has no variation to scale by")
+    items = ', '.join(f'{names[i]}={scaling[i]:g}' for i in np.flatnonzero(bad))
+    raise ValueError(f"invalid {scale!r} scaling ({items}): scaling factors must be finite and > 0; a predictor that is constant over time has no variation to scale by")
 
 
-def covariate_from_stim(
-        stims: Sequence[NDVar],
-        Ms: Sequence[int] | npt.ArrayLike,
-        starts: Sequence[int] | npt.ArrayLike,
-) -> list[FloatArray]:
-    """Form lagged covariate matrices from one or more stimulus NDVars.
-
-    Parameters
-    ----------
-    stims
-        Predictor variables. Each predictor must provide a ``time`` axis and
-        may have at most one additional feature dimension.
-    Ms
-        Filter lengths, in samples, for each expanded predictor channel.
-    starts
-        Start offsets, in samples, for each expanded predictor channel.
-
-    Returns
-    -------
-    list
-        Covariate matrices, one per expanded predictor channel. Each matrix has
-        one row per stimulus time sample; rows with incomplete stimulus history are
-        zero-padded.
-    """
-    ws = []
-    for stim in stims:
-        if stim.ndim == 1:
-            w = stim.get_data((np.newaxis, 'time'))
-        else:
-            dimnames = stim.get_dimnames(last='time')
-            w = stim.get_data(dimnames)
-        ws.append(w)
-    ws = ws[0] if len(ws) == 1 else np.concatenate(ws, 0)
-    assert len(ws) == len(Ms) == len(starts), f"Length of w ({len(ws)}), Ms ({len(Ms)}), and start ({len(starts)}) should be equal"
-
-    Y = []
-    for w, start, M in zip(ws, starts, Ms):
-        # X[i, j] = w[i - j], zero-padded where the history runs past the start
-        X = linalg.toeplitz(w, np.zeros(M, dtype=w.dtype))
-        if start != 0:
-            # -ve tstart -> shift covariate matrix left
-            # +ve tstart -> shift covariate matrix right
-            X = np.roll(X, start, axis=0)
-            if start < 0:
-                X[start:] = 0
-            else:
-                X[:start] = 0
-        Y.append(X)
-    return Y
-
-
-def _project_basis(
-        raw_covs: Sequence[FloatArray],
+def _default_blocks(
+        data: DeconvolutionData,
         design: TRFDesign,
-        samples: IndexArray,
-        norm_factor: float,
-) -> FloatArray:
-    """Project the retained samples of each channel's lag matrix onto its predictor's Gaussian basis.
+        pad_stim: bool,
+) -> list[Block]:
+    """The samples of each segment that a dataset covers by default.
 
     Parameters
     ----------
-    raw_covs
-        Lag matrix of each expanded covariate channel, in design order.
+    data
+        Segmented data.
     design
-        Design supplying the basis of each predictor.
-    samples
-        Rows of the lag matrices to retain.
-    norm_factor
-        Value the covariates are divided by, matching the MEG data.
+        Design whose lag windows determine which samples are valid.
+    pad_stim
+        Keep all samples (see :meth:`RegressionData.from_data`).
 
-    Returns
-    -------
-    ndarray
-        Covariate matrix, shape ``(n_samples, n_basis_cols)``.
+    Raises
+    ------
+    ValueError
+        If no samples remain.
     """
-    covariates = []
-    i = 0
-    for n, basis in zip(design.stim_lens, design.basis):
-        covariates.extend(np.dot(x[samples], basis) / norm_factor for x in raw_covs[i:i + n])
-        i += n
-    return np.concatenate(covariates, axis=1).astype(np.float64, copy=False)
+    if pad_stim:
+        drop_start = drop_stop = 0
+    else:
+        # lag_matrix() fills the full time axis with padded lag histories; keep
+        # only samples whose complete lag window lies inside the stimulus
+        drop_start = max(0, max(design.stop_samples) - 1)  # the largest lag
+        drop_stop = max(0, *(-s for s in design.start_samples))
+    blocks = [(i, drop_start, n - drop_stop) for i, n in enumerate(data.segment_n_times) if drop_start < n - drop_stop]
+    if not blocks:
+        raise ValueError("no samples remain after applying lag-validity crop; the segments are shorter than the TRF")
+    return blocks
 
 
 @dataclass(eq=False, repr=False)
 class RegressionData:
     """Dataset for NCRF fitting: M/EEG segments, their predictors, and the design.
 
-    Use :meth:`from_data` to derive the design, including its normalization, from
-    the data itself.
-
-    .. warning::
-       The ``meg`` and ``stim`` NDVars are referenced rather than copied, and the
-       arrays are built from them when first accessed. Do not modify the NDVars in
-       place while the dataset, or one derived from it, is in use: arrays built
-       afterwards would reflect the change, but the normalization recorded on the
-       design would not.
+    Use :meth:`from_data` to construct the dataset from NDVars and derive the
+    design, including its normalization, from the data itself.
 
     Parameters
     ----------
-    meg
-        M/EEG segments, each an NDVar with ``sensor`` and ``time`` dimensions. All
-        segments share the sensor dimension and the time axis length and step.
-    stim
-        Predictors, one list per segment with one NDVar per predictor variable.
-        Each predictor may be 1-D over time or carry one feature dimension before
-        time, and shares the time axis of its segment's ``meg``.
+    data
+        M/EEG segments and their predictors. The M/EEG data needs ``sensor`` and
+        ``time`` dimensions; each predictor is 1-D over time or carries feature
+        dimensions before time. The predictors are normalized in place by
+        :meth:`normalize`.
     design
         Design describing the predictors, the TRF lags and basis, and the
-        normalization to apply to the covariates.
-    samples
-        Indices of the time samples the dataset covers, into the time axis of
-        ``meg``; ``None`` for all samples. :meth:`from_data` drops samples whose
-        lag window extends beyond the stimulus, and :meth:`timeslice` selects
-        cross-validation folds.
+        normalization applied to the predictors.
+    blocks
+        The samples the dataset covers, as ``(i_segment, start, stop)`` for each
+        contiguous part. By default, each segment without the samples whose lag
+        window extends beyond the stimulus. :meth:`subset` restricts the blocks,
+        e.g. to cross-validation folds.
     forward
         Forward model whose whitening filter is applied to the responses, or
         ``None`` for raw data. Set by :meth:`whiten`; whitened data thus carries
@@ -274,148 +128,137 @@ class RegressionData:
 
     Notes
     -----
-    The stored fields are the raw inputs. The arrays the solver consumes,
-    :attr:`responses` and :attr:`covariates`, are derived from them on demand
-    according to :attr:`design`, which fixes the TRF lags, the Gaussian basis the
-    predictors are projected onto, and the centering and scaling of the
-    covariates.
+    The arrays the solver consumes, :attr:`responses` and :attr:`covariates`,
+    are views into per-segment arrays that are built once and shared by all
+    datasets derived from this one through :meth:`subset`: the whitened M/EEG
+    data, and the covariates according to :attr:`design`, which fixes the TRF
+    lags and the Gaussian basis the predictors are projected onto. Neither is
+    divided by :attr:`norm_factor`; the factor is applied in the derived Gram
+    matrices (:attr:`bbt`, :attr:`bE`, :attr:`EtE`), in residuals and in
+    predictions instead.
     """
 
-    meg: list[NDVar]
-    stim: list[Sequence[NDVar]]
+    data: DeconvolutionData
     design: TRFDesign
-    samples: IndexArray | None = None
+    blocks: list[Block] | None = None
     forward: ForwardModel | None = None
 
     def __post_init__(self) -> None:
-        if not self.meg:
-            raise ValueError("meg is empty")
-        elif len(self.meg) != len(self.stim):
-            raise ValueError(f"{_count_repr(len(self.meg), 'MEG segment')} but {_count_repr(len(self.stim), 'stimulus list')}")
-        sensor_dim = self.sensor_dim
+        data, design = self.data, self.design
+        if data.y is None:
+            raise ValueError("data has no M/EEG data (DeconvolutionData without y)")
+        ydims = data.y.blocks[0].dims
+        if len(ydims) != 1 or not isinstance(ydims[0], Sensor):
+            raise ValueError(f"M/EEG data needs a sensor and a time dimension, but has {', '.join(dim.name for dim in ydims)} and time")
         if self.forward is not None:
-            _assert_sensors_equal(sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
-        time: UTS = self.meg[0].get_dim('time')
-        if time.tstep != self.design.tstep:
-            raise ValueError(f"meg time step {time.tstep} does not match design.tstep {self.design.tstep}")
-        for i, (m, ss) in enumerate(zip(self.meg, self.stim)):
-            meg_time: UTS = m.get_dim('time')
-            if m.get_dim('sensor') != sensor_dim:
-                raise ValueError(f"segment {i}: combining data segments with different sensor configurations is not supported")
-            elif meg_time.tstep != time.tstep:
-                raise ValueError(f"segment {i}: meg time step incompatible with first segment")
-            elif len(meg_time) != len(time):
-                raise NotImplementedError(f"segment {i}: unequal trial length")
-            elif stim_dimensions(ss) != self.design.stim_dims:
-                raise ValueError(f"segment {i}: stim dimensions {stim_dimensions(ss)} do not match design.stim_dims {self.design.stim_dims}")
-            for x in ss:
-                if x.get_dim('time') != meg_time:
-                    raise ValueError(f"segment {i} stim {x!r}: time axis incompatible with meg")
-        if self.samples is None:
-            self.samples = np.arange(len(time))
+            _assert_sensors_equal(ydims[0].names, self.forward.sensor.names, 'data', 'forward model')
+        if data.time.tstep != design.tstep:
+            raise ValueError(f"data time step {data.time.tstep} does not match design.tstep {design.tstep}")
+        if data.x.blocks != design.blocks:
+            raise ValueError(f"predictors {data.x.names} do not match the design's {[name for block in design.blocks for name in block.names()]}")
+        if self.blocks is None:
+            self.blocks = _default_blocks(data, design, False)
         else:
-            samples = np.asarray(self.samples)
-            if samples.dtype == bool:
-                samples = np.flatnonzero(samples)
-            if not len(samples):
-                raise ValueError("samples is empty")
-            elif samples.min() < 0 or samples.max() >= len(time):
-                raise ValueError(f"samples out of range for {_count_repr(len(time), 'time sample')}")
-            self.samples = samples
-        if self.design.stim_scaling is not None:
-            _check_scaling(self.design.stim_scaling, self.design)
+            n_times = data.segment_n_times
+            for i, start, stop in self.blocks:
+                if not 0 <= i < len(n_times):
+                    raise ValueError(f"block ({i}, {start}, {stop}): segment index out of range for {_count_repr(len(n_times), 'segment')}")
+                elif not 0 <= start < stop <= n_times[i]:
+                    raise ValueError(f"block ({i}, {start}, {stop}): out of range for segment with {_count_repr(n_times[i], 'sample')}")
+        if design.stim_scaling is not None:
+            _check_scaling(design.stim_scaling, design.scale, data.x.names)
 
     @classmethod
     def from_data(
             cls,
-            meg: list[NDVar],
-            stim: list[Sequence[NDVar]],
+            y: NDVarArg,
+            x: NDVarArg | Sequence[NDVarArg],
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
             basis_stride: int = 1,
             scale: ScaleArg = 'spectral',
-            stim_is_single: bool = False,
             basis_std: float = 0.0085,
             pad_stim: bool = False,
+            data: Dataset | None = None,
     ) -> RegressionData:
-        """Construct a dataset from MEG and stimulus NDVars, deriving the design from them.
+        """Construct a dataset from M/EEG and predictor NDVars, deriving the design from them.
 
         Parameters
         ----------
-        meg
-            MEG segments, each an NDVar with ``sensor`` and ``time`` dimensions.
-        stim
-            Stimulus lists, one per segment; each inner list contains one NDVar per
-            predictor. Each predictor may be 1-D over time or carry one feature
-            dimension before time.
+        y
+            M/EEG data with ``sensor`` and ``time`` dimensions. Equal-length
+            segments can be packed into an NDVar with a ``case`` dimension,
+            unequal-length segments supplied as :class:`~eelbrain.Datalist` of
+            NDVars.
+        x
+            Predictors, matching ``y`` in segments and time axis. One predictor
+            variable is given as NDVar (or Datalist), several as a sequence of
+            them. Each predictor is 1-D over time or carries feature dimensions
+            before time.
         tstart
             Start of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one start time per predictor.
         tstop
-            Stop of the TRF in seconds. A scalar applies to all predictors; a
-            sequence specifies one stop time per predictor.
+            Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+            :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+            applies to all predictors; a sequence specifies one stop time per
+            predictor.
         basis_stride
             Spacing between neighboring Gabor basis atoms, in samples: with the
             default of ``1`` the atoms are one sample apart, and larger values
             make the basis sparser. ``basis_stride > 2`` should be used with caution.
         scale
-            Normalization derived from the data and applied to the covariates:
+            Normalization derived from the data and applied to the predictors:
             ``'spectral'``, ``'l1'`` or ``'l2'`` (see :meth:`normalize`), or
-            ``None`` to leave the covariates on their raw scale, without
+            ``None`` to leave the predictors on their raw scale, without
             centering. To apply a fitted model instead, bring the data onto the
             model's scale with ``data.normalize(model.design)``.
-        stim_is_single
-            Whether the original stimulus input was a single predictor per segment.
         basis_std
             Standard deviation of the Gaussian basis functions in seconds.
         pad_stim
             If ``False`` (default), keep only samples whose full lag window is
             inside the stimulus time axis. If ``True``, retain edge samples with
-            zero-padded covariates; with normalization those samples then
-            correspond to a raw stimulus of 0 (rather than 0 after centering).
+            padded covariates, in which the stimulus outside its time axis is 0
+            (on the raw scale, i.e. before normalization).
+        data
+            Dataset in which to evaluate ``y`` and ``x`` if they are strings.
+
+        Raises
+        ------
+        ValueError
+            If the M/EEG data has a flat channel or contains NaN, which would
+            corrupt the whitened data and the fit metrics.
         """
-        if not meg:
-            raise ValueError("meg is empty")
-        elif len(meg) != len(stim):
-            raise ValueError("meg and stim have different lengths")
-        elif scale is not None and scale not in SCALES:
+        if scale is not None and scale not in SCALES:
             raise ValueError(f"{scale=}, need None or one of {SCALES}")
-
-        # The design is fully determined by the first segment's predictors
-        time: UTS = meg[0].get_dim('time')
-        design = TRFDesign.from_stim(stim[0], time.tstep, tstart, tstop, basis_stride, basis_std, stim_is_single)
-
-        samples = None
-        if not pad_stim:
-            # covariate_from_stim() fills the full time axis with zero-padded lag
-            # histories; keep only samples whose complete lag window lies inside
-            # the stimulus
-            drop_start = max(0, *design.stop_samples)
-            drop_stop = max(0, *(-s for s in design.start_samples))
-            samples = np.arange(drop_start, len(time) - drop_stop)
-            if not len(samples):
-                raise ValueError(f"{meg=}: no samples remain after applying lag-validity crop")
-
-        data = cls(meg, stim, design, samples)
-        # Read the NDVars directly rather than through data.responses, so that the
-        # returned dataset does not keep a copy of the unwhitened arrays
-        for i, m in enumerate(meg):
-            flat = np.var(m.get_data(('sensor', 'time'))[:, data.samples], axis=1) == 0
-            if flat.any():
-                raise ValueError(f"{meg=}: segment {i} has flat channels ({', '.join(data.sensor_dim.names[flat])})")
+        dec_data = DeconvolutionData(x, y, data)
+        dec_data.y.check()
+        design = TRFDesign.from_data(dec_data, tstart, tstop, basis_stride, basis_std)
+        out = cls(dec_data, design, _default_blocks(dec_data, design, pad_stim))
         if scale is not None:
-            data = data.normalize(scale)
-        return data
+            out = out.normalize(scale)
+        return out
 
     @property
     def sensor_dim(self) -> Sensor:
-        """Sensor dimension shared by all MEG segments."""
-        return self.meg[0].get_dim('sensor')
+        """Sensor dimension of the M/EEG data."""
+        return self.data.y.blocks[0].dims[0]
+
+    @property
+    def n_samples(self) -> int:
+        """Number of time samples the dataset covers, across all blocks."""
+        return sum(stop - start for _, start, stop in self.blocks)
 
     @property
     def norm_factor(self) -> float:
-        """``sqrt(n_samples)`` that responses and covariates are divided by."""
-        return sqrt(len(self.samples))
+        """Square root of the mean number of samples per block, by which responses and covariates are normalized.
+
+        Normalizing by the per-block sample count keeps the objective, and hence
+        the meaning of the regularization parameter, independent of the length
+        of the data; with blocks of unequal length, each block contributes in
+        proportion to its length.
+        """
+        return sqrt(self.n_samples / len(self.blocks))
 
     @property
     def is_whitened(self) -> bool:
@@ -423,91 +266,120 @@ class RegressionData:
         return self.forward is not None
 
     @cached_property
-    def responses(self) -> list[FloatArray]:
-        """M/EEG arrays for the solver, one per segment, each shaped ``(n_sensors, n_samples)``.
+    def _segment_responses(self) -> list[FloatArray]:
+        """M/EEG arrays of the complete data segments, ``(n_sensors, n_times)``, whitened if a ``forward`` model is set.
 
-        The retained samples of ``meg``, whitened if a ``forward`` model is set, and
-        divided by :attr:`norm_factor`.
+        Shared by all datasets derived from this one through :meth:`subset`.
         """
-        responses = []
-        for m in self.meg:
-            y = m.get_data(('sensor', 'time'))[:, self.samples].astype(np.float64, copy=False) / self.norm_factor
-            if self.forward is not None:
-                y = np.dot(self.forward.whitening_filter, y)
-            responses.append(y)
-        return responses
+        segments = [y.astype(np.float64, copy=False) for y in self.data.y.segments]
+        if self.forward is None:
+            return segments
+        return [np.dot(self.forward.whitening_filter, y) for y in segments]
+
+    @property
+    def responses(self) -> list[FloatArray]:
+        """M/EEG arrays for the solver, one per block, each shaped ``(n_sensors, n_samples)``.
+
+        Views into the arrays of the complete segments; not divided by
+        :attr:`norm_factor` (see the class notes).
+        """
+        responses = self._segment_responses
+        return [responses[i][:, start:stop] for i, start, stop in self.blocks]
 
     @cached_property
-    def covariates(self) -> list[FloatArray]:
-        """Covariate matrices for the solver, one per segment, each shaped ``(n_samples, n_coefficients)``.
+    def _segment_covariates(self) -> list[FloatArray]:
+        """Covariate matrices of the complete data segments, ``(n_times, n_coefficients)``.
 
-        Each predictor is expanded into its lag matrix, projected onto the design's
-        basis, and divided by :attr:`norm_factor`; the covariates then receive the
-        centering and scaling the design records.
+        Each predictor channel is expanded into its lag matrix and projected onto
+        the design's basis. Outside of the segment, the predictors are padded with
+        the (normalized) value of 0. Shared by all datasets derived from this one.
         """
         design = self.design
-        filter_lengths = np.repeat(design.filter_length, design.stim_lens)
-        starts = np.repeat(design.start_samples, design.stim_lens)
-        offset = factors = None
-        if design.stim_baseline is not None:
-            # For a sample with a full lag window, subtracting a constant from the
-            # stimulus offsets each covariate column by a constant. The offset is
-            # applied to every sample, so zero-padded edge samples (pad_stim=True)
-            # represent a raw stimulus of 0 rather than 0 after centering.
-            offset = design.expand(design.stim_baseline) * design.basis_column_sums / self.norm_factor
-        if design.stim_scaling is not None:
-            factors = design.expand(design.stim_scaling)
+        pads = self.data.x.pads
         covariates = []
-        for ss in self.stim:
-            cov = _project_basis(covariate_from_stim(ss, filter_lengths, starts), design, self.samples, self.norm_factor)
-            if offset is not None:
-                cov -= offset
-            if factors is not None:
-                cov /= factors
-            covariates.append(cov)
+        for x_seg in self.data.x.segments:
+            columns = []
+            for block, basis, start, n_lags in zip(design.blocks, design.basis, design.start_samples, design.filter_length):
+                columns.extend(np.dot(lag_matrix(x, start, n_lags, pad), basis) for x, pad in zip(x_seg[block.index], pads[block.index]))
+            covariates.append(np.concatenate(columns, axis=1))
         return covariates
+
+    @property
+    def covariates(self) -> list[FloatArray]:
+        """Covariate matrices for the solver, one per block, each shaped ``(n_samples, n_coefficients)``.
+
+        Views into the covariate matrices of the complete segments; not divided by
+        :attr:`norm_factor` (see the class notes).
+        """
+        covariates = self._segment_covariates
+        return [covariates[i][start:stop] for i, start, stop in self.blocks]
 
     def __iter__(self) -> Iterator[TrialData]:
         return zip(self.responses, self.covariates)
 
     def __len__(self) -> int:
-        return len(self.meg)
+        return len(self.blocks)
 
     def __repr__(self) -> str:
-        n_segments = len(self.meg)
+        n_segments = len(self.data.segments)
         n_sensors = len(self.sensor_dim)
-        n_samples = len(self.samples)
+        n_samples = self.n_samples
         n_covariates = self.design.n_coefficients
         predictors = tuple(self.design.stim_names)
+        scale = self.design.scale
         whitened = self.is_whitened
-        return f"<{type(self).__name__}: {_count_repr(n_segments, 'segment')}, {_count_repr(n_sensors, 'sensor')}, {_count_repr(n_samples, 'sample')}/segment, {_count_repr(n_covariates, 'covariate')}, {predictors=}, {whitened=}>"
+        return f"<{type(self).__name__}: {_count_repr(n_segments, 'segment')}, {_count_repr(n_sensors, 'sensor')}, {_count_repr(n_samples, 'sample')}, {_count_repr(n_covariates, 'covariate')}, {predictors=}, {scale=}, {whitened=}>"
 
     def __getstate__(self) -> dict[str, Any]:
         return pickle_state(self)
 
     @cached_property
     def bbt(self) -> list[FloatArray]:
-        """Per-segment ``B @ B.T`` matrices of the responses."""
-        return [np.dot(b, b.T) for b in self.responses]
+        """Per-block ``B @ B.T`` matrices of the responses (with ``B`` normalized)."""
+        return [np.dot(b, b.T) / self.norm_factor ** 2 for b in self.responses]
 
     @cached_property
     def bE(self) -> list[FloatArray]:
-        """Per-segment ``B @ E`` cross-product matrices."""
-        return [np.dot(b, E) for b, E in zip(self.responses, self.covariates)]
+        """Per-block ``B @ E`` cross-product matrices (with ``B`` and ``E`` normalized)."""
+        return [np.dot(b, E) / self.norm_factor ** 2 for b, E in zip(self.responses, self.covariates)]
 
     @cached_property
     def EtE(self) -> list[FloatArray]:
-        """Per-segment ``E.T @ E`` covariate Gram matrices."""
-        return [np.dot(E.T, E) for E in self.covariates]
+        """Per-block ``E.T @ E`` covariate Gram matrices (with ``E`` normalized)."""
+        return [np.dot(E.T, E) / self.norm_factor ** 2 for E in self.covariates]
 
     def _spectral_norms(self) -> FloatArray:
-        """Spectral norm of each covariate channel, averaged across segments."""
+        """Spectral norm of each (normalized) covariate channel, averaged across blocks."""
         splits = np.cumsum(self.design.basis_widths)[:-1]
         norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
-        return np.array(norms).mean(axis=0)
+        return np.array(norms).mean(axis=0) / self.norm_factor
+
+    def _derive(self, **changes: Any) -> RegressionData:
+        """A dataset with changed fields, taking over this dataset's derived arrays where they remain valid.
+
+        Parameters
+        ----------
+        **changes
+            Field values for the new dataset. The covariates are shared unless
+            the design changes, the responses unless the forward model changes.
+        """
+        out = replace(self, **changes)
+        shared = []
+        if 'design' not in changes:
+            shared.append('_segment_covariates')
+            if 'blocks' not in changes:
+                shared.append('EtE')
+        if 'forward' not in changes:
+            shared.append('_segment_responses')
+            if 'blocks' not in changes:
+                shared.append('bbt')
+        for key in shared:
+            if key in self.__dict__:
+                out.__dict__[key] = self.__dict__[key]
+        return out
 
     def normalize(self, design: TRFDesign | Scale) -> RegressionData:
-        """Return a dataset whose covariates are centered and scaled.
+        """Normalize the predictors in place, and return the dataset with the updated design.
 
         The normalization is either derived from this dataset, for data a model is
         fit on, or taken from a design, for data a fitted model is applied to. A
@@ -516,66 +388,75 @@ class RegressionData:
 
             data = data.normalize(model.design)
 
-        The covariates are derived from the raw predictors, so any normalization
-        this dataset already carries is simply replaced. Normalization is a linear
-        operation on the covariates, so for samples with a full lag window it is
-        equivalent to normalizing the stimulus before covariate construction.
-        Zero-padded edge samples retained with ``pad_stim=True`` are the
-        exception: they keep representing a raw stimulus of 0, whereas centering
-        the stimulus first would make its padding represent the mean.
+        Each predictor's mean is subtracted, and each predictor channel is
+        divided by one factor. Normalization is a linear operation on the
+        predictors, and hence on the covariates built from them. The data
+        layer records the values it applied (``data.x.mean``, ``data.x.scale``),
+        and the design records them as ``stim_baseline`` and ``stim_scaling``.
+
+        The predictor arrays are modified in place and hence shared with the
+        returned dataset; the returned dataset should be used from then on.
+        Normalizing a dataset that is already normalized is an error, since the
+        normalization recorded on its design describes the predictors on their
+        original scale.
 
         Parameters
         ----------
         design
             A :class:`~ncrf.TRFDesign` whose centering and scaling to apply; it
             must describe the same coefficient space as this dataset's design.
-            Alternatively, a scale to derive from this dataset. Each predictor's
-            mean is then subtracted, and each covariate channel is divided by one
-            factor:
+            Alternatively, a scale to derive from this dataset:
 
             - ``'spectral'``: the channel's average spectral norm, which
-              equalizes covariate scales across predictor variables.
+              equalizes covariate scales across predictor variables (measured on
+              the covariates of the retained samples).
             - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
-              deviation.
-
-            The centering and the ``'l1'``/``'l2'`` factors describe the predictor
-            and are measured on the whole ``stim`` NDVars, regardless of
-            ``samples``; for a dataset restricted with :meth:`timeslice`, they
-            therefore include the samples outside the slice. The ``'spectral'``
-            norm describes the constructed covariates and is measured on the
-            retained ``samples``.
+              deviation (measured on all samples of the predictor).
 
         Raises
         ------
         ValueError
             If ``design`` describes a different coefficient space, or a scaling
             factor that is not finite and strictly positive; when deriving a scale,
-            also if a predictor is constant over time.
+            also if a predictor is constant over time or contains NaN.
         """
+        data = self.data
         if isinstance(design, TRFDesign):
             self.design.assert_compatible(design)
-            return replace(self, design=design)
+            if data.x.mean is not None:
+                try:
+                    self.design.assert_same_normalization(design)
+                except ValueError:
+                    raise ValueError("data is already normalized, and can not be normalized with a different design; rebuild the dataset from raw data") from None
+                return self
+            if design.stim_scaling is not None:
+                _check_scaling(design.stim_scaling, design.scale, data.x.names)
+            if design.stim_baseline is not None or design.stim_scaling is not None:
+                data.x.normalize(False if design.stim_baseline is None else design.stim_baseline, 1. if design.stim_scaling is None else design.stim_scaling)
+            return self._derive(design=replace(self.design, stim_baseline=design.stim_baseline, stim_scaling=design.stim_scaling, scale=design.scale))
         scale = design
         if scale not in SCALES:
             raise ValueError(f"{scale=}, need one of {SCALES} or a TRFDesign")
-
-        # also rejects predictors that are constant over time
-        baseline, stim_scaling = get_scaling(self.stim, self.design, scale)
-        centered = replace(self, design=replace(self.design, stim_baseline=baseline, stim_scaling=None, scale=None))
-        if stim_scaling is None:
-            # 'spectral' is measured on the centered covariates
-            stim_scaling = centered._spectral_norms()
-        data = replace(centered, design=replace(centered.design, stim_scaling=stim_scaling, scale=scale))
+        elif data.x.mean is not None:
+            raise ValueError(f"data is already normalized with scale={self.design.scale!r}; rebuild the dataset from raw data to normalize it differently")
+        data.x.check()
         if scale == 'spectral':
-            # The covariates are a function of the design, and centered is discarded,
-            # so its covariates can be rescaled in place and handed over rather than
-            # rebuilt from the predictors
-            covariates = centered.__dict__.pop('covariates')
-            factors = data.design.expand(stim_scaling)
+            data.x.normalize(True, 1.)
+            centered = self._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=None, scale=None))
+            scaling = centered._spectral_norms()
+            _check_scaling(scaling, scale, data.x.names)
+            data.x.normalize(False, scaling)
+            # The covariates are linear in the predictors, so the centered ones can
+            # be rescaled in place and handed over rather than rebuilt
+            covariates = centered.__dict__.pop('_segment_covariates')
+            factors = self.design.expand(scaling)
             for cov in covariates:
                 cov /= factors
-            data.__dict__['covariates'] = covariates
-        return data
+            out = centered._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=data.x.scale, scale=scale))
+            out.__dict__['_segment_covariates'] = covariates
+            return out
+        data.x.normalize(True, scale)
+        return self._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=data.x.scale, scale=scale))
 
     def whiten(self, forward: ForwardModel) -> RegressionData:
         """Return a dataset whose responses are whitened with ``forward``.
@@ -604,32 +485,39 @@ class RegressionData:
             if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field) and np.allclose(current.noise_covariance, forward.noise_covariance)):
                 return self
             raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
-        data = replace(self, forward=forward)
-        # The covariates do not depend on the whitening, so share them
-        for key in ('covariates', 'EtE'):
-            if key in self.__dict__:
-                data.__dict__[key] = self.__dict__[key]
-        return data
+        return self._derive(forward=forward)
 
-    def timeslice(self, idx: Sequence[int] | IndexArray | npt.NDArray[np.bool_]) -> RegressionData:
-        """Return a new dataset restricted to a subset of this dataset's samples.
+    def subset(self, ranges: npt.ArrayLike) -> RegressionData:
+        """Return a dataset restricted to a subset of this dataset's samples.
 
         Parameters
         ----------
-        idx
-            Samples to retain, as integer indices or a boolean mask into this
-            dataset's ``samples``.
+        ranges
+            ``(n, 2)`` array of ``[start, stop]`` sample indices on the
+            concatenated time axis of the segments, such as
+            :attr:`eelbrain.trf.Split.train`. Only samples that this dataset covers
+            are retained.
 
         Notes
         -----
-        The slice's arrays are the corresponding rows of this dataset's arrays,
-        rescaled to the slice's own :attr:`norm_factor`. Slicing them is much
-        cheaper than rebuilding them from the NDVars, so this dataset's arrays are
-        built once and shared by all slices, such as cross-validation folds.
+        The subset shares the per-segment responses and covariate matrices with
+        this dataset, so cross-validation folds cost no more than their Gram
+        matrices.
+
+        Raises
+        ------
+        ValueError
+            If no samples of this dataset are in ``ranges``.
         """
-        idx = np.asarray(idx)
-        data = replace(self, samples=self.samples[idx])
-        mul = self.norm_factor / data.norm_factor
-        data.__dict__['responses'] = [y[:, idx] * mul for y in self.responses]
-        data.__dict__['covariates'] = [cov[idx] * mul for cov in self.covariates]
-        return data
+        blocks = []
+        for i, start, stop in self.data.segment_slices(np.asarray(ranges)):
+            for j, lo, hi in self.blocks:
+                if i == j and max(start, lo) < min(stop, hi):
+                    blocks.append((i, max(start, lo), min(stop, hi)))
+        if not blocks:
+            raise ValueError(f"{ranges=}: contains none of the dataset's samples")
+        out = self._derive(blocks=blocks)
+        # build the per-segment arrays here, so that all subsets share them
+        out.__dict__['_segment_responses'] = self._segment_responses
+        out.__dict__['_segment_covariates'] = self._segment_covariates
+        return out

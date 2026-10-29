@@ -6,6 +6,42 @@ Changes
 0.5
 ---
 
+API changes
+^^^^^^^^^^^
+
+- **Data handling is shared with Eelbrain.** :class:`~ncrf.RegressionData` is
+  built on the dataset that :func:`eelbrain.boosting` uses (requires Eelbrain
+  0.43), and
+  :meth:`~ncrf.RegressionData.from_data` takes the same input layout: M/EEG data
+  as a single NDVar (with a ``case`` dimension for several segments) or a
+  :class:`~eelbrain.Datalist` for segments of unequal length, which are now
+  supported; predictors as one NDVar/Datalist per predictor variable. The
+  ``stim_is_single`` argument is gone, and ``meg``/``stim`` lists in
+  :func:`~ncrf.fit_ncrf` keep working as before. The dataset keeps one array per
+  segment, which is a view into the NDVar data where possible, and the
+  per-segment covariates are built once and shared by the datasets derived from
+  it. The ``samples`` field and ``timeslice()`` are replaced by ``blocks`` and
+  :meth:`~ncrf.RegressionData.subset`, and
+  :attr:`~ncrf.RegressionData.responses` and
+  :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
+  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices,
+  residuals and predictions instead).
+- **``tstop`` is exclusive.** TRF windows follow Eelbrain's time-axis
+  convention: ``tstop`` is the end of the window and not itself a lag, so
+  ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used
+  to yield 51. The window is derived with :func:`eelbrain.trf.lag_window`, the
+  function :func:`eelbrain.boosting` uses.
+- **Cross-validation uses Eelbrain's partitioning.** The default scheme is
+  unchanged: the last ``n_splits`` windows of every segment are held out one
+  at a time for validation, with the candidates fit to the data preceding the
+  window (now ``split='ncrf'`` in :func:`eelbrain.trf.split_data`). The gap
+  of one TRF length between training and validation data is gone, so the
+  selected ``mu`` can differ slightly from previous versions. Any other
+  Eelbrain scheme can be used by passing an :class:`eelbrain.trf.Splits`
+  object as ``CrossValidation(splits=...)``.
+- **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
+  time)``.
+
 Bug fixes
 ^^^^^^^^^
 
