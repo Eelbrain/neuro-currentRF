@@ -39,29 +39,47 @@ class CrossValidation:
 
     Parameters
     ----------
-    n_splits
-        Number of cross-validation folds: the last ``n_splits`` windows of
-        every segment, each 5% of the segment long, are held out one at a time
-        for validation, and the candidates are fit to the data preceding the
-        window (``split='ncrf'`` in :func:`eelbrain.trf.split_data`); this
-        requires a single segment or segments of equal length.
+    splits
+        The cross-validation folds. An integer is the number of folds: the
+        last ``splits`` windows of every segment, each 5% of the segment long,
+        are held out one at a time for validation, and the candidates are fit
+        to the data preceding the window (``split='ncrf'`` in
+        :func:`eelbrain.trf.split_data`); this requires a single segment or
+        segments of equal length. Alternatively, an
+        :class:`eelbrain.trf.Splits` object made for the data's segments, e.g.
+        with :func:`eelbrain.trf.split_data` and one of its other partitioning
+        schemes; its validation splits are the folds. Splits with a test set
+        are not supported yet.
     n_workers
         Number of worker processes, or ``None`` to derive it from Eelbrain's
         ``n_workers`` setting (see :func:`eelbrain.configure`). Set to ``0`` to
         run without :mod:`multiprocessing`, for debugging.
     """
 
-    n_splits: int = 3
+    splits: int | Splits = 3
     n_workers: int | None = None
 
     def __post_init__(self) -> None:
-        if self.n_splits < 1:
-            raise ValueError(f"n_splits={self.n_splits!r}: need at least one cross-validation fold")
+        splits = self.splits
+        if isinstance(splits, Splits):
+            if splits.n_test:
+                raise NotImplementedError(f"{splits}: cross-validation with a test set is not implemented; create the splits with test=0")
+            elif not splits.n_validate:
+                raise ValueError(f"{splits}: no validation set to score candidates on; create the splits with validate=1")
+        elif isinstance(splits, int):
+            if splits < 1:
+                raise ValueError(f"{splits=}: need at least one cross-validation fold")
+        else:
+            raise TypeError(f"{splits=}: need the number of partitions or an eelbrain Splits object")
 
 
-def _make_splits(data: RegressionData, n_splits: int) -> Splits:
-    """The cross-validation folds for ``data``: the last ``n_splits`` windows of every segment, held out in turn."""
-    return split_data(data.data.segments, n_splits, validate=1, test=0, split='ncrf')
+def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
+    """The folds of ``cv`` for ``data``: its splits, checked against the data's segments, or the last ``cv.splits`` windows of every segment held out in turn."""
+    if isinstance(cv.splits, Splits):
+        if not np.array_equal(cv.splits.segments, data.data.segments):
+            raise ValueError(f"{cv.splits}: made for different data segments than {data}")
+        return cv.splits
+    return split_data(data.data.segments, cv.splits, validate=1, test=0, split='ncrf')
 
 
 def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionData, RegressionData]]:
@@ -192,7 +210,7 @@ def crossvalidate(
         n_processes = ceil(n_workers() / 8)
 
     # Partition in the parent process: an error in a Pool initializer hangs the pool
-    splits = _make_splits(data, cv.n_splits)
+    splits = _make_splits(data, cv)
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
         if n_processes == 0:
