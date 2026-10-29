@@ -5,7 +5,7 @@ channels:
 - conda-forge
 dependencies:
 - pip
-- eelbrain >= 0.34
+- eelbrain >= 0.43
   # docs
 - sphinx
 - sphinx-gallery
