@@ -161,14 +161,18 @@ def _residual_factor(
         theta: FloatArray,
         meg: FloatArray,
         covariates: FloatArray,
+        norm_factor: float,
 ) -> FloatArray:
-    """Low-rank factor of one segment's residual covariance.
+    """Low-rank factor of one block's residual covariance.
 
     The factor only ever enters through ``yhat @ yhat.T``, so any factor would
     do; the rank-revealing one has the fewest columns, which pays off in the
     per-source iterations of ``_solve()``.
+
+    ``norm_factor`` is the dataset's :attr:`RegressionData.norm_factor`, which
+    the covariates are not divided by.
     """
-    y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T)
+    y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T) / norm_factor
     return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
 
 
@@ -185,7 +189,7 @@ def _evaluate_objective(
     ll2 = 0
     logdet = 0
     for key, (meg, covariate) in enumerate(data):
-        yhat = _residual_factor(forward, theta, meg, covariate)
+        yhat = _residual_factor(forward, theta, meg, covariate, data.norm_factor)
         (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[key], yhat)
         ll2 += 0.5 * (y ** 2).sum()
         logdet += logdet_
@@ -287,7 +291,7 @@ class _ChampLassoState:
         logger.debug('trial \t time taken')
         for key, (meg, covariates) in enumerate(data):
             start = time.time()
-            yhat = _residual_factor(self.forward, theta, meg, covariates)
+            yhat = _residual_factor(self.forward, theta, meg, covariates, data.norm_factor)
 
             # compute_gamma() returns new objects, so the seed list only needs
             # to be shallow-copied; sigma_b is accumulated in place
