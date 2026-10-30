@@ -49,6 +49,7 @@ def fit_ncrf(
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
+        compute_explained_variance: bool = False,
 ) -> NCRFFit:
     r"""One shot function for cortical TRF localization.
 
@@ -128,6 +129,8 @@ def fit_ncrf(
         Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
         iteration arguments are ignored; configure them on the solver. ``n_splits`` and
         ``n_workers`` still configure the folds a searching solver is scored on.
+    compute_explained_variance
+        Compute explained variance by source/voxel.
 
     Returns
     -------
@@ -233,5 +236,5 @@ def fit_ncrf(
         solver,
         cv=CrossValidation(n_splits, n_workers),
         verbose=verbose,
-        compute_explained_variance=True,
+        compute_explained_variance=compute_explained_variance,
     )
