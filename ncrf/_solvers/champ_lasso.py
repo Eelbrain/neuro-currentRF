@@ -26,7 +26,7 @@ from tqdm import tqdm
 from .._crossvalidation import crossvalidate
 from .._fastac import Fasta
 from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
-from .._penalties import g, g_group, proxg_group_opt, shrink
+from .._penalties import g, g_group, proxg_group, shrink
 from .._repr import _count_repr, _theta_repr
 from .._typing import FloatArray, GradientFunction, MuArg, ObjectiveFunction
 from .base import Solver, SolverFit
@@ -111,9 +111,9 @@ class ChampLassoHistory:
             if name not in QUANTITIES:
                 raise ValueError(f"{name=}: not one of {QUANTITIES}")
             if name in self.store and value is not None:
-                # deepcopy: gamma and sigma_b are lists of arrays the solver
-                # keeps updating in place
-                getattr(self, name).append(copy.deepcopy(value))
+                # shallow copy: the solver replaces the entries of the gamma and
+                # sigma_b lists rather than writing into them
+                getattr(self, name).append(copy.copy(value))
 
 
 def _is_number(value: object) -> bool:
@@ -165,8 +165,8 @@ def _residual_factor(
     """Low-rank factor of one segment's residual covariance.
 
     The factor only ever enters through ``yhat @ yhat.T``, so any factor would
-    do; the rank-revealing one has the fewest columns, which pays off in the
-    per-source iterations of ``_solve()``.
+    do; the rank-revealing one has the fewest columns, which sets the size of
+    the per-source auxiliary arrays ``X_i`` in the Champagne sweep.
     """
     y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T)
     return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
@@ -196,13 +196,13 @@ def _evaluate_objective(
 _seed_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
-def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list, list[FloatArray]]:
+def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list[FloatArray], list[FloatArray]]:
     """Per-segment Champagne initialization seeds, cached by dataset.
 
-    The seeds are a pure function of ``(forward, data)`` and are only ever read
-    (every consumer copies before mutating), so they are shared: between the
-    ``mu='auto'`` grid derivation and the final fit on the same data, and across
-    the candidates a cross-validation worker scores on the same folds.
+    The seeds are a pure function of ``(forward, data)`` and are only ever read,
+    so they are shared: between the ``mu='auto'`` grid derivation and the final
+    fit on the same data, and across the candidates a cross-validation worker
+    scores on the same folds.
     """
     cached = _seed_cache.get(data)
     if cached is not None and cached[0] is forward:
@@ -212,8 +212,7 @@ def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list, list[
     for y, _ in data:
         t = y.shape[1]
         gamma, data_cov = forward.mne_initializer(y * (t ** 0.5))
-        gamma = np.reshape(gamma, (-1, forward.dc))
-        init_gamma.append([np.diag(g) for g in gamma])
+        init_gamma.append(gamma.reshape(-1, forward.dc, 1) * np.eye(forward.dc))
         init_sigma_b.append(forward.whitened_noise_covariance + data_cov)
     _seed_cache[data] = (forward, init_gamma, init_sigma_b)
     return init_gamma, init_sigma_b
@@ -231,11 +230,11 @@ class _ChampLassoState:
         self.solver = solver
         self.forward = forward
         # initialization seeds (set by _initialize)
-        self._init_gamma: list | None = None
+        self._init_gamma: list[FloatArray] | None = None
         self._init_sigma_b: list[FloatArray] | None = None
         # working estimate (set during run())
         self.theta: FloatArray | None = None
-        self.Gamma: list | None = None
+        self.Gamma: list[FloatArray] | None = None
         self.Sigma_b: list[FloatArray] | None = None
 
     def __repr__(self) -> str:
@@ -288,20 +287,11 @@ class _ChampLassoState:
         for key, (meg, covariates) in enumerate(data):
             start = time.time()
             yhat = _residual_factor(self.forward, theta, meg, covariates)
-
-            # compute_gamma() returns new objects, so the seed list only needs
-            # to be shallow-copied; sigma_b is accumulated in place
-            gamma = list(self._init_gamma[key])
-            sigma_b = self._init_sigma_b[key].copy()
-
-            # champagne iterations
+            gamma = self._init_gamma[key]
+            sigma_b = self._init_sigma_b[key]
             for _ in range(n_iterc):
-                # pre-compute some useful matrices
                 (lhat, ytilde), _ = _whiten_by_sigma_b(sigma_b, self.forward.whitened_lead_field, yhat)
-                # sigma_b for the next iteration, accumulated over the sources
-                sigma_b[:] = self.forward.whitened_noise_covariance[:]
-                self._update_gamma(gamma, lhat, ytilde, sigma_b)
-
+                gamma, sigma_b = self._update_gamma(gamma, lhat, ytilde)
             self.Gamma[key] = gamma
             self.Sigma_b[key] = sigma_b
             end = time.time()
@@ -309,35 +299,38 @@ class _ChampLassoState:
 
     def _update_gamma(
             self,
-            gamma: list,
+            gamma: FloatArray,
             lhat: FloatArray,
             ytilde: FloatArray,
-            sigma_b: FloatArray,
-    ) -> None:
-        """One Champagne sweep over the sources.
+    ) -> tuple[FloatArray, FloatArray]:
+        """One Champagne sweep, batched over the sources.
 
         Parameters
         ----------
         gamma
-            Source covariances, updated in place.
+            Current source covariances, shape ``(n_sources, dc, dc)``.
         lhat, ytilde
             Lead field and data, whitened by the current ``sigma_b``.
+
+        Returns
+        -------
+        gamma
+            Updated source covariances.
         sigma_b
-            Data covariance for the next iteration, accumulated in place; the
-            caller seeds it with the noise covariance.
+            Data covariance for the next iteration: the noise covariance plus
+            the lead-field projection of the updated ``gamma``.
         """
         dc = self.forward.dc
+        n_sensors = lhat.shape[0]
+        lhat_i = lhat.reshape(n_sensors, -1, dc).transpose(1, 0, 2)  # (n_sources, n_sensors, dc)
+        x = gamma @ (lhat.T @ ytilde).reshape(-1, dc, ytilde.shape[1])  # X_i = Gamma_i L_i' y
+        z = lhat_i.transpose(0, 2, 1) @ lhat_i  # Z_i = L_i' L_i
+        gamma = compute_gamma(z, x)
         lead_field = self.forward.whitened_lead_field
-        for i in range(len(self.forward.source)):
-            block = self.forward.source_block(i)
-            if dc > 1:
-                x = np.dot(gamma[i], np.dot(lhat[:, block].T, ytilde))  # Xi
-                z = np.dot(lhat[:, block].T, lhat[:, block])  # Zi
-            else:
-                x = gamma[i] * lhat[:, i].T.dot(ytilde)  # Xi
-                z = (lhat[:, i] ** 2).sum()  # Zi
-            gamma[i] = compute_gamma(z, x, dc)  # Ti
-            sigma_b += np.dot(lead_field[:, block], np.dot(gamma[i], lead_field[:, block].T))
+        lead_field_i = lead_field.reshape(n_sensors, -1, dc).transpose(1, 0, 2)
+        # sum_i L_i Gamma_i L_i' as the single product (L_1 Gamma_1, L_2 Gamma_2, ...) L'
+        lg = (lead_field_i @ gamma).transpose(1, 0, 2).reshape(n_sensors, -1)
+        return gamma, self.forward.whitened_noise_covariance + lg @ lead_field.T
 
     def run(
             self,
@@ -358,7 +351,7 @@ class _ChampLassoState:
 
         if self.forward.space:
             def g_funct(x): return g_group(x, mu)
-            def prox_g(x, t): return proxg_group_opt(x, mu * t)
+            def prox_g(x, t): return proxg_group(x, mu * t)
         else:
             def g_funct(x): return g(x, mu)
             def prox_g(x, t): return shrink(x, mu * t)
@@ -484,8 +477,9 @@ class ChampLassoFit(SolverFit):
     history
         Per-iteration record of the quantities selected with ``ChampLasso(store=...)``.
     gamma
-        Per-segment source covariance estimates, as a list of per-source
-        covariance matrices for each segment.
+        Per-segment source covariance estimates, each an array of shape
+        ``(n_sources, dc, dc)`` holding the covariance of every source's
+        orientation components (``dc`` is 1 for fixed orientation).
     sigma_b
         Per-segment estimates of the sensor covariance of the whitened data under
         the model, i.e. the whitened noise covariance plus the lead field
@@ -493,7 +487,7 @@ class ChampLassoFit(SolverFit):
     """
 
     history: ChampLassoHistory
-    gamma: list
+    gamma: list[FloatArray]
     sigma_b: list[FloatArray]
 
     def __repr__(self) -> str:

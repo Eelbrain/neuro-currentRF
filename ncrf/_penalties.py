@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import opt
 from ._typing import FloatArray
 
 
@@ -32,20 +31,20 @@ def g_group(x: FloatArray, mu: float) -> float:
     return mu * np.sqrt((x3 ** 2).sum(axis=1)).sum()
 
 
-def proxg_group_opt(z: FloatArray, mu: float) -> FloatArray:
+def proxg_group(z: FloatArray, mu: float) -> FloatArray:
     """proximal operator for gg(x):
 
             prox_{mu gg}(x) = min  gg(z) + 1/ (2 * mu) ||x-z|| ** 2
                     x_s = max(1 - mu/||z_s||, 0) z_s
 
-    Wrapper for the Cython kernel. The three orientation components per source
-    (fixed ``dc == 3``) are grouped along a reshaped array. Like :func:`shrink`,
-    the result is a new array and ``z`` is left unchanged; FASTA derives the
-    subgradient from the difference between the two, which vanishes if they share
-    a buffer.
+    The three orientation components per source (fixed ``dc == 3``) are grouped
+    along a reshaped view. Like :func:`shrink`, the result is a new array and ``z``
+    is left unchanged; FASTA derives the subgradient from the difference between
+    the two, which vanishes if they share a buffer.
     """
-    l = z.shape[1]
-    z3 = z.reshape(-1, 3, l)
-    out = np.empty_like(z3)
-    opt.cproxg_group(z3, mu, out)
-    return out.reshape(-1, l)
+    z3 = z.reshape(-1, 3, z.shape[1])
+    norm = np.sqrt((z3 ** 2).sum(axis=1, keepdims=True))
+    # mu / ||z_s|| for the groups that survive the shrinkage, 1 (a factor of 0) for the rest
+    ratio = np.ones_like(norm)
+    np.divide(mu, norm, out=ratio, where=norm > mu)
+    return ((1 - ratio) * z3).reshape(z.shape)

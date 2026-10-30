@@ -25,7 +25,6 @@ Then create the ``ncrf`` environment with all dependencies (this assumes `Mamba 
 
 With an ``-e`` installation, changes in ``*.py`` files are automatically reflected when you ``import ncrf``.
 Because Python caches imports, you may need to restart the kernel if you make changes after import.
-Changes in compiled files (``*.pyx``, ``*.c``, ...) are not automatically reflected; they require re-compilation by running ``pip install -e .`` again from the repository root.
 
 
 Testing
