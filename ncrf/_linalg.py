@@ -1,18 +1,16 @@
 """Linear-algebra kernels used throughout NCRF estimation.
 
-Small numeric helpers (tolerance-aware inverses, matrix square roots) and the
-per-source covariance updates used by the Champagne iterations.
+The Gaussian TRF basis, the inverse matrix square root used for whitening, and
+the source covariance update of the Champagne iterations.
 """
 from __future__ import annotations
 
 import logging
-from math import sqrt
 
 import numpy as np
 import numpy.typing as npt
 from scipy import linalg
 
-from .dsyevh3C import compute_gamma_c
 from ._typing import FloatArray
 
 #: Relative tolerance for treating eigenvalues and reciprocals as zero.
@@ -54,16 +52,6 @@ def gaussian_basis(
     return basis / basis.max()
 
 
-def _myinv(x: FloatArray) -> FloatArray:
-    """Compute a tolerance-aware elementwise reciprocal."""
-    x = np.real(np.array(x))
-    tol = _R_tol * x.max()
-    ind = (x > tol)
-    y = np.zeros(x.shape)
-    y[ind] = 1 / x[ind]
-    return y
-
-
 def _inv_sqrtm(
         m: FloatArray,
         return_eig: bool = False,
@@ -79,76 +67,39 @@ def _inv_sqrtm(
     return np.sqrt(y) * v.T.conj()
 
 
-def _compute_gamma_i(z: FloatArray, x: FloatArray) -> FloatArray:
-    """Computes Gamma_i
+def compute_gamma(z: FloatArray, x: FloatArray) -> FloatArray:
+    """Champagne update of the source covariances, batched over sources.
 
-    Gamma_i = Z**(-1/2) * ( Z**(1/2) X X' Z**(1/2)) ** (1/2) * Z**(-1/2)
-           = V(E)**(-1/2)V' * ( V ((E)**(1/2)V' X X' V(E)**(1/2)) V')** (1/2) * V(E)**(-1/2)V'
-           = V(E)**(-1/2)V' * ( V (UDU') V')** (1/2) * V(E)**(-1/2)V'
-           = V (E)**(-1/2) U (D)**(1/2) U' (E)**(-1/2) V'
+    For each source ``i`` computes::
+
+        Gamma_i = Z_i**(-1/2) (Z_i**(1/2) X_i X_i' Z_i**(1/2))**(1/2) Z_i**(-1/2)
+                = V E**(-1/2) U D**(1/2) U' E**(-1/2) V'
+
+    with the eigendecompositions ``Z_i = V E V'`` and
+    ``E**(1/2) V' X_i X_i' V E**(1/2) = U D U'``.
 
     Parameters
     ----------
     z
-        Auxiliary matrix for one source block.
+        Auxiliary matrices ``Z_i``, symmetric positive semi-definite, shape
+        ``(n_sources, dc, dc)``.
     x
-        Auxiliary coefficients for the same source block.
+        Auxiliary coefficients ``X_i``, shape ``(n_sources, dc, rank)``.
 
     Returns
     -------
     ndarray
-        Updated block covariance matrix.
+        Updated source covariances, shape ``(n_sources, dc, dc)``.
     """
-    [e, v] = linalg.eig(z)
-    e = e.real
-    e[e < 0] = 0
-    temp = np.dot(x.T, v)
-    temp = np.real(np.dot(temp.conj().T, temp))
-    e = np.sqrt(e)
-    [d, u] = linalg.eig((temp * e) * e[:, np.newaxis])
-    d = d.real
-    d[d < 0] = 0
-    d = np.sqrt(d)
-    temp = np.dot(v * _myinv(np.real(e)), u)
-    return np.array(np.real(np.dot(temp * d, temp.conj().T)))
-
-
-def _compute_gamma_ip(z: FloatArray, x: FloatArray, gamma: FloatArray) -> None:
-    """Wrapper function of Cython function 'compute_gamma_c'
-
-    Computes Gamma_i = Z**(-1/2) * ( Z**(1/2) X X' Z**(1/2)) ** (1/2) * Z**(-1/2)
-                   = V(E)**(-1/2)V' * ( V ((E)**(1/2)V' X X' V(E)**(1/2)) V')** (1/2) * V(E)**(-1/2)V'
-                   = V(E)**(-1/2)V' * ( V (UDU') V')** (1/2) * V(E)**(-1/2)V'
-                   = V (E)**(-1/2) U (D)**(1/2) U' (E)**(-1/2) V'
-
-    Parameters
-    ----------
-    z
-        Auxiliary square matrix for one source block, usually of shape ``(dc, dc)``.
-    x
-        Auxiliary coefficients for the same source block.
-    gamma
-        Output array that is updated in place with the new block covariance.
-    """
-    assert x.shape[0] == 3
-    a = np.dot(x, x.T)
-    compute_gamma_c(z, a, gamma)
-    return
-
-
-def compute_gamma(z: FloatArray, x: FloatArray, dc: int) -> FloatArray | float:
-    """Return the updated source-block covariance for one Champagne step.
-
-    Wraps the per-orientation update paths behind a single return-value
-    interface: a scalar for fixed orientation (``dc == 1``), the Cython kernel
-    for the three-component free-orientation case (``dc == 3``), and the general
-    eigendecomposition otherwise.
-    """
-    if dc == 1:
-        return sqrt((x ** 2).sum()) / np.real(sqrt(z))
-    elif dc == 3:
-        gamma = np.empty((3, 3))
-        _compute_gamma_ip(z, x, gamma)
-        return gamma
-    else:
-        return _compute_gamma_i(z, x)
+    e, v = np.linalg.eigh(z)
+    # eigenvalues below the tolerance (relative to each source's largest) are
+    # treated as zero: dropped from E**(1/2) and excluded from its reciprocal
+    significant = e > _R_tol * e.max(axis=1, keepdims=True)
+    e = np.sqrt(np.where(significant, e, 0))
+    xv = v.transpose(0, 2, 1) @ x
+    d, u = np.linalg.eigh(e[:, :, None] * (xv @ xv.transpose(0, 2, 1)) * e[:, None, :])
+    d = np.sqrt(np.clip(d, 0, None))
+    e_inv = np.zeros_like(e)
+    np.divide(1, e, out=e_inv, where=significant)
+    w = (v * e_inv[:, None, :]) @ u
+    return (w * d[:, None, :]) @ w.transpose(0, 2, 1)

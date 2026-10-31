@@ -1,8 +1,6 @@
 [build-system]
 requires = [
     "setuptools >= 64.0.0",
-    "numpy",
-    "cython",
     ]
 build-backend = "setuptools.build_meta"
 
@@ -83,14 +81,6 @@ markers = [
     "slow: marks tests as slow or heavy (deselect with '-m \"not slow\"')",
 ]
 addopts = "--strict-markers"
-
-[tool.cibuildwheel]
-test-requires = [
-  "eelbrain>=0.34",
-  "pytest",
-  "pytest-cov",
-]
-test-command = "pytest -m \"not slow\" -rsx -v --pyargs ncrf --cov ncrf --cov-report=xml:{project}/coverage.xml"
 
 [tool.tomlsort]
 all = true

@@ -164,3 +164,13 @@ The TRF basis
 - The value is recorded as :attr:`ncrf.TRFDesign.basis_stride`; it is ``None``
   for a design constructed directly with a custom
   :attr:`~ncrf.TRFDesign.basis`, which no single stride describes.
+
+Implementation
+^^^^^^^^^^^^^^
+
+- NCRF no longer contains compiled extensions and installs without a compiler.
+  The free-orientation proximal operator and the Champagne covariance update,
+  previously per-source loops over Cython kernels, are vectorized over sources
+  with NumPy; the Champagne iterations are about four times faster.
+- :attr:`ncrf.ChampLassoFit.gamma` holds one array of shape
+  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices.

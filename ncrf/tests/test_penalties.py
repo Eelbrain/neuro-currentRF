@@ -4,16 +4,16 @@ import numpy as np
 import pytest
 
 from ncrf._fastac import Fasta
-from ncrf._penalties import g, g_group, proxg_group_opt, shrink
+from ncrf._penalties import g, g_group, proxg_group, shrink
 
 
 @pytest.mark.parametrize('order', ['C', 'F'])
-def test_proxg_group_opt_leaves_input_unchanged(order):
+def test_proxg_group_leaves_input_unchanged(order):
     """FASTA reads the input again after applying the operator (see ``sg`` below)."""
     z = np.asarray(np.random.RandomState(0).normal(size=(6, 4)), order=order)
     before = z.copy()
 
-    out = proxg_group_opt(z, 0.5)
+    out = proxg_group(z, 0.5)
 
     np.testing.assert_array_equal(z, before)
     assert not np.shares_memory(out, z)
@@ -32,7 +32,7 @@ def test_update_coefs_subgradient():
 
     for penalty, prox in [
         (lambda v: g(v, mu), lambda v, t: shrink(v, mu * t)),
-        (lambda v: g_group(v, mu), lambda v, t: proxg_group_opt(v, mu * t)),
+        (lambda v: g_group(v, mu), lambda v, t: proxg_group(v, mu * t)),
     ]:
         fasta = Fasta(lambda v: 0.5 * (v ** 2).sum(), penalty, None, prox, beta=0.5)
         z, _, sg, _, _ = fasta._update_coefs(x, tau, grad, np.inf)

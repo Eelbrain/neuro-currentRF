@@ -1,5 +1,0 @@
-include ncrf/dsyevh3C/*.c
-include ncrf/dsyevh3C/*.h
-include ncrf/dsyevh3C/README
-include *.txt
-recursive-include . *.pyx
