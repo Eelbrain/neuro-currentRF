@@ -1,0 +1,6 @@
+ncrf.ChampLasso.use\_es
+=======================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.use_es

@@ -1,0 +1,6 @@
+ncrf.RegressionData.is\_whitened
+================================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.is_whitened

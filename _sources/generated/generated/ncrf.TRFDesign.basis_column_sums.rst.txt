@@ -1,0 +1,6 @@
+ncrf.TRFDesign.basis\_column\_sums
+==================================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.basis_column_sums

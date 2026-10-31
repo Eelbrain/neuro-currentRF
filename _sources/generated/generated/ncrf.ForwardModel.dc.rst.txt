@@ -1,0 +1,6 @@
+ncrf.ForwardModel.dc
+====================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: ForwardModel.dc

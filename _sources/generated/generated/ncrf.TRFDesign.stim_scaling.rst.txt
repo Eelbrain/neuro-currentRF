@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_scaling
+============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.stim_scaling

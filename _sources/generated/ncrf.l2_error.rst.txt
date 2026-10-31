@@ -1,0 +1,6 @@
+﻿ncrf.l2\_error
+==============
+
+.. currentmodule:: ncrf
+
+.. autofunction:: l2_error

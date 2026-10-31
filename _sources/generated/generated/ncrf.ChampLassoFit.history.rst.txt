@@ -1,0 +1,6 @@
+ncrf.ChampLassoFit.history
+==========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLassoFit.history

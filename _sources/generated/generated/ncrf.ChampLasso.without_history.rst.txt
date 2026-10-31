@@ -1,0 +1,6 @@
+ncrf.ChampLasso.without\_history
+================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLasso.without_history

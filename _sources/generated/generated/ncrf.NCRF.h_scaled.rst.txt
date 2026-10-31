@@ -1,0 +1,6 @@
+ncrf.NCRF.h\_scaled
+===================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: NCRF.h_scaled

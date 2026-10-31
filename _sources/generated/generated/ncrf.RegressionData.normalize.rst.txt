@@ -1,0 +1,6 @@
+ncrf.RegressionData.normalize
+=============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.normalize

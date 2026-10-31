@@ -1,0 +1,6 @@
+ncrf.NCRFEstimator.noise\_covariance
+====================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFEstimator.noise_covariance

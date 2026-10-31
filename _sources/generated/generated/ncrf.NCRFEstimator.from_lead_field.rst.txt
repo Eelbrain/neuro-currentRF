@@ -1,0 +1,6 @@
+ncrf.NCRFEstimator.from\_lead\_field
+====================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRFEstimator.from_lead_field

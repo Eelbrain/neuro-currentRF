@@ -1,0 +1,6 @@
+ncrf.TRFDesign.filter\_length
+=============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.filter_length

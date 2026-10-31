@@ -1,0 +1,6 @@
+ncrf.NCRF.voxelwise\_explained\_variance
+========================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.voxelwise_explained_variance

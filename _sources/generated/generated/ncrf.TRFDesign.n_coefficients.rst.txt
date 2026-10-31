@@ -1,0 +1,6 @@
+ncrf.TRFDesign.n\_coefficients
+==============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.n_coefficients

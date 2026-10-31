@@ -1,0 +1,6 @@
+ncrf.RegressionData.forward
+===========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: RegressionData.forward

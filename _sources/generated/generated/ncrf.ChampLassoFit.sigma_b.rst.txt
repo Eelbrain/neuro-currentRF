@@ -1,0 +1,6 @@
+ncrf.ChampLassoFit.sigma\_b
+===========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLassoFit.sigma_b

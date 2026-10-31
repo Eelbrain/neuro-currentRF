@@ -1,0 +1,6 @@
+ncrf.CVResult.scores
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: CVResult.scores

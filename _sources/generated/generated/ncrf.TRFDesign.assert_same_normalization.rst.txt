@@ -1,0 +1,6 @@
+ncrf.TRFDesign.assert\_same\_normalization
+==========================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: TRFDesign.assert_same_normalization

@@ -1,0 +1,6 @@
+ncrf.NCRF.evaluate
+==================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRF.evaluate

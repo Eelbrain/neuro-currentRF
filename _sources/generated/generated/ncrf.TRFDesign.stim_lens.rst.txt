@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_lens
+=========================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.stim_lens

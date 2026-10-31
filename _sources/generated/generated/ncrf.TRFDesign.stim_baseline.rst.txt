@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_baseline
+=============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.stim_baseline
