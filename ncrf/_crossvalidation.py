@@ -55,6 +55,15 @@ class CrossValidation:
         if self.n_splits < 1:
             raise ValueError(f"n_splits={self.n_splits!r}: need at least one cross-validation fold")
 
+    def worker_processes(self) -> int:
+        """Number of worker processes, resolving ``n_workers=None`` from Eelbrain's setting."""
+        if self.n_workers is not None:
+            return self.n_workers
+        # Eelbrain's setting is cpu_count() by default, and 0 when multiprocessing
+        # is disabled. Use a fraction of the CPUs to avoid oversubscribing them,
+        # since each worker's BLAS already runs its own thread pool
+        return ceil(CONFIG['n_workers'] / 8)
+
 
 def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionData, RegressionData]]:
     """Train/test fold datasets, shared by every candidate scored on ``data``."""
@@ -179,13 +188,7 @@ def crossvalidate(
         Cross-validation results.
     """
     logging.getLogger(__name__).info('Crossvalidation initiated!')
-    n_workers = cv.n_workers
-    if n_workers is None:
-        # Eelbrain's setting is cpu_count() by default, and 0 when multiprocessing
-        # is disabled. Use a fraction of the CPUs to avoid oversubscribing them,
-        # since each worker's BLAS already runs its own thread pool
-        n_workers = ceil(CONFIG['n_workers'] / 8)
-
+    n_workers = cv.worker_processes()
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
         if n_workers == 0:

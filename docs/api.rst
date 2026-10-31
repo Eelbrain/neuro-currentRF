@@ -35,6 +35,7 @@ Models and fits
 
     NCRF
     NCRFFit
+    NCRFExecutionContext
 
 Solvers
 -------
