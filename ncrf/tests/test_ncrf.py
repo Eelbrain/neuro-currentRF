@@ -72,7 +72,7 @@ def test_ncrf():
     emptyroom = load('emptyroom')
 
     # 1 stimulus
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10, compute_explained_variance=True)
     # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
