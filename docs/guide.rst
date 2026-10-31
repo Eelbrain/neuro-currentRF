@@ -102,7 +102,9 @@ dataset was built from, so they can be compared with the original recording
 directly.
 
 :meth:`~ncrf.NCRF.evaluate` instead scores in *whitened* sensor space, where the
-noise covariance is the identity and channels are therefore comparable. This is
+noise covariance is the identity and channels are therefore comparable (for a
+rank-deficient noise covariance this space has only ``rank`` channels, see
+:class:`~ncrf.ForwardModel`). This is
 the space the solver optimizes in and the one cross-validation compares
 candidates in, which is what makes ``result.scores`` and the cross-validation
 scores commensurable. Pass ``whitened=True`` to :meth:`~ncrf.NCRF.predict` to see

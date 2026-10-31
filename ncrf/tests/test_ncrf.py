@@ -12,7 +12,7 @@ from ncrf import ChampLasso, fit_ncrf, NCRF
 from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf.tests.fetch import load
 
-from eelbrain import Categorial, concatenate
+from eelbrain import Case, Categorial, NDVar, concatenate
 from eelbrain.testing import assert_dataobj_equal
 
 
@@ -147,6 +147,31 @@ def test_ncrf():
     # test without multiprocessing
     result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
+
+
+@pytest.mark.slow
+def test_ncrf_rank_deficient_noise():
+    """Data and noise with a sensor direction removed (as by ICA) are fit in the remaining subspace."""
+    meg = load('meg').sub(time=(0, 5))
+    stim = load('stim').sub(time=(0, 5))
+    fwd = load('fwd_sol')
+    emptyroom = load('emptyroom')
+
+    rng = np.random.RandomState(0)
+    u = rng.normal(size=len(meg.sensor))
+    u /= np.linalg.norm(u)
+    projector = np.eye(len(u)) - np.outer(u, u)
+    meg = NDVar(np.einsum('ij,cjt->cit', projector, meg.get_data(('case', 'sensor', 'time'))), (Case, meg.sensor, meg.time))
+    emptyroom = NDVar(np.dot(projector, emptyroom.get_data(('sensor', 'time'))), (emptyroom.sensor, emptyroom.time))
+
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=5)
+    forward = result.model.forward
+    assert forward.rank == len(u) - 1
+    assert forward.whitening_filter.shape == (len(u) - 1, len(u))
+    # the removed direction is invisible to the whitened space (relative to the filter's scale, which is 1/Tesla)
+    assert (np.abs(np.dot(forward.whitening_filter, u)) / np.linalg.norm(forward.whitening_filter, axis=1) < 1e-8).all()
+    assert np.isfinite(result.scores['explained_variance'])
+    assert np.isfinite(result.model.h.x).all()
 
 
 def test_ncrf_shifted_nonzero_lags():
