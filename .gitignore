@@ -10,6 +10,7 @@ fit_ncrf/*.pickled
 *egg-info
 .idea/
 build/
+dist/
 __pycache__/
 ncrf/__pycache__/
 ncrf-testing-data

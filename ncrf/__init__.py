@@ -15,3 +15,11 @@ from ._model import NCRFEstimator, NCRF, NCRFFit, fit_model
 from ._metrics import explained_variance, l2_error
 from ._solvers import ChampLasso, ChampLassoFit, Solver, SolverFit
 from ._ncrf import fit_ncrf
+
+from importlib.metadata import version
+
+try:
+    __version__ = version("ncrf")
+except Exception:
+    __version__ = "0.0.0"
+del version
