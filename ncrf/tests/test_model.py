@@ -798,11 +798,27 @@ def test_h_with_narrow_basis(tstop, n_atoms):
 
         assert h.dimnames == dimnames
         assert h.shape == shape
+        np.testing.assert_allclose(h.time.times, np.arange(n_lags) * 0.01)
         # the scaling is undone along the predictor's feature dimensions
         scaled = RegressionData.from_data(meg, stim, 0, tstop, scale='l2')
         h_scaled = _model(scaled.design, scaled.design.n_coefficients).h_scaled
         assert h_scaled.dimnames == dimnames
         np.testing.assert_allclose(h_scaled.x, h.x / scaled.design.stim_scaling.reshape((*stim.shape[:-1], 1, 1)))
+
+
+def test_h_time_axis_on_sample_grid():
+    """The TRF's time axis is that of the lags that were fit, i.e. tstart rounded to the sample grid."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 200)
+    meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
+    stim = NDVar(rng.normal(size=200), (time,), name='x')
+    data = RegressionData.from_data(meg, stim, -0.104, 0.053, scale=None)
+    assert data.design.start_samples == [-10]
+    assert data.design.filter_length == [16]
+
+    h = _model(data.design, data.design.n_coefficients).h
+
+    np.testing.assert_allclose(h.time.times, np.arange(-10, 6) * 0.01)
 
 
 def test_design_timing_per_predictor():

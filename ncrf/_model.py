@@ -223,7 +223,7 @@ class NCRF:
 
         h = []
         start = 0
-        for basis, block, tstart in zip(design.basis, design.blocks, design.tstart):
+        for basis, block, start_sample in zip(design.basis, design.blocks, design.start_samples):
             # Index corresponding theta; theta shape: (source, stimulus * lag)
             stop = start + basis.shape[1] * block.n_rows
             x = self.theta[:, start:stop]
@@ -233,8 +233,9 @@ class NCRF:
             x = x.reshape((self.theta.shape[0], block.n_rows, -1)).swapaxes(0, 1)
             x = np.dot(x, basis.T) / self.forward.lead_field_scaling
 
-            # Package in NDVar
-            lag_dim = UTS(tstart, design.tstep, x.shape[-1])
+            # Package in NDVar, on the time axis of the lags the basis was built on
+            # (tstart rounded to the sample grid, see eelbrain.trf.lag_window)
+            lag_dim = UTS(start_sample * design.tstep, design.tstep, x.shape[-1])
             dims = (*block.dims, *source_dims, lag_dim)
             h.append(NDVar(x.reshape([len(d) for d in dims]), dims, name=block.name))
 
