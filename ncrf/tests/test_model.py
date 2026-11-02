@@ -75,11 +75,9 @@ def test_fit_accepts_generic_solver(monkeypatch):
     data.forward = forward
     data.sensor_dim = SENSOR
     data.design = Mock()
+    data.responses = [np.arange(4, dtype=float)[None, :]]
     data.covariates = [np.ones((4, 1))]
-    data.norm_factor = 1.0
-    data.__iter__.side_effect = lambda: iter([
-        (np.arange(4, dtype=float)[None, :], np.ones((4, 1))),
-    ])
+    data.__iter__.side_effect = lambda: iter(zip(data.responses, data.covariates))
     data.__len__.return_value = 1
     solver = _ZeroSolver()
 
@@ -89,7 +87,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     assert result.solver_fit.theta.shape == (1, 1)
     assert result.scores == {
         'explained_variance': pytest.approx(0),
-        'l2_error': pytest.approx(7),
+        'l2_error': pytest.approx(1.75),  # 0.5 * (0 + 1 + 4 + 9) / 4 samples
     }
     prediction = result.model.predict(data)
     np.testing.assert_array_equal(prediction[0], np.zeros((1, 4)))
@@ -339,9 +337,37 @@ def test_champ_lasso_score_by_segment():
     weighted_l2_error = 0.5 * (residual ** 2).sum() / 2  # sigma_b[1] = 2 I
     np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
     np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * np.log(np.linalg.det(sigma_b[1])))
+    # the scores are per sample: 100 samples of segment 0 and 50 of segment 1
+    held_out = data.subset([[100, 200], [300, 350]])
+    assert held_out.blocks == [(0, 100, 200), (1, 100, 150)]
+    scores = fit.score(forward, held_out)
+    residuals = [meg - forward.whitened_lead_field @ theta @ covariates.T for meg, covariates in held_out]
+    weighted_l2_error = (0.5 * (residuals[0] ** 2).sum() + 0.5 * (residuals[1] ** 2).sum() / 2) / 150
+    np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
+    logdet = (100 * np.log(np.linalg.det(sigma_b[0])) + 50 * np.log(np.linalg.det(sigma_b[1]))) / 150
+    np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * logdet)
     # a segment the fit has no covariance for can not be scored
     with pytest.raises(ValueError, match="has none for segment 2"):
         fit.score(forward, data.subset([[500, 550]]))
+
+
+def test_scores_per_sample():
+    """The metrics weight blocks by their number of samples, so a block's contribution does not depend on how the data is cut."""
+    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
+    model = _model(data.design, data.design.n_coefficients)
+    a, b = data.subset([[10, 110]]), data.subset([[300, 350]])
+    both = data.subset([[10, 110], [300, 350]])
+    assert [stop - start for _, start, stop in both.blocks] == [100, 50]
+
+    scores_a, scores_b, scores = model.evaluate(a), model.evaluate(b), model.evaluate(both)
+    for key in ('explained_variance', 'l2_error'):
+        np.testing.assert_allclose(scores[key], (100 * scores_a[key] + 50 * scores_b[key]) / 150)
+    expected = (100 * model.voxelwise_explained_variance(a).x + 50 * model.voxelwise_explained_variance(b).x) / 150
+    np.testing.assert_allclose(model.voxelwise_explained_variance(both).x, expected)
+    # the whitened prediction is in the units of the whitened responses
+    predicted = model.predict(both, whitened=True)
+    np.testing.assert_allclose(predicted[1], model.forward.whitened_lead_field @ model.theta @ both.covariates[1].T)
+    np.testing.assert_allclose(scores['l2_error'], sum(0.5 * ((meg - p) ** 2).sum() for (meg, _), p in zip(both, predicted)) / 150)
 
 
 def test_champagne_covariances_per_segment():
@@ -571,10 +597,9 @@ def test_predict_returns_meg_scale():
     predicted = model.predict(data)
     whitened = model.predict(data, whitened=True)
 
-    assert not np.allclose(predicted[0], whitened[0])
     for meg_scale, fit_scale in zip(predicted, whitened):
-        # whitening and dividing by sqrt(n_times) is exactly what from_data() applied
-        np.testing.assert_allclose(np.dot(forward.whitening_filter, meg_scale) / data.norm_factor, fit_scale)
+        # the whitened prediction is the prediction whitened like the responses
+        np.testing.assert_allclose(np.dot(forward.whitening_filter, meg_scale), fit_scale)
     # whitening the input does not change the prediction, which only uses covariates
     for expected, actual in zip(predicted, model.predict(data.whiten(forward))):
         np.testing.assert_array_equal(expected, actual)

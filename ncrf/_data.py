@@ -134,8 +134,8 @@ class RegressionData:
     data, and the covariates according to :attr:`design`, which fixes the TRF
     lags and the Gaussian basis the predictors are projected onto. Neither is
     divided by :attr:`norm_factor`; the factor is applied in the derived Gram
-    matrices (:attr:`bbt`, :attr:`bE`, :attr:`EtE`), in residuals and in
-    predictions instead.
+    matrices (:attr:`bbt`, :attr:`bE`, :attr:`EtE`) that the solver's objective
+    is built from, whereas the fit metrics are averages per sample.
     """
 
     data: DeconvolutionData

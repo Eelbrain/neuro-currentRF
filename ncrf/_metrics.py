@@ -46,20 +46,24 @@ def explained_variance(
         observed: Sequence[FloatArray],
         predicted: Sequence[FloatArray],
 ) -> float:
-    """Mean sensor-by-segment explained variance in whitened sensor space."""
+    """Explained variance in whitened sensor space: one minus the residual variance ratio, averaged over sensors and over blocks (weighted by their number of samples)."""
     residual_ratio = 0.0
+    n_samples = 0
     for meg, prediction in zip(observed, predicted):
         residual = meg - prediction
-        residual_ratio += np.nansum(np.var(residual, axis=1) / np.var(meg, axis=1)) / residual.shape[0]
-    return 1 - residual_ratio / len(observed)
+        residual_ratio += np.nansum(np.var(residual, axis=1) / np.var(meg, axis=1)) / residual.shape[0] * meg.shape[1]
+        n_samples += meg.shape[1]
+    return 1 - residual_ratio / n_samples
 
 
 def l2_error(
         observed: Sequence[FloatArray],
         predicted: Sequence[FloatArray],
 ) -> float:
-    """Mean unweighted squared prediction error in whitened sensor space."""
+    """Unweighted squared prediction error per sample in whitened sensor space (half the sum of squares over sensors, averaged over samples)."""
     error = 0.0
+    n_samples = 0
     for meg, prediction in zip(observed, predicted):
         error += 0.5 * ((meg - prediction) ** 2).sum()
-    return error / len(observed)
+        n_samples += meg.shape[1]
+    return error / n_samples

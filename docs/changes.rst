@@ -24,8 +24,10 @@ API changes
   :meth:`~ncrf.RegressionData.subset`, and
   :attr:`~ncrf.RegressionData.responses` and
   :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
-  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices,
-  residuals and predictions instead).
+  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices
+  the solver's objective is built from). The fit metrics and
+  :attr:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
+  whitened responses, and all scores are averages per sample.
 - **``tstop`` is exclusive.** TRF windows follow Eelbrain's time-axis
   convention: ``tstop`` is the end of the window and not itself a lag, so
   ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used

@@ -190,7 +190,8 @@ def _evaluate_objective(
     """Evaluate the ChampLasso objective on whitened data.
 
     Each segment's residual is weighted by its own covariance ``Sigma_b``
-    (keyed by segment index). Returns the objective and its weighted-L2 term.
+    (keyed by segment index). Returns the objective and its weighted-L2 term,
+    both averaged over the samples of ``data``.
 
     Raises
     ------
@@ -204,11 +205,14 @@ def _evaluate_objective(
     ll2 = 0
     logdet = 0
     for i_segment, blocks in segment_blocks.items():
+        n_times = sum(data.blocks[i][2] - data.blocks[i][1] for i in blocks)
         yhat = _residual_factor(forward, theta, data, blocks)
         (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[i_segment], yhat)
-        ll2 += 0.5 * (y ** 2).sum()
-        logdet += logdet_
-    return (ll2 + logdet) / len(data), ll2 / len(data)
+        # yhat @ yhat.T is the residual's sample covariance: sum over the samples
+        ll2 += 0.5 * (y ** 2).sum() * n_times
+        logdet += logdet_ * n_times
+    n_samples = data.n_samples
+    return (ll2 + logdet) / n_samples, ll2 / n_samples
 
 
 #: Initialization seeds by dataset (see :func:`_mne_seeds`); entries die with their dataset.
@@ -522,10 +526,10 @@ class ChampLassoFit(SolverFit):
     ) -> dict[str, float]:
         r"""ChampLasso's likelihood objective on whitened ``data``, and its residual term.
 
-        Both scores are averaged over the segments of ``data``, and lower is
-        better. For a segment with whitened sensor data :math:`y` and model
-        prediction :math:`\hat y`, let :math:`r = y - \hat y` be the whitened
-        residual and :math:`\Sigma_b` the segment's :attr:`sigma_b`:
+        Both scores are averaged over the samples of ``data``, and lower is
+        better. For a sample of a segment with whitened sensor data :math:`y`
+        and model prediction :math:`\hat y`, let :math:`r = y - \hat y` be the
+        whitened residual and :math:`\Sigma_b` the segment's :attr:`sigma_b`:
 
         ``weighted_l2_error``
             The squared residual weighted by the inverse of the estimated data

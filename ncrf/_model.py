@@ -107,9 +107,9 @@ class NCRF:
         """``whitened_lead_field @ theta``, the segment-independent part of whitened prediction."""
         return np.dot(self.forward.whitened_lead_field, self.theta)
 
-    def _predict_whitened(self, covariate: FloatArray, norm_factor: float) -> FloatArray:
-        """Predicted whitened sensor data for one block's covariate matrix (see :attr:`RegressionData.norm_factor`)."""
-        return np.dot(self._whitened_projection, covariate.T) / norm_factor
+    def _predict_whitened(self, covariate: FloatArray) -> FloatArray:
+        """Predicted whitened sensor data for one block's covariate matrix, in the units of :attr:`RegressionData.responses`."""
+        return np.dot(self._whitened_projection, covariate.T)
 
     def predict(
             self,
@@ -129,9 +129,10 @@ class NCRF:
             the same normalization (apply :meth:`~ncrf.RegressionData.normalize`
             with :attr:`design`).
         whitened
-            Predict in the whitened, variance-normalized sensor space the model is
-            fit in, i.e. the space :meth:`evaluate` scores in, rather than in the
-            units of the original M/EEG data.
+            Predict in the whitened sensor space the model is fit in, i.e. the
+            space :meth:`evaluate` scores in and the units of the whitened
+            :attr:`RegressionData.responses`, rather than in the units of the
+            original M/EEG data.
 
         Returns
         -------
@@ -143,10 +144,9 @@ class NCRF:
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)
         if whitened:
-            return [self._predict_whitened(covariate, data.norm_factor) for covariate in data.covariates]
-        # Predicting through the un-whitened lead field, from the covariates that
-        # are not divided by the norm_factor, puts the prediction back into the
-        # units of the M/EEG data the dataset was built from.
+            return [self._predict_whitened(covariate) for covariate in data.covariates]
+        # Predicting through the un-whitened lead field puts the prediction back
+        # into the units of the M/EEG data the dataset was built from.
         source = np.dot(self.forward.lead_field, theta) / self.forward.lead_field_scaling
         return [np.dot(source, covariate.T) for covariate in data.covariates]
 
@@ -175,10 +175,9 @@ class NCRF:
         """
         data = data.whiten(self.forward)
         self._theta_for(data)
-        # score in the normalized space the solver fits in
-        observed = [meg / data.norm_factor for meg, _ in data]
-        predicted = [self._predict_whitened(covariate, data.norm_factor) for _, covariate in data]
-        return {metric.__name__: metric(observed, predicted) for metric in metrics}
+        # the metrics are per sample, and hence independent of the norm_factor
+        predicted = [self._predict_whitened(covariate) for covariate in data.covariates]
+        return {metric.__name__: metric(data.responses, predicted) for metric in metrics}
 
     def voxelwise_explained_variance(self, data: RegressionData) -> NDVar:
         """Compute each source's contribution to explained variance.
@@ -190,10 +189,11 @@ class NCRF:
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
-        # variance ratios are invariant to the scale, so work with the responses as they are
+        # like explained_variance(): the variance ratio of each block is averaged
+        # over sensors, and over blocks weighted by their number of samples
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - np.dot(self._whitened_projection, covariate.T)
+            y_full = meg - self._predict_whitened(covariate)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
@@ -201,9 +201,9 @@ class NCRF:
                 block = self.forward.source_block(i)
                 contribution = np.dot(np.dot(W_leadfield[:, block], theta[block]), covariate.T)
                 y_i = y_full + contribution
-                temp[i] += np.nansum((np.var(y_i, axis=1) - base_var) / total_var) / meg.shape[0]
+                temp[i] += np.nansum((np.var(y_i, axis=1) - base_var) / total_var) / meg.shape[0] * meg.shape[1]
 
-        return NDVar(temp / len(data), self.forward.source)
+        return NDVar(temp / data.n_samples, self.forward.source)
 
     @cached_property
     def h(self) -> NDVar | list[NDVar]:
