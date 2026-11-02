@@ -41,8 +41,10 @@ class SolverFit:
     ----------
     theta
         Coefficients of the TRFs over the Gaussian basis atoms, shape
-        ``(n_sources, n_coefficients)`` with one column per basis atom and
-        stimulus channel (see :attr:`TRFDesign.n_coefficients`). This is not
+        ``(n_components, n_coefficients)`` with one column per basis atom and
+        stimulus channel (see :attr:`TRFDesign.n_coefficients`), and one row per
+        source and orientation, or per :class:`~ncrf.SourceBasis` atom and
+        orientation (see :attr:`ForwardModel.n_components`). This is not
         the response function itself: the covariates were projected onto the
         basis before fitting, so the TRF is recovered by multiplying the
         coefficients with the basis. Use :attr:`ncrf.NCRF.h` (or

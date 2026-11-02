@@ -26,6 +26,7 @@ from ._metrics import Metric, explained_variance, l2_error, merge_scores
 from ._pickle import pickle_state
 from ._repr import _count_repr, _forward_summary
 from ._solvers import Solver, SolverFit
+from ._source_basis import SourceBasis
 from ._typing import FloatArray, NoiseArg
 
 
@@ -50,9 +51,11 @@ class NCRF:
     theta
         Fitted NCRF coefficients over the Gaussian basis, shape
         ``(source, stimulus * lag)``: rows are the source dipoles in
-        lead-field order (orientation varying fastest), columns are
-        the predictors of :attr:`design` concatenated, each ordered by stimulus
-        with lag varying fastest.
+        lead-field order (orientation varying fastest), or the atoms of the
+        forward model's :class:`~ncrf.SourceBasis` if it has one (see
+        :meth:`ForwardModel.expand`); columns are the predictors of
+        :attr:`design` concatenated, each ordered by stimulus with lag varying
+        fastest.
     design
         Stimulus, basis, and normalization metadata of the data the model was fit
         on, including the TRF timing (``design.tstart``, ``design.tstep``,
@@ -147,7 +150,7 @@ class NCRF:
         # Predicting through the un-whitened lead field, and undoing the norm_factor
         # by which both MEG and covariates were divided, puts the prediction back into
         # the units of the M/EEG data the dataset was built from.
-        source = np.dot(self.forward.lead_field, theta) / self.forward.lead_field_scaling
+        source = np.dot(self.forward.lead_field, self.forward.expand(theta)) / self.forward.lead_field_scaling
         return [np.dot(source, covariate.T) * data.norm_factor for covariate in data.covariates]
 
     def evaluate(
@@ -186,8 +189,14 @@ class NCRF:
         :meth:`predict`).
         """
         data = data.whiten(self.forward)
-        theta = self._theta_for(data)
-        W_leadfield = self.forward.whitened_lead_field
+        forward = self.forward
+        theta = forward.expand(self._theta_for(data))
+        if forward.source_basis is None:
+            W_leadfield = forward.whitened_lead_field
+        else:
+            # the contributions are per source, so they need the lead field of the
+            # sources rather than that of the atoms the solver sees
+            W_leadfield = np.dot(forward.whitening_filter, forward.lead_field) / forward.lead_field_scaling
         temp = np.zeros(len(self.forward.source))
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
@@ -218,17 +227,18 @@ class NCRF:
         design = self.design
         space = self.forward.space
         source_dims = (self.forward.source, space) if space else (self.forward.source,)
+        theta = self.forward.expand(self.theta)
 
         h = []
         start = 0
         for basis, stim_len, dim, name, tstart in zip(design.basis, design.stim_lens, design.stim_dims, design.stim_names, design.tstart):
             # Index corresponding theta; theta shape: (source, stimulus * lag)
             stop = start + basis.shape[1] * stim_len
-            x = self.theta[:, start:stop]
+            x = theta[:, start:stop]
             start = stop
 
             # Reshape to (stimulus, source, lag)
-            x = x.reshape((self.theta.shape[0], stim_len, -1)).swapaxes(0, 1)
+            x = x.reshape((theta.shape[0], stim_len, -1)).swapaxes(0, 1)
             x = np.dot(x, basis.T) / self.forward.lead_field_scaling
 
             # Package in NDVar
@@ -331,6 +341,9 @@ class NCRFEstimator:
         Channel names of ``noise_covariance``, in its order: a subset of the
         lead field's channels. Alignment to the data's channels happens by name
         when the forward model is derived.
+    source_basis
+        Spatial basis over the lead field's sources, passed on to every derived
+        forward model (``None`` to estimate coefficients for each source).
 
     Notes
     -----
@@ -348,6 +361,7 @@ class NCRFEstimator:
     lead_field: NDVar | None = None
     noise_covariance: FloatArray | None = None
     noise_channels: Sequence[str] | None = None
+    source_basis: SourceBasis | None = None
 
     @cached_property
     def _forwards(self) -> dict[tuple[str, ...], ForwardModel]:
@@ -358,7 +372,12 @@ class NCRFEstimator:
         return pickle_state(self)
 
     @classmethod
-    def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
+    def from_lead_field(
+            cls,
+            lead_field: NDVar,
+            noise_covariance: NoiseArg,
+            source_basis: SourceBasis | None = None,
+    ) -> NCRFEstimator:
         """Construct from a lead-field :class:`~eelbrain.NDVar` and noise covariance.
 
         Parameters
@@ -374,20 +393,28 @@ class NCRFEstimator:
             be a subset of the lead field's channels (channels dropped from the
             noise, e.g. bad channels, are simply excluded from fitting), whereas
             noise for a channel without a lead field is an error.
+        source_basis
+            Spatial basis over the lead field's sources (see
+            :meth:`SourceBasis.from_source`); ``None`` to estimate coefficients
+            for each source.
 
         Raises
         ------
         ValueError
             If the noise has channels that are not in the lead field. Whitening
             requires a noise estimate for every fitted channel, so noise for a
-            channel without a lead field is a sign of misaligned inputs.
+            channel without a lead field is a sign of misaligned inputs. Also if
+            ``source_basis`` is defined over a different number of sources.
         """
         noise_cov, noise_names = _noise_covariance(noise_covariance)
         sensor_names = set(lead_field.get_dim('sensor').names)
         extra = [name for name in noise_names if name not in sensor_names]
         if extra:
             raise ValueError(f"noise covariance channels missing from the lead field: {extra}; the noise sensors must be a subset of the lead field's sensors")
-        return cls(lead_field, noise_cov.astype(np.float64), noise_names)
+        n_sources = len(lead_field.get_dim('source'))
+        if source_basis is not None and source_basis.n_sources != n_sources:
+            raise ValueError(f"source_basis over {source_basis.n_sources} sources; should be over the {n_sources} sources of the lead field")
+        return cls(lead_field, noise_cov.astype(np.float64), noise_names, source_basis)
 
     def _forward_for(self, sensor: Sensor) -> ForwardModel:
         """Whitened forward-model state for exactly ``sensor``'s channels.
@@ -423,14 +450,17 @@ class NCRFEstimator:
         else:
             g = lead_field.get_data(dims=('sensor', 'source')).astype(np.float64)
             space = None
-        forward = self._forwards[tuple(names)] = ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
+        forward = self._forwards[tuple(names)] = ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space, self.source_basis)
         return forward
 
     def __repr__(self) -> str:
         if self.lead_field is None:
             return f'<{type(self).__name__}>'
         orientation = 'free' if self.lead_field.has_dim('space') else 'fixed'
-        return f"<{type(self).__name__}: {_count_repr(len(self.lead_field.get_dim('source')), 'source')}, {_count_repr(len(self.lead_field.get_dim('sensor')), 'sensor')}, {orientation} orientation, {_count_repr(len(self.noise_channels), 'noise channel')}>"
+        sources = _count_repr(len(self.lead_field.get_dim('source')), 'source')
+        if self.source_basis is not None:
+            sources = f"{sources} ({_count_repr(self.source_basis.n_atoms, 'atom')})"
+        return f"<{type(self).__name__}: {sources}, {_count_repr(len(self.lead_field.get_dim('sensor')), 'sensor')}, {orientation} orientation, {_count_repr(len(self.noise_channels), 'noise channel')}>"
 
     def fit(
             self,

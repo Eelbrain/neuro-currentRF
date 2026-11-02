@@ -6,6 +6,22 @@ Changes
 0.5
 ---
 
+New features
+^^^^^^^^^^^^
+
+- **Spatial basis.** With ``source_basis_std``, :func:`~ncrf.fit_ncrf` estimates
+  the response functions over Gaussian atoms on the source space rather than
+  over individual sources, so that the sparsity penalty favors smooth, local
+  patches of activity: the spatial counterpart of the Gaussian basis over TRF
+  lags. Atoms are Gaussian in the Euclidean distance for volume source spaces
+  and in the geodesic distance for cortical surfaces, carry all orientation
+  components of their sources, and never extend across hemispheres. In the
+  component API, construct a :class:`~ncrf.SourceBasis` and pass it to
+  :meth:`~ncrf.NCRFEstimator.from_lead_field`. With a source basis,
+  :attr:`ncrf.NCRF.theta` and :attr:`ncrf.ChampLassoFit.gamma` are over the
+  atoms, whereas :attr:`ncrf.NCRF.h` and the source-wise explained variance
+  remain over the sources.
+
 Bug fixes
 ^^^^^^^^^
 

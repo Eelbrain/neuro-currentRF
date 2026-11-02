@@ -21,6 +21,7 @@ from ._crossvalidation import CrossValidation
 from ._data import RegressionData
 from ._model import NCRFEstimator, NCRFFit
 from ._solvers import ChampLasso, Solver
+from ._source_basis import SourceBasis
 from ._typing import MuArg, NoiseArg, ScaleArg
 
 
@@ -49,6 +50,8 @@ def fit_ncrf(
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
+        source_basis_std: float | None = None,
+        source_basis_stride: int = 1,
 ) -> NCRFFit:
     r"""One shot function for cortical TRF localization.
 
@@ -128,6 +131,15 @@ def fit_ncrf(
         Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
         iteration arguments are ignored; configure them on the solver. ``n_splits`` and
         ``n_workers`` still configure the folds a searching solver is scored on.
+    source_basis_std
+        Standard deviation of Gaussian atoms over the source space in meters, to
+        estimate the response functions as sums of smooth, local patches of
+        activity (see :class:`~ncrf.SourceBasis`). By default (``None``), they are
+        estimated for each source.
+    source_basis_stride
+        Spacing between neighboring source basis atoms, in grid steps (see
+        :meth:`~ncrf.SourceBasis.from_source`); only valid with
+        ``source_basis_std``.
 
     Returns
     -------
@@ -178,6 +190,9 @@ def fit_ncrf(
     .. bibliography::
         :cited:
     """
+    if source_basis_std is None and source_basis_stride != 1:
+        raise ValueError(f"{source_basis_stride=} without source_basis_std: the stride only applies to a source basis")
+
     # make meg/stim representation uniform:
     meg_trials = []  # [trial_1, trial_2, ...]
     stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
@@ -224,7 +239,11 @@ def fit_ncrf(
 
     # the estimator trims the forward model to the noise channels, and its fit()
     # trims further to the sensors of the data
-    estimator = NCRFEstimator.from_lead_field(lead_field, noise)
+    if source_basis_std is None:
+        source_basis = None
+    else:
+        source_basis = SourceBasis.from_source(lead_field.get_dim('source'), source_basis_std, source_basis_stride)
+    estimator = NCRFEstimator.from_lead_field(lead_field, noise, source_basis)
     if solver is None:
         solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
 

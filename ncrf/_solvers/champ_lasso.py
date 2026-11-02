@@ -253,7 +253,7 @@ class _ChampLassoState:
         # rather than writing into them, so the seeds can be shared.
         self.Gamma = list(self._init_gamma)
         self.Sigma_b = list(self._init_sigma_b)
-        self.theta = np.zeros((self.forward.lead_field.shape[1], data.design.n_coefficients), dtype=np.float64)
+        self.theta = np.zeros((self.forward.n_components, data.design.n_coefficients), dtype=np.float64)
 
     def _solve(
             self,
@@ -467,8 +467,10 @@ class ChampLassoFit(SolverFit):
     ----------
     theta
         Coefficients of the TRFs over the Gaussian basis atoms, shape
-        ``(n_sources, n_coefficients)`` with one column per basis atom and
-        stimulus channel (see :attr:`TRFDesign.n_coefficients`). This is not
+        ``(n_components, n_coefficients)`` with one column per basis atom and
+        stimulus channel (see :attr:`TRFDesign.n_coefficients`), and one row per
+        source and orientation, or per :class:`~ncrf.SourceBasis` atom and
+        orientation (see :attr:`ForwardModel.n_components`). This is not
         the response function itself: the covariates were projected onto the
         basis before fitting, so the TRF is recovered by multiplying the
         coefficients with the basis. Use :attr:`ncrf.NCRF.h` (or
@@ -479,7 +481,8 @@ class ChampLassoFit(SolverFit):
     gamma
         Per-segment source covariance estimates, each an array of shape
         ``(n_sources, dc, dc)`` holding the covariance of every source's
-        orientation components (``dc`` is 1 for fixed orientation).
+        orientation components (``dc`` is 1 for fixed orientation). With a
+        :class:`~ncrf.SourceBasis`, the atoms take the place of the sources.
     sigma_b
         Per-segment estimates of the sensor covariance of the whitened data under
         the model, i.e. the whitened noise covariance plus the lead field

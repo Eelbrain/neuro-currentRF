@@ -2,7 +2,7 @@
 
 :func:`fit_ncrf` provides the complete convenience workflow. The component API
 separates the :class:`RegressionData` dataset, the :class:`NCRFEstimator` fitting
-orchestrator, :class:`ForwardModel` and :class:`TRFDesign` model components,
+orchestrator, :class:`ForwardModel`, :class:`TRFDesign` and :class:`SourceBasis` model components,
 pluggable :class:`Solver` configurations, the reusable fitted :class:`NCRF`, and
 the accompanying :class:`NCRFFit` report.
 """
@@ -10,6 +10,7 @@ the accompanying :class:`NCRFFit` report.
 from ._trf_design import TRFDesign
 from ._data import RegressionData
 from ._forward import ForwardModel
+from ._source_basis import SourceBasis
 from ._crossvalidation import CrossValidation, CVResult, crossvalidate
 from ._model import NCRFEstimator, NCRF, NCRFFit, fit_model
 from ._metrics import explained_variance, l2_error

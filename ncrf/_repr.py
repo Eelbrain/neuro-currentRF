@@ -27,4 +27,7 @@ def _forward_summary(forward: ForwardModel) -> str:
     sensors = _count_repr(n_sensors, 'sensor')
     if forward.rank != n_sensors:
         sensors = f'{sensors} (rank {forward.rank})'
-    return f"{_count_repr(len(forward.source), 'source')}, {sensors}, {orientation} orientation"
+    sources = _count_repr(len(forward.source), 'source')
+    if forward.source_basis is not None:
+        sources = f"{sources} ({_count_repr(forward.source_basis.n_atoms, 'atom')})"
+    return f"{sources}, {sensors}, {orientation} orientation"
