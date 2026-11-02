@@ -368,15 +368,13 @@ class RegressionData:
         Parameters
         ----------
         **changes
-            Field values for the new dataset. The covariates are shared unless
-            the design changes, the responses unless the forward model changes.
+            Field values for the new dataset (``blocks`` and/or ``forward``). The
+            covariates are shared, the responses unless the forward model changes.
         """
         out = replace(self, **changes)
-        shared = []
-        if 'design' not in changes:
-            shared.append('_segment_covariates')
-            if 'blocks' not in changes:
-                shared.append('EtE')
+        shared = ['_segment_covariates']
+        if 'blocks' not in changes:
+            shared.append('EtE')
         if 'forward' not in changes:
             shared.append('_segment_responses')
             if 'blocks' not in changes:
@@ -386,8 +384,23 @@ class RegressionData:
                 out.__dict__[key] = self.__dict__[key]
         return out
 
+    def _record_normalization(
+            self,
+            baseline: FloatArray | None,
+            scaling: FloatArray | None,
+            scale: ScaleArg,
+            covariates: list[FloatArray] | None = None,
+    ) -> RegressionData:
+        """Update the design to the normalization applied to the predictors, and discard the derived arrays that it invalidates (or take over rescaled ``covariates``)."""
+        self.design = replace(self.design, stim_baseline=baseline, stim_scaling=scaling, scale=scale)
+        for key in ('_segment_covariates', 'EtE', 'bE'):
+            self.__dict__.pop(key, None)
+        if covariates is not None:
+            self.__dict__['_segment_covariates'] = covariates
+        return self
+
     def normalize(self, design: TRFDesign | Scale) -> RegressionData:
-        """Normalize the predictors in place, and return the dataset with the updated design.
+        """Normalize the predictors in place, and return this dataset with its design updated.
 
         The normalization is either derived from this dataset, for data a model is
         fit on, or taken from a design, for data a fitted model is applied to. A
@@ -402,11 +415,13 @@ class RegressionData:
         layer records the values it applied (``data.x.mean``, ``data.x.scale``),
         and the design records them as ``stim_baseline`` and ``stim_scaling``.
 
-        The predictor arrays are modified in place and hence shared with the
-        returned dataset; the returned dataset should be used from then on.
-        Normalizing a dataset that is already normalized is an error, since the
-        normalization recorded on its design describes the predictors on their
-        original scale.
+        The dataset is modified: its predictor arrays are normalized in place,
+        and its design and derived arrays follow. It is also returned, for
+        ``data = data.normalize(...)``. Datasets derived from it earlier (through
+        :meth:`subset` or :meth:`whiten`) share the predictors but keep their own
+        design and arrays, so normalize before deriving. Normalizing a dataset
+        that is already normalized is an error, since the normalization recorded
+        on its design describes the predictors on their original scale.
 
         Parameters
         ----------
@@ -441,7 +456,7 @@ class RegressionData:
                 _check_scaling(design.stim_scaling, design.scale, data.x.names)
             if design.stim_baseline is not None or design.stim_scaling is not None:
                 data.x.normalize(False if design.stim_baseline is None else design.stim_baseline, 1. if design.stim_scaling is None else design.stim_scaling)
-            return self._derive(design=replace(self.design, stim_baseline=design.stim_baseline, stim_scaling=design.stim_scaling, scale=design.scale))
+            return self._record_normalization(design.stim_baseline, design.stim_scaling, design.scale)
         scale = design
         if scale not in SCALES:
             raise ValueError(f"{scale=}, need one of {SCALES} or a TRFDesign")
@@ -450,21 +465,19 @@ class RegressionData:
         data.x.check()
         if scale == 'spectral':
             data.x.normalize(True, 1.)
-            centered = self._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=None, scale=None))
-            scaling = centered._spectral_norms()
+            self._record_normalization(data.x.mean, None, None)
+            scaling = self._spectral_norms()  # builds the centered covariates
             _check_scaling(scaling, scale, data.x.names)
             data.x.normalize(False, scaling)
             # The covariates are linear in the predictors, so the centered ones can
-            # be rescaled in place and handed over rather than rebuilt
-            covariates = centered.__dict__.pop('_segment_covariates')
+            # be rescaled in place rather than rebuilt
+            covariates = self._segment_covariates
             factors = self.design.expand(scaling)
             for cov in covariates:
                 cov /= factors
-            out = centered._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=data.x.scale, scale=scale))
-            out.__dict__['_segment_covariates'] = covariates
-            return out
+            return self._record_normalization(data.x.mean, data.x.scale, scale, covariates)
         data.x.normalize(True, scale)
-        return self._derive(design=replace(self.design, stim_baseline=data.x.mean, stim_scaling=data.x.scale, scale=scale))
+        return self._record_normalization(data.x.mean, data.x.scale, scale)
 
     def whiten(self, forward: ForwardModel) -> RegressionData:
         """Return a dataset whose responses are whitened with ``forward``.

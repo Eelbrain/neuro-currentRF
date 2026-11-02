@@ -460,9 +460,26 @@ def test_normalize_matches_from_data(scale):
 
     normalized = raw.normalize(expected.design)
     np.testing.assert_allclose(normalized.covariates[0], expected.covariates[0])
-    # the predictors are normalized in place, so the source dataset shares them
-    assert normalized.data is raw.data
+    # the predictors are normalized in place, and the dataset itself is updated
+    assert normalized is raw
     np.testing.assert_array_equal(raw.data.x.mean, expected.design.stim_baseline)
+
+
+@pytest.mark.parametrize('scale', ['l2', 'spectral'])
+def test_normalize_updates_dataset(scale):
+    """normalize() keeps the dataset consistent: derived arrays built before follow the predictors."""
+    expected = _synthetic_data(scale)
+    for design in (scale, expected.design):
+        raw = _synthetic_data()
+        stale = raw.covariates[0].copy()
+        raw.EtE
+
+        assert raw.normalize(design) is raw
+
+        assert raw.design.scale == scale
+        assert not np.allclose(raw.covariates[0], stale)
+        np.testing.assert_allclose(raw.covariates[0], expected.covariates[0])
+        np.testing.assert_allclose(raw.EtE[0], expected.EtE[0])
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
