@@ -250,6 +250,14 @@ class RegressionData:
         return sum(stop - start for _, start, stop in self.blocks)
 
     @property
+    def segment_blocks(self) -> dict[int, list[int]]:
+        """Indices into :attr:`blocks` (and :attr:`responses`, :attr:`covariates`) grouped by data segment, ``{i_segment: [i_block, ...]}``."""
+        out = {}
+        for i, (i_segment, _, _) in enumerate(self.blocks):
+            out.setdefault(i_segment, []).append(i)
+        return out
+
+    @property
     def norm_factor(self) -> float:
         """Square root of the mean number of samples per block, by which responses and covariates are normalized.
 

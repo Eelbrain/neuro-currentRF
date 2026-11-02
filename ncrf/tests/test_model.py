@@ -11,8 +11,9 @@ import pytest
 
 from eelbrain.trf import split_data
 
-from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
+from ncrf import ChampLassoFit, CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._linalg import gaussian_basis
+from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf._metrics import merge_scores
 from ncrf._model import _score_fit
 from ncrf._typing import FloatArray
@@ -318,6 +319,28 @@ def _forward(seed: int = 1, noise_covariance: FloatArray | None = None) -> Forwa
 def _model(design: TRFDesign, n_coefficients: int, seed: int = 1) -> NCRF:
     rng = np.random.RandomState(seed)
     return NCRF(_forward(seed), rng.normal(size=(4, n_coefficients)), design)
+
+
+def test_champ_lasso_score_by_segment():
+    """ChampLassoFit scores held-out data with the covariance of its own segment, not by block position."""
+    data = _synthetic_data('l2', n_segments=3).whiten(_forward())
+    forward = data.forward
+    theta = np.random.RandomState(2).normal(size=(4, data.design.n_coefficients))
+    sigma_b = {i: np.eye(3) * (i + 1) for i in range(2)}  # fit on segments 0 and 1
+    fit = ChampLassoFit(theta, ChampLassoHistory(), {}, sigma_b)
+
+    # a block of the second segment (samples 200-400 on the concatenated axis)
+    held_out = data.subset([[300, 350]])
+    assert held_out.blocks == [(1, 100, 150)]
+    scores = fit.score(forward, held_out)
+    meg, covariates = held_out.responses[0], held_out.covariates[0]
+    residual = (meg - forward.whitened_lead_field @ theta @ covariates.T) / held_out.norm_factor
+    weighted_l2_error = 0.5 * (residual ** 2).sum() / 2  # sigma_b[1] = 2 I
+    np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
+    np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * np.log(np.linalg.det(sigma_b[1])))
+    # a segment the fit has no covariance for can not be scored
+    with pytest.raises(ValueError, match="has none for segment 2"):
+        fit.score(forward, data.subset([[500, 550]]))
 
 
 def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, FloatArray]:

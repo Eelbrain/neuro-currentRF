@@ -204,4 +204,6 @@ Implementation
   previously per-source loops over Cython kernels, are vectorized over sources
   with NumPy; the Champagne iterations are about four times faster.
 - :attr:`ncrf.ChampLassoFit.gamma` holds one array of shape
-  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices.
+  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices;
+  like :attr:`ncrf.ChampLassoFit.sigma_b`, it is a dictionary keyed by the
+  index of the data segment.
