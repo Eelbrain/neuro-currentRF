@@ -13,6 +13,7 @@ from eelbrain.trf import split_data
 
 from ncrf import ChampLassoFit, CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._linalg import gaussian_basis
+from ncrf._solvers import champ_lasso
 from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf._metrics import merge_scores
 from ncrf._model import _score_fit
@@ -341,6 +342,29 @@ def test_champ_lasso_score_by_segment():
     # a segment the fit has no covariance for can not be scored
     with pytest.raises(ValueError, match="has none for segment 2"):
         fit.score(forward, data.subset([[500, 550]]))
+
+
+def test_champagne_covariances_per_segment():
+    """Champagne's per-segment seeds and residual covariances average over the segment's own samples, whatever the other segments' lengths."""
+    rng = np.random.RandomState(0)
+    times = [UTS(0, 0.01, 300), UTS(0, 0.01, 100)]
+    meg = Datalist([NDVar(rng.normal(size=(3, len(time))), (SENSOR, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None).whiten(_forward())
+    forward = data.forward
+    theta = np.zeros((4, data.design.n_coefficients))
+    gamma, sigma_b = champ_lasso._mne_seeds(forward, data)
+
+    for i_segment in range(2):
+        alone = RegressionData.from_data(meg[i_segment], stim[i_segment], 0, 0.05, scale=None).whiten(forward)
+        assert alone.blocks == [(0, *data.blocks[i_segment][1:])]
+        gamma_alone, sigma_b_alone = champ_lasso._mne_seeds(forward, alone)
+        np.testing.assert_allclose(gamma[i_segment], gamma_alone[0])
+        np.testing.assert_allclose(sigma_b[i_segment], sigma_b_alone[0])
+        # the residual factor represents the segment's sample covariance
+        yhat = champ_lasso._residual_factor(forward, theta, data, data.segment_blocks[i_segment])
+        y = data.responses[i_segment]
+        np.testing.assert_allclose(yhat @ yhat.T, y @ y.T / y.shape[1])
 
 
 def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, FloatArray]:

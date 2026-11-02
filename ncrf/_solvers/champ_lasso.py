@@ -170,13 +170,15 @@ def _residual_factor(
     the rank-revealing one has the fewest columns, which sets the size of the
     per-source auxiliary arrays ``X_i`` in the Champagne sweep.
 
-    The residual is divided by the dataset's :attr:`RegressionData.norm_factor`,
-    which neither the responses nor the covariates are divided by.
+    ``yhat @ yhat.T`` is the sample covariance of the segment's residual,
+    ``y @ y.T / n_times``: the covariance update averages over the segment's
+    own samples, whatever the length of the other segments.
     """
     projection = np.dot(forward.whitened_lead_field, theta)
     responses, covariates = data.responses, data.covariates
-    y = np.concatenate([responses[i] - np.dot(projection, covariates[i].T) for i in blocks], axis=1) / data.norm_factor
-    return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
+    y = np.concatenate([responses[i] - np.dot(projection, covariates[i].T) for i in blocks], axis=1)
+    n_times = y.shape[1]
+    return _low_rank_sqrt(np.dot(y, y.T) / n_times, n_times)
 
 
 def _evaluate_objective(
@@ -228,9 +230,7 @@ def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[dict[int, F
     init_sigma_b = {}
     responses = data.responses
     for i_segment, blocks in data.segment_blocks.items():
-        y = np.concatenate([responses[i] for i in blocks], axis=1)
-        t = y.shape[1]
-        gamma, data_cov = forward.mne_initializer(y * (t ** 0.5 / data.norm_factor))
+        gamma, data_cov = forward.mne_initializer(np.concatenate([responses[i] for i in blocks], axis=1))
         init_gamma[i_segment] = gamma.reshape(-1, forward.dc, 1) * np.eye(forward.dc)
         init_sigma_b[i_segment] = forward.whitened_noise_covariance + data_cov
     _seed_cache[data] = (forward, init_gamma, init_sigma_b)
