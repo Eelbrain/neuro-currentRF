@@ -40,6 +40,24 @@ jobs:
       run: |
         python -m pip install .[test]
         rm -rf ncrf
+    # The whole test-data directory is cached: fetch_dataset() replaces it when
+    # version.txt is missing or outdated, so caching subjects/ alone would not survive.
+    - name: Locate test data
+      id: testdata
+      shell: bash -el {0}
+      run: |
+        python -c "from pathlib import Path; import ncrf.tests.fetch as f; print(f'path={Path(f.__file__).resolve().parents[2] / f.folder_name}'); print(f'release={f.RELEASE}')" >> "$GITHUB_OUTPUT"
+    - name: Cache test data
+      id: cache-testdata
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.testdata.outputs.path }}
+        key: ncrf-testing-data-${{ steps.testdata.outputs.release }}-${{ runner.os }}
+    - if: steps.cache-testdata.outputs.cache-hit != 'true'
+      name: Fetch test data, including fsaverage
+      shell: bash -el {0}
+      run: |
+        python -c "from ncrf.tests.fetch import load; load('fwd_sol', geometry=True)"
     - if: ${{ matrix.cc }}
       name: Test with pytest and code-cov
       shell: bash -el {0}
