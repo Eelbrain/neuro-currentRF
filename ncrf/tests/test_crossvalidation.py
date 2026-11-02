@@ -130,6 +130,9 @@ def test_cross_validation_rejects_invalid_splits():
         CrossValidation(splits=0)
     with pytest.raises(TypeError, match="need the number of partitions or an eelbrain Splits"):
         CrossValidation(splits='3')
+    with pytest.raises(TypeError, match="splits=True: need the number of partitions"):
+        CrossValidation(splits=True)
+    assert CrossValidation(splits=np.int64(2)).splits == 2
     # true cross-validation with a test set is not implemented yet
     with pytest.raises(NotImplementedError, match="test set is not implemented"):
         CrossValidation(split_data(segments, 3, validate=1, test=1))

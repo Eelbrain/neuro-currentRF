@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass
 from math import ceil
 from multiprocessing import Pool
+from numbers import Integral
 from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
@@ -66,7 +67,7 @@ class CrossValidation:
                 raise NotImplementedError(f"{splits}: cross-validation with a test set is not implemented; create the splits with test=0")
             elif not splits.n_validate:
                 raise ValueError(f"{splits}: no validation set to score candidates on; create the splits with validate=1")
-        elif isinstance(splits, int):
+        elif isinstance(splits, Integral) and not isinstance(splits, bool):
             if splits < 1:
                 raise ValueError(f"{splits=}: need at least one cross-validation fold")
         else:
