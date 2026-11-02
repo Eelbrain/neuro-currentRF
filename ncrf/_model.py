@@ -501,9 +501,10 @@ class NCRFExecutionContext(ExecutionContext):
     """Context in which an :class:`NCRF` was fitted.
 
     Stored as :attr:`NCRFFit.execution_context`. Extends Eelbrain's
-    :class:`~eelbrain.ExecutionContext` with the ncrf version.
+    ``ExecutionContext``, which records the time, duration, package versions and
+    platform of a fit, with the ncrf version.
 
-    Attributes
+    Parameters
     ----------
     ncrf_version
         ncrf version used for the fit.
