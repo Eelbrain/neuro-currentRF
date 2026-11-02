@@ -97,6 +97,7 @@ def test_ncrf():
     assert_dataobj_equal(result_2.model.h_scaled, result.model.h_scaled)
     np.testing.assert_equal(result_2.scores['cross_fit'], result.scores['cross_fit'])
     np.testing.assert_equal(result_2.model.design.basis_std, result.model.design.basis_std)
+    assert result_2.execution_context == result.execution_context
     # the model alone round-trips and reproduces h
     model_2 = pickle.loads(pickle.dumps(result.model, pickle.HIGHEST_PROTOCOL))
     assert_dataobj_equal(model_2.h, result.model.h)

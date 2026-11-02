@@ -20,6 +20,7 @@ classifiers = [
   'Programming Language :: Python :: 3.13',
 ]
 dependencies = [
+  'eelbrain>=0.43.0b3',
   'numpy>=1.23,<3',
 ]
 description='add-on module to eelbrain for neural current RF estimation'

@@ -2,6 +2,7 @@
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 from dataclasses import dataclass, replace
+from importlib.metadata import version
 import pickle
 from unittest.mock import MagicMock, Mock
 
@@ -9,7 +10,7 @@ import mne
 import numpy as np
 import pytest
 
-from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
+from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, NCRFExecutionContext, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._metrics import merge_scores
@@ -17,6 +18,7 @@ from ncrf._model import _score_fit
 from ncrf._typing import FloatArray
 from .fetch import load
 
+import eelbrain
 from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
 
 
@@ -90,6 +92,13 @@ def test_fit_accepts_generic_solver(monkeypatch):
     }
     prediction = result.model.predict(data)
     np.testing.assert_array_equal(prediction[0], np.zeros((1, 4)))
+    # the fit records its execution context; no cross-validation, so no workers
+    context = result.execution_context
+    assert isinstance(context, NCRFExecutionContext)
+    assert context.ncrf_version == version('ncrf')
+    assert context.eelbrain_version == eelbrain.__version__
+    assert context.duration >= 0
+    assert context.n_workers is None
 
     # a searching solver decides the configuration and hands back its cv results
     searching_solver = Mock(spec=Solver)
@@ -102,6 +111,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
 
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
+    assert result.execution_context.n_workers == 0
     # search() gets what it needs to cross-validate on the configured folds
     searching_solver.search.assert_called_once_with(data, cv)
 

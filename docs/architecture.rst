@@ -133,6 +133,9 @@ deliberately separate lifetimes and responsibilities:
     Training-set prediction metrics plus any scores contributed by the solver.
 ``voxelwise_explained_variance``
     Optional source-wise training diagnostic.
+``execution_context``
+    When, how long and in which environment the fit ran
+    (:class:`~ncrf.NCRFExecutionContext`).
 
 To evaluate new data, prepare it with the same predictor layout, time step, and
 TRF settings, and apply the training-data normalization to it (see

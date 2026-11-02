@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+from importlib.metadata import version
+import time
 from typing import Any
 from collections.abc import Sequence
 
-from eelbrain import NDVar, Sensor, UTS, fmtxt
+from eelbrain import ExecutionContext, NDVar, Sensor, UTS, fmtxt
 import numpy as np
 
 from ._crossvalidation import CrossValidation, CVResult
@@ -468,6 +470,7 @@ class NCRFEstimator:
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
+        t_start = time.time()
         data = data.whiten(self._forward_for(data.sensor_dim))
         if cv is None:
             cv = CrossValidation()
@@ -479,6 +482,9 @@ class NCRFEstimator:
         else:
             voxelwise = None
 
+        t_done = time.time()
+        n_workers = cv.worker_processes() if cv_results else None
+        execution_context = NCRFExecutionContext.collect(t_start, t_done, n_workers, ncrf_version=version('ncrf'))
         return NCRFFit(
             model,
             solver=solver,
@@ -486,7 +492,23 @@ class NCRFEstimator:
             scores=scores,
             voxelwise_explained_variance=voxelwise,
             cv_results=cv_results or None,
+            execution_context=execution_context,
         )
+
+
+@dataclass(frozen=True)
+class NCRFExecutionContext(ExecutionContext):
+    """Context in which an :class:`NCRF` was fitted.
+
+    Stored as :attr:`NCRFFit.execution_context`. Extends Eelbrain's
+    :class:`~eelbrain.ExecutionContext` with the ncrf version.
+
+    Attributes
+    ----------
+    ncrf_version
+        ncrf version used for the fit.
+    """
+    ncrf_version: str | None = None
 
 
 class NCRFFit:
@@ -526,6 +548,9 @@ class NCRFFit:
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
+    execution_context
+        When, how long and in which environment the model was fitted (see
+        :class:`NCRFExecutionContext`).
 
     Notes
     -----
@@ -543,6 +568,7 @@ class NCRFFit:
             scores: dict[str, float],
             voxelwise_explained_variance: NDVar | None,
             cv_results: list[CVResult] | None,
+            execution_context: NCRFExecutionContext,
     ) -> None:
         self.model = model
         self.solver = solver
@@ -550,6 +576,7 @@ class NCRFFit:
         self.scores = scores
         self.voxelwise_explained_variance = voxelwise_explained_variance
         self._cv_results = cv_results
+        self.execution_context = execution_context
 
     def __repr__(self) -> str:
         forward = self.model.forward
