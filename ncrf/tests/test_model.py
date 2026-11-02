@@ -9,6 +9,8 @@ import mne
 import numpy as np
 import pytest
 
+from eelbrain.trf import split_data
+
 from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._linalg import gaussian_basis
 from ncrf._metrics import merge_scores
@@ -103,6 +105,14 @@ def test_fit_accepts_generic_solver(monkeypatch):
     assert result._cv_results is cv_results
     # search() gets what it needs to cross-validate on the configured folds
     searching_solver.search.assert_called_once_with(data, cv)
+
+    # an Eelbrain Splits object stands in for a CrossValidation with those folds
+    splits = split_data(np.array([[0, 100]]), 4, validate=1, test=0)
+    searching_solver.search.reset_mock()
+
+    estimator.fit(data, searching_solver, cv=splits)
+
+    searching_solver.search.assert_called_once_with(data, CrossValidation(splits))
 
 
 def test_default_search_contract():

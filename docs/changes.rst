@@ -31,14 +31,9 @@ API changes
   ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used
   to yield 51. The window is derived with :func:`eelbrain.trf.lag_window`, the
   function :func:`eelbrain.boosting` uses.
-- **Cross-validation uses Eelbrain's partitioning.** The default scheme is
-  unchanged: the last ``n_splits`` windows of every segment are held out one
-  at a time for validation, with the candidates fit to the data preceding the
-  window (now ``split='ncrf'`` in :func:`eelbrain.trf.split_data`). The gap
-  of one TRF length between training and validation data is gone, so the
-  selected ``mu`` can differ slightly from previous versions. Any other
-  Eelbrain scheme can be used by passing an :class:`eelbrain.trf.Splits`
-  object as ``CrossValidation(splits=...)``.
+- **More flexible cross-validation:** :meth:`NCRFEstimator.fit` now accepts any
+  Eelbrain cross-validation scheme as ``cv`` (any :class:`eelbrain.trf.Splits`
+  instance, created through :func:`eelbrain.split_data`) .
 - **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
   time)``.
 

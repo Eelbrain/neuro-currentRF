@@ -16,7 +16,7 @@ from typing import Any
 from collections.abc import Sequence
 
 from eelbrain import NDVar, Sensor, UTS, fmtxt
-from eelbrain.trf import package_values
+from eelbrain.trf import Splits, package_values
 import numpy as np
 
 from ._crossvalidation import CrossValidation, CVResult
@@ -440,7 +440,7 @@ class NCRFEstimator:
             data: RegressionData,
             solver: Solver,
             *,
-            cv: CrossValidation | None = None,
+            cv: CrossValidation | Splits | None = None,
             verbose: bool = False,
             compute_explained_variance: bool = False,
     ) -> NCRFFit:
@@ -459,6 +459,8 @@ class NCRFEstimator:
         cv
             Cross-validation configuration: the folds (a number of partitions,
             or an :class:`eelbrain.trf.Splits` object) and the worker count.
+            An :class:`eelbrain.trf.Splits` object by itself uses its
+            validation splits as the folds with the default worker count.
             Defaults to :class:`CrossValidation`; unused when the solver does
             not cross-validate.
         verbose
@@ -476,6 +478,8 @@ class NCRFEstimator:
         data = data.whiten(self._forward_for(data.sensor_dim))
         if cv is None:
             cv = CrossValidation()
+        elif isinstance(cv, Splits):
+            cv = CrossValidation(cv)
         solver, cv_results = solver.search(data, cv)
         model, solver_fit = fit_model(data, solver, verbose)
         scores = _score_fit(model, solver_fit, data)
