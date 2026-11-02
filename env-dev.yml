@@ -2,10 +2,11 @@
 # usage: $ conda env create --file=env-dev.yml
 name: ncrf
 channels:
+- conda-forge/label/eelbrain_dev  # Eelbrain pre-releases
 - conda-forge
 dependencies:
 - pip
-- eelbrain >= 0.34
+- eelbrain >= 0.43.0b3
   # docs
 - sphinx
 - sphinx-gallery

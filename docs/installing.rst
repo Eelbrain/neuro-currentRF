@@ -1,6 +1,6 @@
 Installing
 ==========
-NCRF relies on: `Eelbrain` (`Download/ Installation Instructions <https://github.com/christianbrodbeck/Eelbrain/wiki/Installing#release>`_)
+NCRF relies on `Eelbrain <https://eelbrain.readthedocs.io>`_ version 0.43 or later (`Installation Instructions <https://eelbrain.readthedocs.io/en/latest/installing.html>`_).
 
 We recommend using `mamba` as package manager.
 
