@@ -103,9 +103,9 @@ class TRFDesign:
         """
         blocks = list(data.x.blocks)
         tstep = data.time.tstep
-        starts, stops = lag_window(tstart, tstop, tstep, len(blocks))
-        tstart = list(tstart) if isinstance(tstart, (Sequence, np.ndarray)) else [tstart] * len(blocks)
-        tstop = list(tstop) if isinstance(tstop, (Sequence, np.ndarray)) else [tstop] * len(blocks)
+        starts, stops = lag_window(tstart, tstop, tstep, len(blocks))  # also validates the per-predictor format
+        tstart = [float(t) for t in np.broadcast_to(tstart, len(blocks))]
+        tstop = [float(t) for t in np.broadcast_to(tstop, len(blocks))]
         if basis_stride < 1:
             raise ValueError(f"{basis_stride=}: need an integer >= 1")
         basis = []
