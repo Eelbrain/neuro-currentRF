@@ -175,11 +175,11 @@ class ForwardModel:
 
     @property
     def n_components(self) -> int:
-        """Number of coefficient rows the solver estimates: atoms (or sources) times orientations."""
+        """Number of coefficient rows the solver estimates, the number of atoms (or sources) times orientations."""
         return self.whitened_lead_field.shape[1]
 
     def expand(self, theta: FloatArray) -> FloatArray:
-        """Map coefficients over :attr:`whitened_lead_field`'s components onto the sources.
+        """Map coefficients over :attr:`~ncrf.ForwardModel.whitened_lead_field`'s components onto the sources.
 
         Parameters
         ----------
@@ -188,7 +188,7 @@ class ForwardModel:
 
         Returns
         -------
-        ndarray
+        numpy.ndarray
             Coefficients over the sources, shape ``(n_sources * dc, n_columns)``;
             ``theta`` itself without a :attr:`source_basis`.
         """

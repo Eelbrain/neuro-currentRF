@@ -157,7 +157,7 @@ class SourceBasis:
 
         Returns
         -------
-        ndarray
+        numpy.ndarray
             Lead field over the atoms, shape ``(n_channels, n_atoms * dc)``, with
             each atom's orientation components in adjacent columns.
         """
@@ -179,7 +179,7 @@ class SourceBasis:
 
         Returns
         -------
-        ndarray
+        numpy.ndarray
             Coefficients over the sources, shape ``(n_sources * dc, n_columns)``.
         """
         n_columns = coefficients.shape[1]
