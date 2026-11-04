@@ -66,6 +66,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
         lead_field=np.ones((1, 1)),
         lead_field_scaling=1.0,
         sensor=SENSOR,
+        expand=lambda theta: theta,
     )
     estimator = NCRFEstimator()
     monkeypatch.setattr(NCRFEstimator, '_forward_for', lambda self, sensor: forward)

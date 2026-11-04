@@ -73,6 +73,15 @@ derived forward model is attached to the whitened :class:`~ncrf.RegressionData`,
 and the fitted :class:`~ncrf.NCRF` retains it to apply the same transform when
 predicting.
 
+The estimator can also hold a :class:`~ncrf.SourceBasis`, the spatial
+counterpart of the TRF basis: Gaussian atoms over the source space, each
+carrying all orientation components of its sources. The derived forward model
+then presents the solver with the lead field of the atoms, so the solver treats
+them as sources and needs no knowledge of the basis; the fitted coefficients
+are expanded back onto the sources (:meth:`~ncrf.ForwardModel.expand`) when the
+model reconstructs TRFs, predicts sensor data, or attributes explained variance
+to sources.
+
 Solvers and cross-validation
 ----------------------------
 

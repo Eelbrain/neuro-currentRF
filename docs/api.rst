@@ -64,3 +64,4 @@ Model components
 
     ForwardModel
     TRFDesign
+    SourceBasis

@@ -587,7 +587,9 @@ class RegressionData:
             Its whitening filter is applied to the responses, and it is recorded
             as :attr:`forward`. If the dataset is already whitened with an
             equivalent forward model (same lead field and noise covariance), it
-            is returned unchanged.
+            is returned unchanged, or, if the two differ only in their
+            :attr:`~ncrf.ForwardModel.source_basis`, which does not affect the
+            whitening, with ``forward`` recorded in place of its current one.
 
         Raises
         ------
@@ -599,14 +601,26 @@ class RegressionData:
             filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
         _assert_sensors_equal(self.sensor_dim.names, forward.sensor.names, 'data', 'forward model')
+        # The covariates do not depend on the whitening, so they can always be shared
+        shared = ('covariates', 'EtE')
         if self.forward is not None:
             current = self.forward
-            if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field, atol=0) and np.allclose(current.noise_covariance, forward.noise_covariance, atol=0)):
+            if current is forward:
                 return self
-            raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
+            if not (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field, atol=0) and np.allclose(current.noise_covariance, forward.noise_covariance, atol=0)):
+                raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
+            if forward.source_basis is None:
+                same_basis = current.source_basis is None
+            else:
+                same_basis = forward.source_basis.equals(current.source_basis)
+            if same_basis:
+                return self
+            # The forward models differ only in their source basis, which the
+            # solver reads from the dataset's forward model; the whitened
+            # responses are the same, so they can be shared as well
+            shared = ('covariates', 'EtE', 'responses', 'bbt', 'bE')
         data = replace(self, forward=forward)
-        # The covariates do not depend on the whitening, so share them
-        for key in ('covariates', 'EtE'):
+        for key in shared:
             if key in self.__dict__:
                 data.__dict__[key] = self.__dict__[key]
         return data

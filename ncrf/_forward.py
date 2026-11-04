@@ -14,6 +14,7 @@ from scipy import linalg
 from ._initialization import MNEInitializer
 from ._pickle import pickle_state
 from ._repr import _forward_summary
+from ._source_basis import SourceBasis
 from ._typing import FloatArray, NoiseArg
 
 #: Relative eigenvalue threshold below which a direction of the noise covariance is
@@ -109,6 +110,11 @@ class ForwardModel:
     eigenvalues above a small fraction of the largest, chosen to separate removed
     directions from measured noise (see ``_RANK_TOL`` in the source).
 
+    With a :attr:`source_basis`, the solver estimates coefficients over its atoms
+    rather than over the sources: :attr:`whitened_lead_field` is then the lead
+    field of the atoms, and :meth:`expand` maps coefficients back onto the
+    sources.
+
     Parameters
     ----------
     lead_field
@@ -123,6 +129,9 @@ class ForwardModel:
         Sensor dimension of the forward model.
     space
         Orientation dimension (``None`` for fixed orientation).
+    source_basis
+        Spatial basis over :attr:`source` (``None`` to estimate coefficients for
+        each source).
     """
 
     lead_field: FloatArray
@@ -130,16 +139,18 @@ class ForwardModel:
     source: SourceSpace | VolumeSourceSpace
     sensor: Sensor
     space: Space | None
+    source_basis: SourceBasis | None = None
     #: Rank of :attr:`~ncrf.ForwardModel.noise_covariance`, i.e. the number of whitened channels.
     rank: int = field(init=False)
     #: Whitening filter, shape ``(rank, n_sensors)``: the inverse square root of
     #: :attr:`~ncrf.ForwardModel.noise_covariance` restricted to its ``rank`` leading eigenvectors.
     whitening_filter: FloatArray = field(init=False)
-    #: Whitened and spectrally normalized :attr:`~ncrf.ForwardModel.lead_field` used by solvers, shape ``(rank, n_sources)``.
+    #: Whitened and spectrally normalized :attr:`~ncrf.ForwardModel.lead_field` used by solvers, shape
+    #: ``(rank, n_components)``; with a :attr:`~ncrf.ForwardModel.source_basis`, the lead field of its atoms.
     whitened_lead_field: FloatArray = field(init=False)
     #: :attr:`~ncrf.ForwardModel.noise_covariance` transformed by :attr:`~ncrf.ForwardModel.whitening_filter`: the ``(rank, rank)`` identity.
     whitened_noise_covariance: FloatArray = field(init=False)
-    #: Spectral norm removed from the whitened lead field.
+    #: Spectral norm removed from :attr:`~ncrf.ForwardModel.whitened_lead_field`.
     lead_field_scaling: float = field(init=False)
 
     def __post_init__(self) -> None:
@@ -150,6 +161,8 @@ class ForwardModel:
             raise ValueError(f"lead_field of shape {self.lead_field.shape}; should be {(n_sensors, n_sources)} for {n_sensors} sensors and {len(self.source)} sources with {self.dc} orientation(s)")
         if self.noise_covariance.shape != (n_sensors, n_sensors):
             raise ValueError(f"noise covariance of shape {self.noise_covariance.shape}; should be {(n_sensors, n_sensors)} to match the {n_sensors} sensors of the lead field")
+        if self.source_basis is not None and self.source_basis.n_sources != len(self.source):
+            raise ValueError(f"source_basis over {self.source_basis.n_sources} sources; should be over the {len(self.source)} sources of the lead field")
         self._prewhiten()
 
     def __repr__(self) -> str:
@@ -160,13 +173,36 @@ class ForwardModel:
         """Number of orientation components per source."""
         return len(self.space) if self.space is not None else 1
 
+    @property
+    def n_components(self) -> int:
+        """Number of coefficient rows the solver estimates, the number of atoms (or sources) times orientations."""
+        return self.whitened_lead_field.shape[1]
+
+    def expand(self, theta: FloatArray) -> FloatArray:
+        """Map coefficients over :attr:`~ncrf.ForwardModel.whitened_lead_field`'s components onto the sources.
+
+        Parameters
+        ----------
+        theta
+            Coefficients, shape ``(n_components, n_columns)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Coefficients over the sources, shape ``(n_sources * dc, n_columns)``;
+            ``theta`` itself without a :attr:`source_basis`.
+        """
+        if self.source_basis is None:
+            return theta
+        return self.source_basis.expand(theta, self.dc)
+
     @cached_property
     def mne_initializer(self) -> MNEInitializer:
         """MNE-style initializer for :attr:`~ncrf.ForwardModel.whitened_lead_field`."""
         return MNEInitializer(self.whitened_lead_field)
 
     def source_block(self, i: int) -> slice:
-        """Column/row slice of source ``i``'s orientation components in stacked arrays."""
+        """Column/row slice of source (or atom) ``i``'s orientation components in stacked arrays."""
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
 
@@ -191,6 +227,8 @@ class ForwardModel:
             raise ValueError(f"noise covariance has channels without noise: {', '.join(self.sensor.names[i] for i in flat)}; exclude them from the data (mark them as bad) or supply noise for them")
         self.whitening_filter = v.T / np.sqrt(e)[:, None]
         self.whitened_lead_field = np.dot(self.whitening_filter, self.lead_field)
+        if self.source_basis is not None:
+            self.whitened_lead_field = self.source_basis.reduce(self.whitened_lead_field, self.dc)
         # wf @ C @ wf.T is the identity by construction (the kept eigenvectors are orthonormal)
         self.whitened_noise_covariance = np.eye(rank)
         self.lead_field_scaling = linalg.norm(self.whitened_lead_field, 2)
@@ -201,5 +239,6 @@ class ForwardModel:
         return pickle_state(self)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
+        state.setdefault('source_basis', None)  # pickled before source bases existed
         self.__dict__.update(state)
         self._prewhiten()
