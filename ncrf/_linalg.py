@@ -103,3 +103,73 @@ def compute_gamma(z: FloatArray, x: FloatArray) -> FloatArray:
     np.divide(1, e, out=e_inv, where=significant)
     w = (v * e_inv[:, None, :]) @ u
     return (w * d[:, None, :]) @ w.transpose(0, 2, 1)
+
+
+def compute_gamma_diagonal(z: FloatArray, x: FloatArray) -> FloatArray:
+    """Champagne update with diagonal source covariances, batched over sources.
+
+    The CHAMP_D variant of :func:`compute_gamma` (Wipf et al., 2010, Eq. 17):
+    each ``Gamma_i`` is restricted to a diagonal matrix, and the minimizer of
+    ``||X_i||^2_{Gamma_i^-1} + trace(Z_i' Gamma_i)`` (Eq. 12) under that
+    constraint is, for each orientation ``k``::
+
+        Gamma_i[k, k] = ||X_i[k, :]|| / sqrt(Z_i[k, k])
+
+    Parameters
+    ----------
+    z
+        Auxiliary matrices ``Z_i``, symmetric positive semi-definite, shape
+        ``(n_sources, dc, dc)``.
+    x
+        Auxiliary coefficients ``X_i``, shape ``(n_sources, dc, rank)``.
+
+    Returns
+    -------
+    ndarray
+        Updated (diagonal) source covariances, shape ``(n_sources, dc, dc)``.
+    """
+    z_diag = np.diagonal(z, axis1=1, axis2=2)  # (n_sources, dc)
+    # orientations without lead-field signal (relative to each source's largest)
+    # get no variance, as in compute_gamma
+    significant = z_diag > _R_tol * z_diag.max(axis=1, keepdims=True)
+    x_norm = np.sqrt((x ** 2).sum(axis=2))  # (n_sources, dc)
+    gamma_diag = np.zeros_like(z_diag)
+    np.divide(x_norm, np.sqrt(np.where(significant, z_diag, 1)), out=gamma_diag, where=significant)
+    n_sources, dc = z_diag.shape
+    gamma = np.zeros((n_sources, dc, dc), dtype=gamma_diag.dtype)
+    idx = np.arange(dc)
+    gamma[:, idx, idx] = gamma_diag
+    return gamma
+
+
+def compute_gamma_scalar(z: FloatArray, x: FloatArray) -> FloatArray:
+    """Champagne update with isotropic source covariances, batched over sources.
+
+    The CHAMP_S variant of :func:`compute_gamma` (Wipf et al., 2010, Eq. 17):
+    each ``Gamma_i = gamma_i I`` is restricted to a scalar multiple of the
+    identity, and the minimizer of ``||X_i||^2_{Gamma_i^-1} + trace(Z_i' Gamma_i)``
+    (Eq. 12) under that constraint is::
+
+        gamma_i = ||X_i||_F / sqrt(trace(Z_i))
+
+    Parameters
+    ----------
+    z
+        Auxiliary matrices ``Z_i``, symmetric positive semi-definite, shape
+        ``(n_sources, dc, dc)``.
+    x
+        Auxiliary coefficients ``X_i``, shape ``(n_sources, dc, rank)``.
+
+    Returns
+    -------
+    ndarray
+        Updated (isotropic) source covariances, shape ``(n_sources, dc, dc)``.
+    """
+    z_trace = np.trace(z, axis1=1, axis2=2)  # (n_sources,)
+    # sources without lead-field signal get no variance
+    significant = z_trace > _R_tol * z_trace.max()
+    x_norm = np.sqrt((x ** 2).sum(axis=(1, 2)))  # (n_sources,)
+    gamma_i = np.zeros_like(z_trace)
+    np.divide(x_norm, np.sqrt(np.where(significant, z_trace, 1)), out=gamma_i, where=significant)
+    dc = z.shape[1]
+    return gamma_i[:, None, None] * np.eye(dc)

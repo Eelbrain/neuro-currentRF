@@ -55,6 +55,20 @@ def test_champ_lasso_rejects_invalid_store(store):
         ChampLasso(mu=0.1, store=store)
 
 
+@pytest.mark.parametrize('gamma_update', ['diagnol', 'Full', '', None, ['full']])
+def test_champ_lasso_rejects_invalid_gamma_update(gamma_update):
+    with pytest.raises(ValueError, match='gamma_update='):
+        ChampLasso(mu=0.1, gamma_update=gamma_update)
+
+
+def test_champ_lasso_gamma_update_default_and_candidates():
+    assert ChampLasso().gamma_update == 'full'
+    # cross-validation candidates keep the setting
+    candidates = ChampLasso((0.1, 0.2), gamma_update='scalar').candidates(None, None)
+    assert [c.gamma_update for c in candidates] == ['scalar', 'scalar']
+    assert ChampLasso(0.1, gamma_update='diagonal').without_history().gamma_update == 'diagonal'
+
+
 def test_history_rejects_unknown_quantity():
     history = ChampLassoHistory(frozenset({'relative_change'}))
 
@@ -238,3 +252,43 @@ def test_ncrf_shifted_nonzero_lags():
         np.testing.assert_allclose(result_shifted.model.theta, result_0.model.theta)
         np.testing.assert_allclose(result_shifted.scores['cross_fit'], result_0.scores['cross_fit'])
         np.testing.assert_allclose(result_shifted.scores['explained_variance'], result_0.scores['explained_variance'])
+
+
+@pytest.mark.slow
+def test_ncrf_gamma_update():
+    """Each gamma parameterization fits, and its source covariances have the restricted structure."""
+    meg = load('meg').sub(time=(0, 5))
+    stim = load('stim').sub(time=(0, 5))
+    fwd = load('fwd_sol')
+    emptyroom = load('emptyroom')
+    kwargs = {'tstop': 0.2, 'scale': 'l1', 'mu': 0.0019444, 'n_iter': 2, 'n_iterc': 3, 'n_iterf': 10}
+
+    h = {}
+    for gamma_update in ('full', 'diagonal', 'scalar'):
+        solver = ChampLasso(
+            mu=kwargs['mu'], n_iter=kwargs['n_iter'], n_iterc=kwargs['n_iterc'], n_iterf=kwargs['n_iterf'],
+            tol=1e-3, store=('objective', 'gamma'), gamma_update=gamma_update,
+        )
+        result = fit_ncrf(meg, stim, fwd, emptyroom, **kwargs, solver=solver)
+        assert np.isfinite(result.scores['explained_variance'])
+        assert np.isfinite(result.model.h.x).all()
+        h[gamma_update] = result.model.h.x
+        gammas = result.solver_fit.history.gamma[-1]
+        for gamma in gammas:
+            dc = gamma.shape[1]
+            assert dc > 1  # free-orientation test data, so the variants differ
+            np.testing.assert_allclose(gamma, gamma.transpose(0, 2, 1))
+            if gamma_update == 'diagonal':
+                np.testing.assert_array_equal(gamma[:, ~np.eye(dc, dtype=bool)], 0)
+            elif gamma_update == 'scalar':
+                np.testing.assert_array_equal(gamma, gamma[:, :1, :1] * np.eye(dc))
+            else:
+                assert np.abs(gamma[:, ~np.eye(dc, dtype=bool)]).max() > 0
+
+        # the fit_ncrf() keyword is equivalent to configuring the solver
+        result_kw = fit_ncrf(meg, stim, fwd, emptyroom, **kwargs, tol=1e-3, gamma_update=gamma_update)
+        np.testing.assert_array_equal(result_kw.model.h.x, h[gamma_update])
+
+    # TRF values are ~1e-13, so compare relative to scale rather than with allclose's absolute tolerance
+    for variant in ('diagonal', 'scalar'):
+        assert np.linalg.norm(h[variant] - h['full']) > 1e-3 * np.linalg.norm(h['full'])

@@ -49,6 +49,7 @@ def fit_ncrf(
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
+        gamma_update: str = 'full',
 ) -> NCRFFit:
     r"""One shot function for cortical TRF localization.
 
@@ -125,9 +126,14 @@ def fit_ncrf(
         The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     solver
-        Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
-        iteration arguments are ignored; configure them on the solver. ``n_splits`` and
-        ``n_workers`` still configure the folds a searching solver is scored on.
+        Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol``,
+        ``gamma_update`` and the iteration arguments are ignored; configure them on
+        the solver. ``n_splits`` and ``n_workers`` still configure the folds a
+        searching solver is scored on.
+    gamma_update
+        Parameterization of the source covariances learned in the Champagne
+        iterations: ``'full'`` (unrestricted, the default), ``'diagonal'`` or
+        ``'scalar'`` (see :class:`~ncrf.ChampLasso`).
 
     Returns
     -------
@@ -226,7 +232,10 @@ def fit_ncrf(
     # trims further to the sensors of the data
     estimator = NCRFEstimator.from_lead_field(lead_field, noise)
     if solver is None:
-        solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
+        solver = ChampLasso(
+            mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES,
+            gamma_update=gamma_update,
+        )
 
     return estimator.fit(
         ds,
