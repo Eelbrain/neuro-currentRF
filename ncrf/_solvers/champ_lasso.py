@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from .._crossvalidation import crossvalidate
 from .._fastac import Fasta
-from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
+from .._linalg import _inv_sqrtm, _R_tol, compute_gamma, compute_gamma_diagonal, compute_gamma_scalar
 from .._penalties import g, g_group, proxg_group, shrink
 from .._repr import _count_repr, _theta_repr
 from .._typing import FloatArray, GradientFunction, MuArg, ObjectiveFunction
@@ -39,6 +39,15 @@ if TYPE_CHECKING:
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
 #: Names from this tuple are what :attr:`ChampLasso.store` selects from.
 QUANTITIES = ('objective', 'relative_change', 'theta', 'gamma', 'sigma_b')
+
+#: Champagne source-covariance updates :attr:`ChampLasso.gamma_update` selects
+#: from (Wipf et al., 2010, Eq. 17): unrestricted (CHAMP_M), diagonal (CHAMP_D)
+#: and isotropic (CHAMP_S) ``Gamma_i``.
+GAMMA_UPDATES = {
+    'full': compute_gamma,
+    'diagonal': compute_gamma_diagonal,
+    'scalar': compute_gamma_scalar,
+}
 
 #: Champagne iterations for the warm covariance solve at ``theta = 0``, used
 #: wherever a usable ``Sigma_b`` is needed before any FASTA step has run:
@@ -325,7 +334,7 @@ class _ChampLassoState:
         lhat_i = lhat.reshape(n_sensors, -1, dc).transpose(1, 0, 2)  # (n_sources, n_sensors, dc)
         x = gamma @ (lhat.T @ ytilde).reshape(-1, dc, ytilde.shape[1])  # X_i = Gamma_i L_i' y
         z = lhat_i.transpose(0, 2, 1) @ lhat_i  # Z_i = L_i' L_i
-        gamma = compute_gamma(z, x)
+        gamma = GAMMA_UPDATES[self.solver.gamma_update](z, x)
         lead_field = self.forward.whitened_lead_field
         lead_field_i = lead_field.reshape(n_sensors, -1, dc).transpose(1, 0, 2)
         # sum_i L_i Gamma_i L_i' as the single product (L_1 Gamma_1, L_2 Gamma_2, ...) L'
@@ -604,6 +613,13 @@ class ChampLasso(Solver):
         ``'sigma_b'``. The two scalars (``'objective'`` and ``'relative_change'``, the
         default) are cheap; the other three retain the full trajectory and are
         correspondingly large.
+    gamma_update
+        Parameterization of the source covariances ``Gamma_i`` learned in the
+        Champagne iterations (Wipf et al., 2010, Eq. 17): ``'full'`` (unrestricted
+        ``dc x dc`` matrices, CHAMP_M; the default), ``'diagonal'`` (diagonal
+        matrices, CHAMP_D) or ``'scalar'`` (a multiple of the identity, CHAMP_S).
+        The restricted variants are cheaper per iteration but cannot represent
+        correlations between the orientation components of a source.
     """
 
     mu: MuArg = 'auto'
@@ -613,11 +629,14 @@ class ChampLasso(Solver):
     tol: float = 1e-5
     use_es: bool = False
     store: Sequence[str] = ('objective', 'relative_change')
+    gamma_update: str = 'full'
 
     def __post_init__(self) -> None:
         # a bare string would be iterated character by character
         if isinstance(self.store, str) or not frozenset(self.store).issubset(QUANTITIES):
             raise ValueError(f"store={self.store!r}: expected a sequence with any of {QUANTITIES}")
+        if not isinstance(self.gamma_update, str) or self.gamma_update not in GAMMA_UPDATES:
+            raise ValueError(f"gamma_update={self.gamma_update!r}: expected one of {tuple(GAMMA_UPDATES)}")
 
     def without_history(self) -> ChampLasso:
         """Disable all per-iteration storage for cross-validation folds."""
