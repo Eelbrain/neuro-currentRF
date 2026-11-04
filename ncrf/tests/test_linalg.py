@@ -107,6 +107,7 @@ def test_compute_gamma_scalar_minimizes_cost(dc):
     assert gamma.shape == (len(z), dc, dc)
     for i in range(len(z)):
         np.testing.assert_array_equal(gamma[i], gamma[i, 0, 0] * np.eye(dc))
+
         def cost(log_g, z_i=z[i], x_i=x[i]):
             return _champagne_cost(np.exp(log_g) * np.eye(dc), z_i, x_i)
         res = optimize.minimize_scalar(cost)
