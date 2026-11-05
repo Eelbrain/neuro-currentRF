@@ -1,7 +1,8 @@
 [build-system]
 requires = [
     "setuptools >= 64.0.0",
-    ]
+    "setuptools_scm >= 6.2",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -33,12 +34,12 @@ license = 'MIT'
 license-files = ['LICENSE.txt']
 maintainers = [
   {email = 'proloyd94@gmail.com', name = 'Proloy Das'},
-  {name = 'Chrsitian Brodbeck'},
+  {name = 'Christian Brodbeck'},
 ]
 name = 'ncrf'
 readme = 'README.md'
 requires-python = '>=3.10'
-version = '0.5.0.dev0'
+dynamic = ["version"]
 
 [project.optional-dependencies]
 all = [
@@ -99,3 +100,5 @@ include-package-data = false
 
 [tool.setuptools.packages.find]
 include = ['ncrf*']
+
+[tool.setuptools_scm]

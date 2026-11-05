@@ -7,6 +7,7 @@ from datetime import date
 
 import eelbrain
 from intersphinx_registry import get_intersphinx_mapping
+from packaging.version import Version
 from sphinx_gallery.sorting import FileNameSortKey
 
 import ncrf
@@ -19,6 +20,29 @@ author = 'Proloy Das and Christian Brodbeck'
 copyright = f"{date.today().year}, {author}"  # noqa: A001
 package = ncrf.__name__
 gh_url = ""
+
+
+def _format_version_display(version_string):
+    parsed = Version(version_string)
+    display_parts = [parsed.base_version]
+    if parsed.pre:
+        pre_label, pre_number = parsed.pre
+        pre_label = {
+            'a': '\N{GREEK SMALL LETTER ALPHA}',
+            'b': '\N{GREEK SMALL LETTER BETA}',
+        }.get(pre_label, pre_label)
+        display_parts.extend((pre_label, str(pre_number)))
+    if parsed.dev is not None:
+        display_parts.extend(('dev', str(parsed.dev)))
+    if parsed.post is not None:
+        display_parts.extend(('post', str(parsed.post)))
+    return ' '.join(display_parts)
+
+
+# The displayed version.
+version = _format_version_display(ncrf.__version__)
+# The full version, including alpha/beta/rc tags.
+release = ncrf.__version__
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
@@ -71,7 +95,7 @@ suppress_warnings = [
 html_theme = 'alabaster'
 html_static_path = ['_static']
 html_css_files = ['custom.css']
-html_title = project
+html_title = f'{project} {version}'
 
 # -- autosummary -----------------------------------------------------------------------
 autosummary_generate = True
