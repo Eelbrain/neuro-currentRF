@@ -6,6 +6,39 @@ Changes
 0.5
 ---
 
+API changes
+^^^^^^^^^^^
+
+- **Data handling is shared with Eelbrain.** :class:`~ncrf.RegressionData` is
+  built on the dataset that :func:`eelbrain.boosting` uses (requires Eelbrain
+  0.43), and
+  :meth:`~ncrf.RegressionData.from_data` takes the same input layout: M/EEG data
+  as a single NDVar (with a ``case`` dimension for several segments) or a
+  :class:`~eelbrain.Datalist` for segments of unequal length, which are now
+  supported; predictors as one NDVar/Datalist per predictor variable. The
+  ``stim_is_single`` argument is gone, and ``meg``/``stim`` lists in
+  :func:`~ncrf.fit_ncrf` keep working as before. The dataset keeps one array per
+  segment, which is a view into the NDVar data where possible, and the
+  per-segment covariates are built once and shared by the datasets derived from
+  it. The ``samples`` field and ``timeslice()`` are replaced by ``blocks`` and
+  :meth:`~ncrf.RegressionData.subset`, and
+  :attr:`~ncrf.RegressionData.responses` and
+  :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
+  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices
+  the solver's objective is built from). The fit metrics and
+  :attr:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
+  whitened responses, and all scores are averages per sample.
+- **``tstop`` is exclusive.** TRF windows follow Eelbrain's time-axis
+  convention: ``tstop`` is the end of the window and not itself a lag, so
+  ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used
+  to yield 51. The window is derived with :func:`eelbrain.trf.lag_window`, the
+  function :func:`eelbrain.boosting` uses.
+- **More flexible cross-validation:** :meth:`NCRFEstimator.fit` now accepts any
+  Eelbrain cross-validation scheme as ``cv`` (any :class:`eelbrain.trf.Splits`
+  instance, created through :func:`eelbrain.split_data`) .
+- **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
+  time)``.
+
 Bug fixes
 ^^^^^^^^^
 
@@ -173,4 +206,6 @@ Implementation
   previously per-source loops over Cython kernels, are vectorized over sources
   with NumPy; the Champagne iterations are about four times faster.
 - :attr:`ncrf.ChampLassoFit.gamma` holds one array of shape
-  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices.
+  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices;
+  like :attr:`ncrf.ChampLassoFit.sigma_b`, it is a dictionary keyed by the
+  index of the data segment.

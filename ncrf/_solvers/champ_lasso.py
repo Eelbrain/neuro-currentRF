@@ -159,45 +159,68 @@ def _whiten_by_sigma_b(
 def _residual_factor(
         forward: ForwardModel,
         theta: FloatArray,
-        meg: FloatArray,
-        covariates: FloatArray,
+        data: RegressionData,
+        blocks: Sequence[int],
 ) -> FloatArray:
     """Low-rank factor of one segment's residual covariance.
 
-    The factor only ever enters through ``yhat @ yhat.T``, so any factor would
-    do; the rank-revealing one has the fewest columns, which sets the size of
-    the per-source auxiliary arrays ``X_i`` in the Champagne sweep.
+    ``blocks`` are the indices of the segment's blocks in ``data`` (see
+    :attr:`RegressionData.segment_blocks`), whose residuals are pooled. The
+    factor only ever enters through ``yhat @ yhat.T``, so any factor would do;
+    the rank-revealing one has the fewest columns, which sets the size of the
+    per-source auxiliary arrays ``X_i`` in the Champagne sweep.
+
+    ``yhat @ yhat.T`` is the sample covariance of the segment's residual,
+    ``y @ y.T / n_times``: the covariance update averages over the segment's
+    own samples, whatever the length of the other segments.
     """
-    y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T)
-    return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
+    projection = np.dot(forward.whitened_lead_field, theta)
+    responses, covariates = data.responses, data.covariates
+    y = np.concatenate([responses[i] - np.dot(projection, covariates[i].T) for i in blocks], axis=1)
+    n_times = y.shape[1]
+    return _low_rank_sqrt(np.dot(y, y.T) / n_times, n_times)
 
 
 def _evaluate_objective(
         forward: ForwardModel,
         theta: FloatArray,
-        Sigma_b: list,
+        Sigma_b: dict[int, FloatArray],
         data: RegressionData,
 ) -> tuple[float, float]:
     """Evaluate the ChampLasso objective on whitened data.
 
-    Returns the objective and its weighted-L2 term.
+    Each segment's residual is weighted by its own covariance ``Sigma_b``
+    (keyed by segment index). Returns the objective and its weighted-L2 term,
+    both averaged over the samples of ``data``.
+
+    Raises
+    ------
+    ValueError
+        If ``data`` contains a segment that ``Sigma_b`` has no entry for.
     """
+    segment_blocks = data.segment_blocks
+    missing = [i for i in segment_blocks if i not in Sigma_b]
+    if missing:
+        raise ValueError(f"ChampLasso estimates a sensor covariance for each data segment and has none for segment {', '.join(map(str, missing))}: it can only score held-out data from the segments it was fit on (e.g. with split='within_cases' or 'ncrf' in eelbrain.trf.split_data)")
     ll2 = 0
     logdet = 0
-    for key, (meg, covariate) in enumerate(data):
-        yhat = _residual_factor(forward, theta, meg, covariate)
-        (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[key], yhat)
-        ll2 += 0.5 * (y ** 2).sum()
-        logdet += logdet_
-    return (ll2 + logdet) / len(data), ll2 / len(data)
+    for i_segment, blocks in segment_blocks.items():
+        n_times = sum(data.blocks[i][2] - data.blocks[i][1] for i in blocks)
+        yhat = _residual_factor(forward, theta, data, blocks)
+        (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[i_segment], yhat)
+        # yhat @ yhat.T is the residual's sample covariance: sum over the samples
+        ll2 += 0.5 * (y ** 2).sum() * n_times
+        logdet += logdet_ * n_times
+    n_samples = data.n_samples
+    return (ll2 + logdet) / n_samples, ll2 / n_samples
 
 
 #: Initialization seeds by dataset (see :func:`_mne_seeds`); entries die with their dataset.
 _seed_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
-def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list[FloatArray], list[FloatArray]]:
-    """Per-segment Champagne initialization seeds, cached by dataset.
+def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[dict[int, FloatArray], dict[int, FloatArray]]:
+    """Per-segment Champagne initialization seeds (keyed by segment index), cached by dataset.
 
     The seeds are a pure function of ``(forward, data)`` and are only ever read,
     so they are shared: between the ``mu='auto'`` grid derivation and the final
@@ -207,13 +230,13 @@ def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list[FloatA
     cached = _seed_cache.get(data)
     if cached is not None and cached[0] is forward:
         return cached[1], cached[2]
-    init_gamma = []
-    init_sigma_b = []
-    for y, _ in data:
-        t = y.shape[1]
-        gamma, data_cov = forward.mne_initializer(y * (t ** 0.5))
-        init_gamma.append(gamma.reshape(-1, forward.dc, 1) * np.eye(forward.dc))
-        init_sigma_b.append(forward.whitened_noise_covariance + data_cov)
+    init_gamma = {}
+    init_sigma_b = {}
+    responses = data.responses
+    for i_segment, blocks in data.segment_blocks.items():
+        gamma, data_cov = forward.mne_initializer(np.concatenate([responses[i] for i in blocks], axis=1))
+        init_gamma[i_segment] = gamma.reshape(-1, forward.dc, 1) * np.eye(forward.dc)
+        init_sigma_b[i_segment] = forward.whitened_noise_covariance + data_cov
     _seed_cache[data] = (forward, init_gamma, init_sigma_b)
     return init_gamma, init_sigma_b
 
@@ -230,12 +253,12 @@ class _ChampLassoState:
         self.solver = solver
         self.forward = forward
         # initialization seeds (set by _initialize)
-        self._init_gamma: list[FloatArray] | None = None
-        self._init_sigma_b: list[FloatArray] | None = None
-        # working estimate (set during run())
+        self._init_gamma: dict[int, FloatArray] | None = None
+        self._init_sigma_b: dict[int, FloatArray] | None = None
+        # working estimate (set during run()), keyed by data segment
         self.theta: FloatArray | None = None
-        self.Gamma: list[FloatArray] | None = None
-        self.Sigma_b: list[FloatArray] | None = None
+        self.Gamma: dict[int, FloatArray] | None = None
+        self.Sigma_b: dict[int, FloatArray] | None = None
 
     def __repr__(self) -> str:
         solver = self.solver
@@ -251,8 +274,8 @@ class _ChampLassoState:
         self._init_gamma, self._init_sigma_b = _mne_seeds(self.forward, data)
         # Working estimate. _solve() replaces the per-segment entries wholesale
         # rather than writing into them, so the seeds can be shared.
-        self.Gamma = list(self._init_gamma)
-        self.Sigma_b = list(self._init_sigma_b)
+        self.Gamma = dict(self._init_gamma)
+        self.Sigma_b = dict(self._init_sigma_b)
         self.theta = np.zeros((self.forward.lead_field.shape[1], data.design.n_coefficients), dtype=np.float64)
 
     def _solve(
@@ -283,19 +306,19 @@ class _ChampLassoState:
             n_iterc = self.solver.n_iterc
 
         logger.debug('Champagne Iterations start:')
-        logger.debug('trial \t time taken')
-        for key, (meg, covariates) in enumerate(data):
+        logger.debug('segment \t time taken')
+        for i_segment, blocks in data.segment_blocks.items():
             start = time.time()
-            yhat = _residual_factor(self.forward, theta, meg, covariates)
-            gamma = self._init_gamma[key]
-            sigma_b = self._init_sigma_b[key]
+            yhat = _residual_factor(self.forward, theta, data, blocks)
+            gamma = self._init_gamma[i_segment]
+            sigma_b = self._init_sigma_b[i_segment]
             for _ in range(n_iterc):
                 (lhat, ytilde), _ = _whiten_by_sigma_b(sigma_b, self.forward.whitened_lead_field, yhat)
                 gamma, sigma_b = self._update_gamma(gamma, lhat, ytilde)
-            self.Gamma[key] = gamma
-            self.Sigma_b[key] = sigma_b
+            self.Gamma[i_segment] = gamma
+            self.Sigma_b[i_segment] = sigma_b
             end = time.time()
-            logger.debug(f'{key} \t {end - start}')
+            logger.debug(f'{i_segment} \t {end - start}')
 
     def _update_gamma(
             self,
@@ -403,8 +426,9 @@ class _ChampLassoState:
         leadfields = []
         bEs = []
         bbts = []
-        for i in range(len(data)):
-            Linv = _inv_sqrtm(self.Sigma_b[i])
+        inv_sqrt = {i_segment: _inv_sqrtm(sigma_b) for i_segment, sigma_b in self.Sigma_b.items()}
+        for i, (i_segment, _, _) in enumerate(data.blocks):
+            Linv = inv_sqrt[i_segment]
             leadfields.append(np.dot(Linv, self.forward.whitened_lead_field))
             bEs.append(np.dot(Linv, data.bE[i]))
             bbts.append(np.trace(np.dot(Linv, np.dot(Linv, data.bbt[i]).T)))
@@ -477,18 +501,20 @@ class ChampLassoFit(SolverFit):
     history
         Per-iteration record of the quantities selected with ``ChampLasso(store=...)``.
     gamma
-        Per-segment source covariance estimates, each an array of shape
+        Per-segment source covariance estimates, keyed by the index of the data
+        segment (see :attr:`RegressionData.blocks`), each an array of shape
         ``(n_sources, dc, dc)`` holding the covariance of every source's
         orientation components (``dc`` is 1 for fixed orientation).
     sigma_b
         Per-segment estimates of the sensor covariance of the whitened data under
-        the model, i.e. the whitened noise covariance plus the lead field
-        projection of ``gamma``. These weight the residual in :meth:`score`.
+        the model, keyed like ``gamma``, i.e. the whitened noise covariance plus
+        the lead field projection of ``gamma``. These weight the residual of the
+        same segment in :meth:`score`.
     """
 
     history: ChampLassoHistory
-    gamma: list[FloatArray]
-    sigma_b: list[FloatArray]
+    gamma: dict[int, FloatArray]
+    sigma_b: dict[int, FloatArray]
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: {_theta_repr(self.theta)}, {_count_repr(self.history.n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
@@ -500,10 +526,10 @@ class ChampLassoFit(SolverFit):
     ) -> dict[str, float]:
         r"""ChampLasso's likelihood objective on whitened ``data``, and its residual term.
 
-        Both scores are averaged over the segments of ``data``, and lower is
-        better. For a segment with whitened sensor data :math:`y` and model
-        prediction :math:`\hat y`, let :math:`r = y - \hat y` be the whitened
-        residual and :math:`\Sigma_b` the segment's :attr:`sigma_b`:
+        Both scores are averaged over the samples of ``data``, and lower is
+        better. For a sample of a segment with whitened sensor data :math:`y`
+        and model prediction :math:`\hat y`, let :math:`r = y - \hat y` be the
+        whitened residual and :math:`\Sigma_b` the segment's :attr:`sigma_b`:
 
         ``weighted_l2_error``
             The squared residual weighted by the inverse of the estimated data
@@ -526,7 +552,15 @@ class ChampLassoFit(SolverFit):
         to. On held-out data (``CVResult.scores``) the residual comes from the
         held-out window while :math:`\Sigma_b` was estimated on the training
         folds, so the scores measure how well the fitted covariance model
-        generalizes.
+        generalizes. Since the covariances are estimated per segment, held-out
+        data has to come from segments the model was fit on (cross-validation
+        schemes that hold out parts of segments, not whole segments).
+
+        Raises
+        ------
+        ValueError
+            If ``data`` contains a segment that was not part of the training
+            data, and hence has no covariance estimate.
         """
         cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, self.sigma_b, data)
         return {'cross_fit': cross_fit, 'weighted_l2_error': weighted_l2_error}
