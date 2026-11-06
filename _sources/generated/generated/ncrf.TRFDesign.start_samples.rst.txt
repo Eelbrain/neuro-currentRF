@@ -1,0 +1,6 @@
+ncrf.TRFDesign.start\_samples
+=============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: TRFDesign.start_samples

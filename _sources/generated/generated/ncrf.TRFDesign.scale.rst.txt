@@ -1,0 +1,6 @@
+ncrf.TRFDesign.scale
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.scale

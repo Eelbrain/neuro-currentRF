@@ -1,0 +1,6 @@
+ncrf.ForwardModel.whitened\_lead\_field
+=======================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.whitened_lead_field

@@ -1,0 +1,6 @@
+ncrf.ChampLassoFit.gamma
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLassoFit.gamma

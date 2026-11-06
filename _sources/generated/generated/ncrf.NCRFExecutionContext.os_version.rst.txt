@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.os\_version
+=====================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.os_version

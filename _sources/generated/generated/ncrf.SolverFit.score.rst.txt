@@ -1,0 +1,6 @@
+ncrf.SolverFit.score
+====================
+
+.. currentmodule:: ncrf
+
+.. automethod:: SolverFit.score

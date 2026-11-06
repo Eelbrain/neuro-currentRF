@@ -1,0 +1,6 @@
+ncrf.RegressionData.sensor\_dim
+===============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.sensor_dim

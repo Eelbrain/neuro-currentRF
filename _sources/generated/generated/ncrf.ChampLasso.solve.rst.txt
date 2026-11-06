@@ -1,0 +1,6 @@
+ncrf.ChampLasso.solve
+=====================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLasso.solve

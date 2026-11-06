@@ -1,0 +1,33 @@
+﻿ncrf.CrossValidation
+====================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: CrossValidation
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~CrossValidation.worker_processes
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~CrossValidation.n_splits
+   ~CrossValidation.n_workers
+

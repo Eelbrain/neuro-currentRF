@@ -1,0 +1,6 @@
+ncrf.RegressionData.meg
+=======================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: RegressionData.meg

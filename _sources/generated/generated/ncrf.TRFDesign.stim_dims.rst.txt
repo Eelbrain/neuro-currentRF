@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_dims
+=========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.stim_dims

@@ -1,0 +1,35 @@
+﻿ncrf.NCRFEstimator
+==================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: NCRFEstimator
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRFEstimator.fit
+   ~NCRFEstimator.from_lead_field
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRFEstimator.lead_field
+   ~NCRFEstimator.noise_channels
+   ~NCRFEstimator.noise_covariance
+

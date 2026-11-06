@@ -1,0 +1,43 @@
+﻿ncrf.NCRFExecutionContext
+=========================
+
+.. currentmodule:: ncrf
+
+.. autoclass:: NCRFExecutionContext
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRFExecutionContext.collect
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~NCRFExecutionContext.compile_flags
+   ~NCRFExecutionContext.compiler
+   ~NCRFExecutionContext.duration
+   ~NCRFExecutionContext.eelbrain_version
+   ~NCRFExecutionContext.machine
+   ~NCRFExecutionContext.n_workers
+   ~NCRFExecutionContext.ncrf_version
+   ~NCRFExecutionContext.numpy_version
+   ~NCRFExecutionContext.os_version
+   ~NCRFExecutionContext.platform
+   ~NCRFExecutionContext.python_version
+   ~NCRFExecutionContext.timestamp
+

@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.python\_version
+=========================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.python_version

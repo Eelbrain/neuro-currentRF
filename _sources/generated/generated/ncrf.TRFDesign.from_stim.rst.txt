@@ -1,0 +1,6 @@
+ncrf.TRFDesign.from\_stim
+=========================
+
+.. currentmodule:: ncrf
+
+.. automethod:: TRFDesign.from_stim

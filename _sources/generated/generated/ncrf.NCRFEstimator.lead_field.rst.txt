@@ -1,0 +1,6 @@
+ncrf.NCRFEstimator.lead\_field
+==============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFEstimator.lead_field

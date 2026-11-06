@@ -1,0 +1,6 @@
+ncrf.ForwardModel.source\_block
+===============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ForwardModel.source_block

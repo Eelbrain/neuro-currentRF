@@ -1,0 +1,6 @@
+ncrf.TRFDesign.basis
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.basis

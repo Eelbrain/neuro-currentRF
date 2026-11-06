@@ -1,0 +1,26 @@
+﻿ncrf.Solver
+===========
+
+.. currentmodule:: ncrf
+
+.. autoclass:: Solver
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~Solver.cv_table
+   ~Solver.search
+   ~Solver.solve
+   ~Solver.without_history
+
+
+
+
+

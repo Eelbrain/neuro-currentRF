@@ -1,0 +1,6 @@
+ncrf.RegressionData.bbt
+=======================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.bbt

@@ -1,0 +1,6 @@
+ncrf.ChampLasso.search
+======================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLasso.search

@@ -1,0 +1,6 @@
+ncrf.ForwardModel.whitened\_noise\_covariance
+=============================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.whitened_noise_covariance

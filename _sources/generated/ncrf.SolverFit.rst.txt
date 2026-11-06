@@ -1,0 +1,32 @@
+﻿ncrf.SolverFit
+==============
+
+.. currentmodule:: ncrf
+
+.. autoclass:: SolverFit
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~SolverFit.score
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~SolverFit.theta
+

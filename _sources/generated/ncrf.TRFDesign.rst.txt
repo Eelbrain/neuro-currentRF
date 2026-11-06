@@ -1,0 +1,54 @@
+﻿ncrf.TRFDesign
+==============
+
+.. currentmodule:: ncrf
+
+.. autoclass:: TRFDesign
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~TRFDesign.assert_compatible
+   ~TRFDesign.assert_same_normalization
+   ~TRFDesign.expand
+   ~TRFDesign.from_stim
+   ~TRFDesign.per_predictor
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~TRFDesign.basis_column_sums
+   ~TRFDesign.basis_stride
+   ~TRFDesign.basis_widths
+   ~TRFDesign.filter_length
+   ~TRFDesign.n_coefficients
+   ~TRFDesign.scale
+   ~TRFDesign.start_samples
+   ~TRFDesign.stim_baseline
+   ~TRFDesign.stim_lens
+   ~TRFDesign.stim_scaling
+   ~TRFDesign.stop_samples
+   ~TRFDesign.basis
+   ~TRFDesign.tstart
+   ~TRFDesign.tstep
+   ~TRFDesign.tstop
+   ~TRFDesign.basis_std
+   ~TRFDesign.stim_is_single
+   ~TRFDesign.stim_dims
+   ~TRFDesign.stim_names
+

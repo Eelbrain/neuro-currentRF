@@ -1,0 +1,6 @@
+ncrf.TRFDesign.stim\_names
+==========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.stim_names
