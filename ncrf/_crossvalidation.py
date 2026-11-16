@@ -20,7 +20,7 @@ from numbers import Integral
 from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
-from eelbrain.trf import Splits, init_worker, n_workers, split_data
+from eelbrain.trf import Split, Splits, init_worker, n_workers, split_data
 import numpy as np
 from tqdm import tqdm
 
@@ -50,7 +50,10 @@ class CrossValidation:
         :class:`eelbrain.trf.Splits` object made for the data's segments, e.g.
         with :func:`eelbrain.trf.split_data` and one of its other partitioning
         schemes; its validation splits are the folds. Splits with a test set
-        are not supported yet.
+        are not supported yet. In either case, the training data of each fold
+        excludes the samples within one TRF length (minus one sample) of the
+        held-out data, so that the lag windows of the training and held-out
+        samples never share a predictor sample.
     n_workers
         Number of worker processes, or ``None`` to derive it from Eelbrain's
         ``n_workers`` setting (see :func:`eelbrain.configure`). Set to ``0`` to
@@ -83,9 +86,60 @@ def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
     return split_data(data.data.segments, cv.splits, validate=1, test=0, split='ncrf')
 
 
+def _training_ranges(
+        split: Split,
+        segments: np.ndarray,
+        gap: int,
+) -> np.ndarray:
+    """``split.train`` without the ``gap`` samples on either side of each held-out range (within its segment).
+
+    Parameters
+    ----------
+    split
+        Split whose training ranges to trim.
+    segments
+        ``(n_segments, 2)`` array of the data segments on the concatenated time axis.
+    gap
+        Number of training samples to drop next to the held-out data.
+    """
+    exclude = []
+    for start, stop in split.reserved:
+        # held-out ranges never span a segment boundary
+        seg_start, seg_stop = segments[np.searchsorted(segments[:, 1], start, 'right')]
+        exclude.append((max(seg_start, start - gap), start))
+        exclude.append((stop, min(seg_stop, stop + gap)))
+    exclude = [(start, stop) for start, stop in exclude if start < stop]
+    ranges = []
+    for start, stop in split.train:
+        pieces = [(start, stop)]
+        for ex_start, ex_stop in exclude:
+            pieces = [piece for a, b in pieces for piece in ((a, min(b, ex_start)), (max(a, ex_stop), b)) if piece[0] < piece[1]]
+        ranges.extend(pieces)
+    return np.array(ranges, np.int64).reshape((-1, 2))
+
+
 def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionData, RegressionData]]:
-    """Train/validation fold datasets, shared by every candidate scored on ``data``."""
-    return [(data.subset(split.train), data.subset(split.reserved)) for split in splits.splits]
+    """Train/validation fold datasets, shared by every candidate scored on ``data``.
+
+    Training data is separated from the held-out data by a gap of one TRF length
+    minus one sample, so that the lag windows of training and held-out samples
+    never share a predictor sample.
+
+    Raises
+    ------
+    ValueError
+        If no training samples with a complete lag window remain in a fold.
+    """
+    gap = max(data.design.stop_samples) - 1 - min(data.design.start_samples)  # largest minus smallest lag
+    folds = []
+    for split in splits.splits:
+        train_ranges = _training_ranges(split, splits.segments, gap)
+        try:
+            train = data.subset(train_ranges)
+        except ValueError:
+            raise ValueError(f"{split.i_reserved=}: no training data remains after removing {gap} samples next to the held-out data; use fewer partitions, a shorter TRF, or more data") from None
+        folds.append((train, data.subset(split.reserved)))
+    return folds
 
 
 def _initialize_worker(data: RegressionData, splits: Splits) -> None:

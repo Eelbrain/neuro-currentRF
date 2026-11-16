@@ -90,7 +90,9 @@ validation, and the candidates are fit to the data preceding the window
 (``split='ncrf'`` in :func:`eelbrain.trf.split_data`). To use one of
 Eelbrain's other partitioning schemes, pass an :class:`eelbrain.trf.Splits`
 object as ``cv`` (or as ``CrossValidation(splits=...)`` to also set the worker
-count).
+count). With any scheme, the training data stops (and resumes) one TRF length
+minus one sample before (and after) the held-out data, so that no predictor
+sample enters the lag windows of both training and held-out samples.
 :class:`~ncrf.ChampLasso` uses it to score its ``mu`` grid, extend the
 grid when the winner is on a boundary, and apply the estimation-stability
 criterion. The estimator then fits the selected configuration on all of the data.

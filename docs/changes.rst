@@ -35,7 +35,11 @@ API changes
   function :func:`eelbrain.boosting` uses.
 - **More flexible cross-validation:** :meth:`NCRFEstimator.fit` now accepts any
   Eelbrain cross-validation scheme as ``cv`` (any :class:`eelbrain.trf.Splits`
-  instance, created through :func:`eelbrain.split_data`) .
+  instance, created through :func:`eelbrain.split_data`) . The training data of
+  each fold excludes the samples within one TRF length (minus one sample) of the
+  held-out data, so that training and held-out samples never share a predictor
+  sample in their lag windows (as the gap ``d`` of the former
+  ``TimeSeriesSplit`` did).
 - **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
   time)``.
 

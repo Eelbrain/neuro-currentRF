@@ -65,20 +65,25 @@ def test_make_folds():
     folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
 
     # by default, the last 2 windows of 5% of every segment are held out in
-    # turn, trained on the data before the window
+    # turn, trained on the data before the window, minus a gap of 4 samples
+    # (lags 0 to 4)
     assert len(folds) == 2
     train, validate = folds[0]
     assert validate.blocks == [(0, 90, 95), (1, 90, 95), (2, 90, 95), (3, 90, 95)]
-    assert train.blocks == [(0, 4, 90), (1, 4, 90), (2, 4, 90), (3, 4, 90)]
+    assert train.blocks == [(0, 4, 86), (1, 4, 86), (2, 4, 86), (3, 4, 86)]
     assert train._segment_covariates is data._segment_covariates
     assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
-    assert folds[1][0].blocks == [(0, 4, 95), (1, 4, 95), (2, 4, 95), (3, 4, 95)]
-    # an Eelbrain Splits object is used as is, with its own partitioning scheme
+    assert folds[1][0].blocks == [(0, 4, 91), (1, 4, 91), (2, 4, 91), (3, 4, 91)]
+    # an Eelbrain Splits object is used with its own partitioning scheme; the
+    # gap also separates training data that follows the held-out data, but
+    # does not extend across segment boundaries
     splits = split_data(data.data.segments, 2, validate=1, test=0, split='within_cases')
     assert cv._make_splits(data, CrossValidation(splits)) is splits
     folds = cv._make_folds(data, splits)
     assert folds[0][1].blocks == [(0, 4, 50), (1, 4, 50), (2, 4, 50), (3, 4, 50)]
-    assert folds[0][0].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
+    assert folds[0][0].blocks == [(0, 54, 100), (1, 54, 100), (2, 54, 100), (3, 54, 100)]
+    assert folds[1][1].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
+    assert folds[1][0].blocks == [(0, 4, 46), (1, 4, 46), (2, 4, 46), (3, 4, 46)]
     # but it has to describe the data's segments
     other = split_data(np.array([[0, 200], [200, 400]]), 2, validate=1, test=0)
     with pytest.raises(ValueError, match="made for different data segments"):
@@ -87,9 +92,51 @@ def test_make_folds():
     data = RegressionData.from_data(meg[0], stim[0], 0, 0.05, scale=None)
     folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
     assert folds[0][1].blocks == [(0, 90, 95)]
-    assert folds[0][0].blocks == [(0, 4, 90)]
+    assert folds[0][0].blocks == [(0, 4, 86)]
     assert folds[1][1].blocks == [(0, 95, 100)]
-    assert folds[1][0].blocks == [(0, 4, 95)]
+    assert folds[1][0].blocks == [(0, 4, 91)]
+
+
+def test_make_folds_gap():
+    """Training and held-out samples never share a predictor sample in their lag windows."""
+    # 1 minute at 100 Hz, TRF from -0.1 to 0.5 s: lags -10 to 49, gap of 59 samples
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 6000)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
+    meg = NDVar(rng.normal(size=(2, 6000)), (sensor, time))
+    stim = NDVar(rng.normal(size=6000), (time,), name='x')
+    data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
+    assert data.blocks == [(0, 49, 5990)]
+
+    splits = cv._make_splits(data, CrossValidation(3))
+    folds = cv._make_folds(data, splits)
+    # windows of ceil(0.05 / 1.05 * 6000) = 286 samples at the end of the data;
+    # training stops 59 samples before each window
+    assert [train.blocks for train, _ in folds] == [[(0, 49, 5083)], [(0, 49, 5369)], [(0, 49, 5655)]]
+    assert [validate.blocks for _, validate in folds] == [[(0, 5142, 5428)], [(0, 5428, 5714)], [(0, 5714, 5990)]]
+    # the predictor samples in the lag windows of training and held-out samples
+    # are disjoint: row t uses x[t - 49] to x[t + 10]
+    for train, validate in folds:
+        (_, train_start, train_stop), = train.blocks
+        (_, validate_start, validate_stop), = validate.blocks
+        assert train_stop - 1 + 10 < validate_start - 49
+
+    # changing the predictor in the lag windows of the held-out samples leaves the training fold unchanged
+    for i, (train, _) in enumerate(folds):
+        validate_start = splits.splits[i].reserved[0, 0]
+        stim_changed = stim.copy()
+        stim_changed.x[validate_start - 49:] = rng.normal(size=6000 - validate_start + 49)
+        data_changed = RegressionData.from_data(meg, stim_changed, -0.1, 0.5, scale=None)
+        train_changed, _ = cv._make_folds(data_changed, splits)[i]
+        np.testing.assert_array_equal(train_changed.covariates[0], train.covariates[0])
+        np.testing.assert_array_equal(train_changed.EtE[0], train.EtE[0])
+        np.testing.assert_array_equal(train_changed.bE[0], train.bE[0])
+
+    # too short for the gap: the first training range, [0, 48), ends before the
+    # first sample with a complete lag window
+    data = RegressionData.from_data(meg.sub(time=(0, 1.25)), stim.sub(time=(0, 1.25)), -0.1, 0.5, scale=None)
+    with pytest.raises(ValueError, match="no training data remains"):
+        cv._make_folds(data, cv._make_splits(data, CrossValidation(3)))
 
 
 def test_score_candidate_uses_fit_primitive(monkeypatch):
