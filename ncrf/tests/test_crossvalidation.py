@@ -74,6 +74,11 @@ def test_make_folds():
     assert train._segment_covariates is data._segment_covariates
     assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
     assert folds[1][0].blocks == [(0, 4, 91), (1, 4, 91), (2, 4, 91), (3, 4, 91)]
+    # validate sets the length of the windows as proportion of the segment
+    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2, validate=0.2)))
+    assert folds[0][1].blocks == [(0, 60, 80), (1, 60, 80), (2, 60, 80), (3, 60, 80)]
+    assert folds[0][0].blocks == [(0, 4, 56), (1, 4, 56), (2, 4, 56), (3, 4, 56)]
+    assert folds[1][1].blocks == [(0, 80, 100), (1, 80, 100), (2, 80, 100), (3, 80, 100)]
     # an Eelbrain Splits object is used with its own partitioning scheme; the
     # gap also separates training data that follows the held-out data, but
     # does not extend across segment boundaries
@@ -244,6 +249,9 @@ def test_cross_validation_rejects_invalid_splits():
     with pytest.raises(TypeError, match="splits=True: need the number of partitions"):
         CrossValidation(splits=True)
     assert CrossValidation(splits=np.int64(2)).splits == 2
+    for validate in (0, 1, 1.5):
+        with pytest.raises(ValueError, match=f"validate={validate}: need a proportion"):
+            CrossValidation(validate=validate)
     # true cross-validation with a test set is not implemented yet
     with pytest.raises(NotImplementedError, match="test set is not implemented"):
         CrossValidation(split_data(segments, 3, validate=1, test=1))
