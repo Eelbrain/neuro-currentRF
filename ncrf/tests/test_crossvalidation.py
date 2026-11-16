@@ -184,7 +184,7 @@ def test_held_out_data_without_lag_window(monkeypatch):
     with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
         cv._make_splits(data, CrossValidation(3))
     # the same check applies to Splits objects
-    splits = split_data(data.data.segments, 3, validate=1, test=0, split='ncrf')
+    splits = split_data(data.data.segments, 3, validate=1, test=0, split='walk-forward')
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
         cv._make_splits(data, CrossValidation(splits))
 
