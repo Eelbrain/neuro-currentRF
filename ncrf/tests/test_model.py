@@ -2,6 +2,7 @@
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 from dataclasses import dataclass, replace
+import logging
 import pickle
 from unittest.mock import MagicMock, Mock
 
@@ -451,6 +452,26 @@ def test_champagne_covariances_per_segment():
         yhat = champ_lasso._residual_factor(forward, theta, data, data.segment_blocks[i_segment])
         y = data.responses[i_segment]
         np.testing.assert_allclose(yhat @ yhat.T, y @ y.T / y.shape[1])
+
+
+def test_short_segments_dropped_with_warning(caplog):
+    """Segments without a sample with a complete lag window are left out, with a warning."""
+    rng = np.random.RandomState(0)
+    # TRF from -0.1 to 0.5 s: lags -10 to 49, so segments need more than 59 samples
+    times = [UTS(0, 0.01, n) for n in (300, 50, 59, 60)]
+    meg = Datalist([NDVar(rng.normal(size=(3, len(time))), (SENSOR, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    with caplog.at_level(logging.WARNING, 'ncrf._data'):
+        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
+    assert data.blocks == [(0, 49, 290), (3, 49, 50)]
+    assert "2 segments not used" in caplog.text
+    assert "longer than 59 samples: segment 1 (50 samples), 2 (59 samples)" in caplog.text
+    # with padded predictors, all samples are kept
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, 'ncrf._data'):
+        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None, pad_stim=True)
+    assert [i for i, _, _ in data.blocks] == [0, 1, 2, 3]
+    assert not caplog.records
 
 
 def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, FloatArray]:

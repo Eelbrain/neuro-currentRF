@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import cached_property
+import logging
 from math import sqrt
 from typing import Any, get_args
 from collections.abc import Iterator, Sequence
@@ -71,6 +72,9 @@ def _default_blocks(
 ) -> list[Block]:
     """The samples of each segment that a dataset covers by default.
 
+    Segments without a sample whose complete lag window lies inside the stimulus
+    are left out, with a warning.
+
     Parameters
     ----------
     data
@@ -95,6 +99,11 @@ def _default_blocks(
     blocks = [(i, drop_start, n - drop_stop) for i, n in enumerate(data.segment_n_times) if drop_start < n - drop_stop]
     if not blocks:
         raise ValueError("no samples remain after applying lag-validity crop; the segments are shorter than the TRF")
+    elif len(blocks) < len(data.segment_n_times):
+        kept = {i for i, _, _ in blocks}
+        dropped = [(i, n) for i, n in enumerate(data.segment_n_times) if i not in kept]
+        items = ', '.join(f'{i} ({n} samples)' for i, n in dropped[:5]) + (', ...' if len(dropped) > 5 else '')
+        logging.getLogger(__name__).warning(f"{_count_repr(len(dropped), 'segment')} not used, since no sample has a complete lag window, which needs segments longer than {drop_start + drop_stop} samples: segment {items}; use a shorter TRF, or keep the samples with padded predictors (pad_stim=True)")
     return blocks
 
 
