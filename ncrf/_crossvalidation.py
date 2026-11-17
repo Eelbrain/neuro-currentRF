@@ -78,12 +78,20 @@ class CrossValidation:
 
 
 def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
-    """The folds of ``cv`` for ``data``: its splits, checked against the data's segments, or the last ``cv.splits`` windows of every segment held out in turn."""
+    """The folds of ``cv`` for ``data``: its splits, or the last ``cv.splits`` windows of every segment held out in turn.
+
+    The folds are checked against the data here, in the parent process, since an
+    error in a :class:`~multiprocessing.pool.Pool` initializer, where the fold
+    datasets are built, hangs the pool (see :func:`_fold_ranges`).
+    """
     if isinstance(cv.splits, Splits):
         if not np.array_equal(cv.splits.segments, data.data.segments):
             raise ValueError(f"{cv.splits}: made for different data segments than {data}")
-        return cv.splits
-    return split_data(data.data.segments, cv.splits, validate=1, test=0, split='ncrf')
+        splits = cv.splits
+    else:
+        splits = split_data(data.data.segments, cv.splits, validate=1, test=0, split='ncrf')
+    _fold_ranges(data, splits)
+    return splits
 
 
 def _training_ranges(
@@ -118,8 +126,16 @@ def _training_ranges(
     return np.array(ranges, np.int64).reshape((-1, 2))
 
 
-def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionData, RegressionData]]:
-    """Train/validation fold datasets, shared by every candidate scored on ``data``.
+def _describe_blocks(blocks: Sequence[tuple[int, int, int]], max_items: int = 3) -> str:
+    """Segment-relative sample ranges of ``blocks``, for error messages."""
+    items = [f"segment {i}: samples {start}-{stop}" for i, start, stop in blocks[:max_items]]
+    if len(blocks) > max_items:
+        items.append('...')
+    return ', '.join(items)
+
+
+def _fold_ranges(data: RegressionData, splits: Splits) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Training and held-out ranges of each fold, on the concatenated time axis, checked against the samples ``data`` covers.
 
     Training data is separated from the held-out data by a gap of one TRF length
     minus one sample, so that the lag windows of training and held-out samples
@@ -128,18 +144,28 @@ def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionDa
     Raises
     ------
     ValueError
-        If no training samples with a complete lag window remain in a fold.
+        If a fold has no training or no held-out samples with a complete lag
+        window. In particular, held-out data at the start or end of a segment
+        can lie entirely in the samples whose lag window extends beyond the
+        stimulus (e.g., the last window of the default scheme with a negative
+        ``tstart`` and short segments).
     """
     gap = max(data.design.stop_samples) - 1 - min(data.design.start_samples)  # largest minus smallest lag
     folds = []
-    for split in splits.splits:
+    for i_fold, split in enumerate(splits.splits):
         train_ranges = _training_ranges(split, splits.segments, gap)
-        try:
-            train = data.subset(train_ranges)
-        except ValueError:
-            raise ValueError(f"{split.i_reserved=}: no training data remains after removing {gap} samples next to the held-out data; use fewer partitions, a shorter TRF, or more data") from None
-        folds.append((train, data.subset(split.reserved)))
+        if not data._blocks_in(split.reserved):
+            held_out = data.data.segment_slices(split.reserved)
+            raise ValueError(f"cross-validation fold {i_fold}: none of its held-out samples ({_describe_blocks(held_out)}) has a complete lag window; the dataset only covers the samples whose lag window lies inside the stimulus ({_describe_blocks(data.blocks)}). Use longer segments, a TRF with tstart and tstop closer to 0, or Splits that hold out other samples")
+        elif not data._blocks_in(train_ranges):
+            raise ValueError(f"cross-validation fold {i_fold}: no training data remains after removing {gap} samples next to the held-out data; use fewer partitions, a shorter TRF, or more data")
+        folds.append((train_ranges, split.reserved))
     return folds
+
+
+def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionData, RegressionData]]:
+    """Train/validation fold datasets, shared by every candidate scored on ``data`` (see :func:`_fold_ranges`)."""
+    return [(data.subset(train), data.subset(held_out)) for train, held_out in _fold_ranges(data, splits)]
 
 
 def _initialize_worker(data: RegressionData, splits: Splits) -> None:
@@ -264,7 +290,8 @@ def crossvalidate(
         # since each worker's BLAS already runs its own thread pool
         n_processes = ceil(n_workers() / 8)
 
-    # Partition in the parent process: an error in a Pool initializer hangs the pool
+    # Partition and check the folds in the parent process: an error in a Pool
+    # initializer hangs the pool
     splits = _make_splits(data, cv)
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:

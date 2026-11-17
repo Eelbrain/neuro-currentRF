@@ -514,6 +514,15 @@ class RegressionData:
             raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
         return self._derive(forward=forward)
 
+    def _blocks_in(self, ranges: npt.ArrayLike) -> list[Block]:
+        """The parts of this dataset's blocks within ``ranges`` (see :meth:`subset`), without building any arrays."""
+        blocks = []
+        for i, start, stop in self.data.segment_slices(np.asarray(ranges)):
+            for j, lo, hi in self.blocks:
+                if i == j and max(start, lo) < min(stop, hi):
+                    blocks.append((i, max(start, lo), min(stop, hi)))
+        return blocks
+
     def subset(self, ranges: npt.ArrayLike) -> RegressionData:
         """Return a dataset restricted to a subset of this dataset's samples.
 
@@ -536,11 +545,7 @@ class RegressionData:
         ValueError
             If no samples of this dataset are in ``ranges``.
         """
-        blocks = []
-        for i, start, stop in self.data.segment_slices(np.asarray(ranges)):
-            for j, lo, hi in self.blocks:
-                if i == j and max(start, lo) < min(stop, hi):
-                    blocks.append((i, max(start, lo), min(stop, hi)))
+        blocks = self._blocks_in(ranges)
         if not blocks:
             raise ValueError(f"{ranges=}: contains none of the dataset's samples")
         out = self._derive(blocks=blocks)

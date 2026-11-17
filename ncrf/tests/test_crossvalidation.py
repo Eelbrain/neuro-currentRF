@@ -139,6 +139,44 @@ def test_make_folds_gap():
         cv._make_folds(data, cv._make_splits(data, CrossValidation(3)))
 
 
+def _negative_lag_data(seconds):
+    """One segment at 100 Hz with a TRF from -0.1 to 0.2 s, i.e., without its last 10 samples."""
+    rng = np.random.RandomState(0)
+    n = int(seconds * 100)
+    time = UTS(0, 0.01, n)
+    meg = NDVar(rng.normal(size=(2, n)), (Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b']), time))
+    stim = NDVar(rng.normal(size=n), (time,), name='x')
+    return RegressionData.from_data(meg, stim, -0.1, 0.2, scale=None)
+
+
+def test_held_out_data_without_lag_window(monkeypatch):
+    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts."""
+    # 2 s: windows of ceil(0.05 / 1.05 * 200) = 10 samples, the last one, samples
+    # 190-200, entirely in the 10 samples cropped for the negative lags
+    data = _negative_lag_data(2)
+    assert data.blocks == [(0, 19, 190)]
+    with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
+        cv._make_splits(data, CrossValidation(3))
+    # the same check applies to Splits objects
+    splits = split_data(data.data.segments, 3, validate=1, test=0, split='ncrf')
+    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
+        cv._make_splits(data, CrossValidation(splits))
+
+    # an error in a worker's initializer would hang the pool, so the folds are
+    # checked before it is created
+    def pool(**kwargs):
+        raise AssertionError("Pool created")
+
+    monkeypatch.setattr(cv, 'Pool', pool)
+    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
+        crossvalidate(data, (ChampLasso(mu=0.1), ChampLasso(mu=0.2)), CrossValidation(3, n_workers=2))
+
+    # 4 s: windows of 20 samples, of which the last keeps 10
+    data = _negative_lag_data(4)
+    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(3)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 340, 360)], [(0, 360, 380)], [(0, 380, 390)]]
+
+
 def test_score_candidate_uses_fit_primitive(monkeypatch):
     train_data = object()
     test_data = object()
