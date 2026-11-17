@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from eelbrain import NDVar, Sensor, UTS
+from eelbrain import Datalist, NDVar, Sensor, UTS
 from eelbrain.trf import split_data
 from ncrf import ChampLasso, CrossValidation, RegressionData, crossvalidate
 from ncrf import _crossvalidation as cv
@@ -147,6 +147,29 @@ def _negative_lag_data(seconds):
     meg = NDVar(rng.normal(size=(2, n)), (Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b']), time))
     stim = NDVar(rng.normal(size=n), (time,), name='x')
     return RegressionData.from_data(meg, stim, -0.1, 0.2, scale=None)
+
+
+def test_default_folds_need_equal_segments(monkeypatch):
+    """With segments of unequal length, the default folds are rejected, with mu='auto' before its grid is derived."""
+    rng = np.random.RandomState(0)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
+    times = [UTS(0, 0.01, n) for n in (300, 400)]
+    meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
+    match = r"requires segments of equal length, but the segments have 300, 400 samples\. Either cut the segments to a common length, or hold out whole segments .*split='cases'"
+    with pytest.raises(ValueError, match=match):
+        cv._make_splits(data, CrossValidation(3))
+
+    def auto_candidates(self, forward, data):
+        raise AssertionError("mu grid derived")
+
+    monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
+    with pytest.raises(ValueError, match=match):
+        ChampLasso(mu='auto').search(data, CrossValidation(3))
+    # holding out whole segments works with segments of any length
+    splits = split_data(data.data.segments, 2, validate=1, test=0, split='cases')
+    assert cv._make_splits(data, CrossValidation(splits)) is splits
 
 
 def test_held_out_data_without_lag_window(monkeypatch):

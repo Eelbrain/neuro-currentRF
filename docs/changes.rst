@@ -48,14 +48,14 @@ API changes
 - **More flexible cross-validation:** :meth:`~ncrf.NCRFEstimator.fit` now
   accepts any Eelbrain cross-validation scheme as ``cv`` (any
   :class:`eelbrain.trf.Splits` instance, created through
-  :func:`eelbrain.split_data`). With :class:`~ncrf.ChampLasso`, every segment
-  with held-out data must also contribute training data, since its covariances
-  are estimated per segment; schemes that hold out entire segments (the default
-  of :func:`eelbrain.split_data` for data with several segments) are not
-  supported. The training data of each fold excludes the samples within one TRF
-  length (minus one sample) of the held-out data, so that training and held-out
-  samples never share a predictor sample in their lag windows (as the gap ``d``
-  of the former ``TimeSeriesSplit`` did).
+  :func:`eelbrain.split_data`). :class:`~ncrf.ChampLasso` estimates its
+  covariances per segment, and scores a segment that is held out entirely (as
+  in the default of :func:`eelbrain.split_data` for data with several segments)
+  with the average covariance of the training segments
+  (:attr:`~ncrf.ChampLassoFit.sigma_b_pooled`). The training data of each fold
+  excludes the samples within one TRF length (minus one sample) of the held-out
+  data, so that training and held-out samples never share a predictor sample in
+  their lag windows (as the gap ``d`` of the former ``TimeSeriesSplit`` did).
 - :class:`~ncrf.CrossValidation` **takes** ``splits`` **instead of**
   ``n_splits``: the number of folds, or an :class:`eelbrain.trf.Splits` object.
   :func:`~ncrf.fit_ncrf` keeps its ``n_splits`` argument.

@@ -11,6 +11,7 @@ import logging
 import time
 import weakref
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 from math import log10, sqrt
 from multiprocessing import current_process
 from numbers import Real
@@ -23,7 +24,7 @@ from scipy import linalg
 from scipy.signal import find_peaks
 from tqdm import tqdm
 
-from .._crossvalidation import crossvalidate
+from .._crossvalidation import _make_splits, crossvalidate
 from .._fastac import Fasta
 from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
 from .._penalties import g, g_group, proxg_group, shrink
@@ -196,12 +197,13 @@ def _evaluate_objective(
     Raises
     ------
     ValueError
-        If ``data`` contains a segment that ``Sigma_b`` has no entry for.
+        If ``data`` contains a segment that ``Sigma_b`` has no entry for
+        (:meth:`ChampLassoFit.score` supplies one for every segment).
     """
     segment_blocks = data.segment_blocks
     missing = [i for i in segment_blocks if i not in Sigma_b]
     if missing:
-        raise ValueError(f"ChampLasso estimates a sensor covariance for each data segment and has none for segment {', '.join(map(str, missing))}: it can only score held-out data from the segments it was fit on (e.g. with split='within_cases' or 'ncrf' in eelbrain.trf.split_data)")
+        raise ValueError(f"no sensor covariance for segment {', '.join(map(str, missing))}")
     ll2 = 0
     logdet = 0
     for i_segment, blocks in segment_blocks.items():
@@ -510,11 +512,29 @@ class ChampLassoFit(SolverFit):
         the model, keyed like ``gamma``, i.e. the whitened noise covariance plus
         the lead field projection of ``gamma``. These weight the residual of the
         same segment in :meth:`score`.
+    n_samples
+        Number of training samples of each segment, keyed like ``gamma``; the
+        weights of :attr:`sigma_b_pooled`. ``None`` for fits pickled before it
+        was recorded, which can only score the segments they were fit on.
     """
 
     history: ChampLassoHistory
     gamma: dict[int, FloatArray]
     sigma_b: dict[int, FloatArray]
+    n_samples: dict[int, int] | None = None
+
+    @cached_property
+    def sigma_b_pooled(self) -> FloatArray:
+        """Sensor covariance for segments the model was not fit on: :attr:`sigma_b` averaged over the training samples.
+
+        If trials are draws from one population, each with its own source
+        covariances, the data of a new trial has the average of their
+        covariances, weighted here by each segment's number of training samples.
+        Computed when :meth:`score` first needs it.
+        """
+        if self.n_samples is None:
+            raise ValueError("this ChampLassoFit has no sensor covariance for segments it was not fit on, since it predates the pooled covariance (ncrf 0.5); refit the model to score held-out segments")
+        return sum(n * self.sigma_b[i] for i, n in self.n_samples.items()) / sum(self.n_samples.values())
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: {_theta_repr(self.theta)}, {_count_repr(self.history.n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
@@ -552,17 +572,20 @@ class ChampLassoFit(SolverFit):
         to. On held-out data (``CVResult.scores``) the residual comes from the
         held-out window while :math:`\Sigma_b` was estimated on the training
         folds, so the scores measure how well the fitted covariance model
-        generalizes. Since the covariances are estimated per segment, held-out
-        data has to come from segments the model was fit on (cross-validation
-        schemes that hold out parts of segments, not whole segments).
+        generalizes. The covariances are estimated per segment; a segment the
+        model was not fit on, such as a trial held out as a whole, is scored with
+        :attr:`sigma_b_pooled`, the average covariance of the training segments.
+        Its scores thus also reflect how the trials differ from each other, and
+        are not comparable with scores of held-out parts of training segments.
 
         Raises
         ------
         ValueError
             If ``data`` contains a segment that was not part of the training
-            data, and hence has no covariance estimate.
+            data, and the fit predates :attr:`sigma_b_pooled`.
         """
-        cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, self.sigma_b, data)
+        sigma_b = {i: self.sigma_b[i] if i in self.sigma_b else self.sigma_b_pooled for i in data.segment_blocks}
+        cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, sigma_b, data)
         return {'cross_fit': cross_fit, 'weighted_l2_error': weighted_l2_error}
 
 
@@ -667,6 +690,10 @@ class ChampLasso(Solver):
             cv: CrossValidation,
     ) -> tuple[ChampLasso, list[CVResult]]:
         """Resolve ``mu``, and cross-validate unless it is a fixed number."""
+        if isinstance(self.mu, str):
+            # 'auto' derives its grid with a solve on all of the data; check that
+            # the folds can be formed first, rather than fail after that solve
+            _make_splits(data, cv)
         candidates = self.candidates(data.forward, data)
         if _is_number(self.mu):
             return candidates[0], []
@@ -791,6 +818,7 @@ class ChampLasso(Solver):
             history=history,
             gamma=state.Gamma,
             sigma_b=state.Sigma_b,
+            n_samples={i: sum(data.blocks[k][2] - data.blocks[k][1] for k in blocks) for i, blocks in data.segment_blocks.items()},
         )
 
     def auto_candidates(

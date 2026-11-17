@@ -362,9 +362,53 @@ def test_champ_lasso_score_by_segment():
     np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
     logdet = (100 * np.log(np.linalg.det(sigma_b[0])) + 50 * np.log(np.linalg.det(sigma_b[1]))) / 150
     np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * logdet)
-    # a segment the fit has no covariance for can not be scored
-    with pytest.raises(ValueError, match="has none for segment 2"):
+    # a fit without training sample counts (pickled before they were recorded)
+    # can not score a segment it has no covariance for
+    with pytest.raises(ValueError, match="predates the pooled covariance"):
         fit.score(forward, data.subset([[500, 550]]))
+
+
+def test_champ_lasso_score_pooled():
+    """A segment the fit has no covariance for is scored with the training covariances averaged over the training samples."""
+    data = _synthetic_data('l2', n_segments=3).whiten(_forward())
+    forward = data.forward
+    theta = np.random.RandomState(2).normal(size=(4, data.design.n_coefficients))
+    sigma_b = {0: np.eye(3), 1: np.diag([2., 3., 4.])}
+    fit = ChampLassoFit(theta, ChampLassoHistory(), {}, sigma_b, n_samples={0: 150, 1: 50})
+    pooled = (150 * sigma_b[0] + 50 * sigma_b[1]) / 200
+    # computed when first needed
+    assert 'sigma_b_pooled' not in fit.__dict__
+    fit.score(forward, data.subset([[300, 350]]))
+    assert 'sigma_b_pooled' not in fit.__dict__
+
+    held_out = data.subset([[500, 550]])
+    assert held_out.blocks == [(2, 100, 150)]
+    scores = fit.score(forward, held_out)
+    np.testing.assert_allclose(fit.sigma_b_pooled, pooled)
+    meg, covariates = held_out.responses[0], held_out.covariates[0]
+    residual = meg - forward.whitened_lead_field @ theta @ covariates.T
+    weighted_l2_error = 0.5 * np.trace(np.linalg.solve(pooled, residual @ residual.T)) / 50
+    np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
+    np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * np.log(np.linalg.det(pooled)))
+    # a pickled fit keeps its training sample counts
+    assert pickle.loads(pickle.dumps(fit)).n_samples == {0: 150, 1: 50}
+
+
+def test_champ_lasso_cross_validates_whole_segments():
+    """Cross-validation that holds out whole segments, the default of split_data() for segmented data."""
+    data = _synthetic_data('l2', n_segments=3).whiten(_forward())
+    solver = champ_lasso.ChampLasso(mu=0.1, n_iter=1, n_iterc=1, n_iterf=2)
+    # the fit records its training samples per segment
+    fit = solver.solve(data.forward, data.subset([[0, 200], [300, 400]]))
+    assert fit.n_samples == {0: 196, 1: 100}
+
+    splits = split_data(data.data.segments, 3, validate=1, test=0)
+    assert splits.split == 'cases'
+    results = champ_lasso.crossvalidate(data, [solver, replace(solver, mu=0.2)], CrossValidation(splits, n_workers=0))
+    assert len(results) == 2
+    for result in results:
+        assert np.isfinite(result.scores['cross_fit'])
+        assert np.isfinite(result.scores['weighted_l2_error'])
 
 
 def test_scores_per_sample():

@@ -89,6 +89,9 @@ def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
             raise ValueError(f"{cv.splits}: made for different data segments than {data}")
         splits = cv.splits
     else:
+        n_times = sorted(set(data.data.segment_n_times))
+        if len(n_times) > 1:
+            raise ValueError(f"cross-validation with {cv.splits} folds holds out the last windows of every segment, which requires segments of equal length, but the segments have {', '.join(map(str, n_times))} samples. Either cut the segments to a common length, or hold out whole segments with an eelbrain Splits object, e.g. eelbrain.trf.split_data(segments, {cv.splits}, validate=1, test=0, split='cases') with segments the [start, stop] of each segment on the concatenated time axis (RegressionData.data.segments), passed as n_splits to fit_ncrf() or as cv to NCRFEstimator.fit()")
         splits = split_data(data.data.segments, cv.splits, validate=1, test=0, split='ncrf')
     _fold_ranges(data, splits)
     return splits
