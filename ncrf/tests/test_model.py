@@ -239,7 +239,7 @@ def _synthetic_data(
 
 
 def test_subset():
-    """A subset's arrays are views into the full dataset's, rescaled to its own norm factor."""
+    """A subset's arrays are views into the full dataset's, and its Gram matrices are normalized by its own sample count."""
     data = _synthetic_data('l2', n_segments=2).whiten(_forward())
     assert data.blocks == [(0, 4, 200), (1, 4, 200)]  # lags 0-4 samples: the first 4 samples lack a full lag window
     assert len(data) == 2
@@ -267,6 +267,22 @@ def test_subset():
     assert fold.subset([[0, 30]]).blocks == [(0, 10, 30)]
     with pytest.raises(ValueError, match="contains none of the dataset's samples"):
         fold.subset([[100, 150]])
+
+
+def test_norm_factor_independent_of_blocks():
+    """Cutting segments into more blocks leaves the data term of the objective unchanged.
+
+    A cross-validation fold that holds out the middle of a segment trains on two
+    blocks of it, and has to be regularized like the complete data.
+    """
+    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
+    assert data.norm_factor ** 2 == data.n_samples
+    # the same samples, each segment cut in two
+    cut = data.subset([[4, 100], [100, 200], [204, 300], [300, 400]])
+    assert cut.blocks == [(0, 4, 100), (0, 100, 200), (1, 4, 100), (1, 100, 200)]
+    assert cut.n_samples == data.n_samples
+    for key in ('bbt', 'bE', 'EtE'):
+        np.testing.assert_allclose(sum(getattr(cut, key)), sum(getattr(data, key)), err_msg=key)
 
 
 def test_pickle_ships_raw_inputs():

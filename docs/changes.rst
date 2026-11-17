@@ -31,6 +31,15 @@ API changes
   the solver's objective is built from). The fit metrics and
   :meth:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
   whitened responses, and all scores are averages per sample.
+- ``mu`` **is relative to the average error per sample.** The data term of the
+  objective used to be the sum of each trial's average error, so the
+  regularization depended on the number of trials, and cross-validation folds
+  that held out the middle of a trial applied half the regularization of the
+  final fit. It is now the average error over all samples, which every sample
+  contributes to equally regardless of how the data is divided into trials. To
+  reproduce a fixed ``mu`` from ncrf 0.4 on data with several trials of equal
+  length, divide it by the number of trials; ``mu='auto'`` derives its grid from
+  the same objective and is unaffected, apart from the numeric values it reports.
 - ``tstop`` **is exclusive.** TRF windows follow Eelbrain's time-axis
   convention: ``tstop`` is the end of the window and not itself a lag, so
   ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used

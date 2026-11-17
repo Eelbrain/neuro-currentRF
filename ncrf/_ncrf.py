@@ -104,7 +104,9 @@ def fit_ncrf(
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
-        search range from the data.
+        search range from the data. The penalty weighs against the average error
+        per sample. To reproduce a fixed ``mu`` from ncrf 0.4 on data with
+        several trials of equal length, divide it by the number of trials.
     tol
         Tolerance factor deciding stopping criterion for the overall algorithm. The iterations
         are stooped when ``norm(trf_new - trf_old)/norm(trf_old) < tol`` condition is met.

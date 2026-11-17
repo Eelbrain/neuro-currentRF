@@ -135,7 +135,7 @@ class RegressionData:
     lags and the Gaussian basis the predictors are projected onto. Neither is
     divided by :attr:`norm_factor`; the factor is applied in the derived Gram
     matrices (:attr:`bbt`, :attr:`bE`, :attr:`EtE`) that the solver's objective
-    is built from, whereas the fit metrics are averages per sample.
+    is built from, which is thus an average per sample, like the fit metrics.
     """
 
     data: DeconvolutionData
@@ -259,14 +259,16 @@ class RegressionData:
 
     @property
     def norm_factor(self) -> float:
-        """Square root of the mean number of samples per block, by which responses and covariates are normalized.
+        """Square root of the number of samples, by which the Gram matrices normalize the responses and covariates.
 
-        Normalizing by the per-block sample count keeps the objective, and hence
-        the meaning of the regularization parameter, independent of the length
-        of the data; with blocks of unequal length, each block contributes in
-        proportion to its length.
+        The Gram matrices are divided by ``norm_factor ** 2``, so that the data
+        term of the objective is the average error per sample, to which every
+        sample contributes equally. The meaning of the regularization parameter
+        is thus independent of how the data is divided into segments and blocks;
+        in particular, cross-validation folds that cut a segment into several
+        blocks are regularized like the complete data.
         """
-        return sqrt(self.n_samples / len(self.blocks))
+        return sqrt(self.n_samples)
 
     @property
     def is_whitened(self) -> bool:
@@ -357,10 +359,14 @@ class RegressionData:
         return [np.dot(E.T, E) / self.norm_factor ** 2 for E in self.covariates]
 
     def _spectral_norms(self) -> FloatArray:
-        """Spectral norm of each (normalized) covariate channel, averaged across blocks."""
+        """Spectral norm of each covariate channel, averaged across blocks and normalized by the mean block length.
+
+        Independent of :attr:`norm_factor`, so that the ``'spectral'`` scale of
+        the predictors does not change with the normalization of the objective.
+        """
         splits = np.cumsum(self.design.basis_widths)[:-1]
         norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
-        return np.array(norms).mean(axis=0) / self.norm_factor
+        return np.array(norms).mean(axis=0) / sqrt(self.n_samples / len(self.blocks))
 
     def _derive(self, **changes: Any) -> RegressionData:
         """A dataset with changed fields, taking over this dataset's derived arrays where they remain valid.

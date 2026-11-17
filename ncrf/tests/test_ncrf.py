@@ -15,6 +15,11 @@ from ncrf.tests.fetch import load
 from eelbrain import Case, Categorial, NDVar, concatenate
 from eelbrain.testing import assert_dataobj_equal
 
+#: Regularization of the reference fits on the 2 trials of the test data. The data
+#: term of the objective is an average per sample, so this equals the 0.0019444 of
+#: ncrf 0.4, whose data term was the sum of the average per trial.
+MU = 0.0019444 / 2
+
 
 @pytest.mark.parametrize(
     'mu, expected',
@@ -72,7 +77,7 @@ def test_ncrf():
     emptyroom = load('emptyroom')
 
     # 1 stimulus
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=MU, n_iter=3, n_iterc=3, n_iterf=10)
     # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
@@ -102,7 +107,7 @@ def test_ncrf():
     assert_dataobj_equal(model_2.h, result.model.h)
 
     # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
-    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
+    solver = ChampLasso(mu=MU, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
     assert result.solver == solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
@@ -115,7 +120,7 @@ def test_ncrf():
     # 2 stimuli, one of them 2-d, l2 normalization
     diff = stim.diff('time')
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], scale='l2', mu=MU, n_iter=3, n_iterc=3, n_iterf=10)
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
@@ -126,7 +131,7 @@ def test_ncrf():
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
     tstart = [-0.1, 0.1]
     tstop = [0.2, 0.3]
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=MU, n_iter=3, n_iterc=3, n_iterf=10)
 
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.021405417036547858, rtol=0.001)
@@ -141,7 +146,7 @@ def test_ncrf():
 
     # cross-validation
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2)
-    np.testing.assert_allclose(result.solver.mu, 0.020424, rtol=0.001)
+    np.testing.assert_allclose(result.solver.mu, 0.020424 / 2, rtol=0.001)
     result.cv_info()
 
     # test without multiprocessing
@@ -164,7 +169,7 @@ def test_ncrf_rank_deficient_noise():
     meg = NDVar(np.einsum('ij,cjt->cit', projector, meg.get_data(('case', 'sensor', 'time'))), (Case, meg.sensor, meg.time))
     emptyroom = NDVar(np.dot(projector, emptyroom.get_data(('sensor', 'time'))), (emptyroom.sensor, emptyroom.time))
 
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=5)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=MU, n_iter=1, n_iterc=1, n_iterf=5)
     forward = result.model.forward
     assert forward.rank == len(u) - 1
     assert forward.whitening_filter.shape == (len(u) - 1, len(u))

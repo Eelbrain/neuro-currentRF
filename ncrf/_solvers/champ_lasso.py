@@ -617,7 +617,11 @@ class ChampLasso(Solver):
     mu
         Regularizer parameter. A number fits one model, a sequence selects among
         an explicit grid with cross-validation, and ``'auto'`` derives and
-        cross-validates a grid from the data (default).
+        cross-validates a grid from the data (default). The penalty weighs
+        against the average error per sample (see
+        :attr:`~ncrf.RegressionData.norm_factor`), so its meaning does not
+        depend on how the data is divided into segments, or into blocks by
+        cross-validation.
     n_iter
         Number of outer iterations of the algorithm.
     n_iterc
