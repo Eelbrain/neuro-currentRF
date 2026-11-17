@@ -113,7 +113,7 @@ class ChampLassoHistory:
                 raise ValueError(f"{name=}: not one of {QUANTITIES}")
             if name in self.store and value is not None:
                 # shallow copy: the solver replaces the entries of the gamma and
-                # sigma_b lists rather than writing into them
+                # sigma_b dicts rather than writing into them
                 getattr(self, name).append(copy.copy(value))
 
 

@@ -64,9 +64,9 @@ def test_make_folds():
 
     folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
 
-    # by default, the last 2 windows of 5% of every segment are held out in
-    # turn, trained on the data before the window, minus a gap of 4 samples
-    # (lags 0 to 4)
+    # by default, the last 2 windows of ceil(0.05 / 1.05 * 100) = 5 samples of
+    # every segment are held out in turn, trained on the data before the
+    # window, minus a gap of 4 samples (lags 0 to 4)
     assert len(folds) == 2
     train, validate = folds[0]
     assert validate.blocks == [(0, 90, 95), (1, 90, 95), (2, 90, 95), (3, 90, 95)]

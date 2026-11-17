@@ -42,10 +42,10 @@ class CrossValidation:
     ----------
     splits
         The cross-validation folds. An integer is the number of folds: the
-        last ``splits`` windows of every segment, each 5% of the segment long,
-        are held out one at a time for validation, and the candidates are fit
-        to the data preceding the window (``split='ncrf'`` in
-        :func:`eelbrain.trf.split_data`); this requires a single segment or
+        last ``splits`` windows of every segment, each approximately 5% of the
+        segment long, are held out one at a time for validation, and the
+        candidates are fit to the data preceding the window (``split='ncrf'``
+        in :func:`eelbrain.trf.split_data`); this requires a single segment or
         segments of equal length. Alternatively, an
         :class:`eelbrain.trf.Splits` object made for the data's segments, e.g.
         with :func:`eelbrain.trf.split_data` and one of its other partitioning
