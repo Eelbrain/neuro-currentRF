@@ -167,6 +167,9 @@ def test_default_folds_need_equal_segments(monkeypatch):
     monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
     with pytest.raises(ValueError, match=match):
         ChampLasso(mu='auto').search(data, CrossValidation(3))
+    # an invalid mu is reported as such, not as a problem with the folds
+    with pytest.raises(ValueError, match="mu='autp'"):
+        ChampLasso(mu='autp').search(data, CrossValidation(3))
     # holding out whole segments works with segments of any length
     splits = split_data(data.data.segments, 2, validate=1, test=0, split='cases')
     assert cv._make_splits(data, CrossValidation(splits)) is splits

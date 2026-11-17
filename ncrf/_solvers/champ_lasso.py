@@ -690,7 +690,7 @@ class ChampLasso(Solver):
             cv: CrossValidation,
     ) -> tuple[ChampLasso, list[CVResult]]:
         """Resolve ``mu``, and cross-validate unless it is a fixed number."""
-        if isinstance(self.mu, str):
+        if isinstance(self.mu, str) and self.mu == 'auto':
             # 'auto' derives its grid with a solve on all of the data; check that
             # the folds can be formed first, rather than fail after that solve
             _make_splits(data, cv)

@@ -368,7 +368,7 @@ class RegressionData:
         return [np.dot(E.T, E) / self.norm_factor ** 2 for E in self.covariates]
 
     def _spectral_norms(self) -> FloatArray:
-        """Spectral norm of each covariate channel, averaged across blocks and normalized by the mean block length.
+        """Spectral norm of each covariate channel, averaged across blocks and divided by the square root of the mean block length.
 
         Independent of :attr:`norm_factor`, so that the ``'spectral'`` scale of
         the predictors does not change with the normalization of the objective.
