@@ -15,7 +15,10 @@ API changes
   :meth:`~ncrf.RegressionData.from_data` takes the same input layout: M/EEG data
   as a single NDVar (with a ``case`` dimension for several segments) or a
   :class:`~eelbrain.Datalist` for segments of unequal length, which are now
-  supported; predictors as one NDVar/Datalist per predictor variable. The
+  supported (the default cross-validation scheme needs segments of equal
+  length, so pass an :class:`eelbrain.trf.Splits` object as ``cv`` to select
+  ``mu`` for segments of unequal length); predictors as one NDVar/Datalist per
+  predictor variable. The
   ``stim_is_single`` argument is gone, and ``meg``/``stim`` lists in
   :func:`~ncrf.fit_ncrf` keep working as before. The dataset keeps one array per
   segment, which is a view into the NDVar data where possible, and the
@@ -26,20 +29,27 @@ API changes
   :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
   :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices
   the solver's objective is built from). The fit metrics and
-  :attr:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
+  :meth:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
   whitened responses, and all scores are averages per sample.
-- **``tstop`` is exclusive.** TRF windows follow Eelbrain's time-axis
+- ``tstop`` **is exclusive.** TRF windows follow Eelbrain's time-axis
   convention: ``tstop`` is the end of the window and not itself a lag, so
   ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used
   to yield 51. The window is derived with :func:`eelbrain.trf.lag_window`, the
   function :func:`eelbrain.boosting` uses.
-- **More flexible cross-validation:** :meth:`NCRFEstimator.fit` now accepts any
-  Eelbrain cross-validation scheme as ``cv`` (any :class:`eelbrain.trf.Splits`
-  instance, created through :func:`eelbrain.split_data`) . The training data of
-  each fold excludes the samples within one TRF length (minus one sample) of the
-  held-out data, so that training and held-out samples never share a predictor
-  sample in their lag windows (as the gap ``d`` of the former
-  ``TimeSeriesSplit`` did).
+- **More flexible cross-validation:** :meth:`~ncrf.NCRFEstimator.fit` now
+  accepts any Eelbrain cross-validation scheme as ``cv`` (any
+  :class:`eelbrain.trf.Splits` instance, created through
+  :func:`eelbrain.split_data`). With :class:`~ncrf.ChampLasso`, every segment
+  with held-out data must also contribute training data, since its covariances
+  are estimated per segment; schemes that hold out entire segments (the default
+  of :func:`eelbrain.split_data` for data with several segments) are not
+  supported. The training data of each fold excludes the samples within one TRF
+  length (minus one sample) of the held-out data, so that training and held-out
+  samples never share a predictor sample in their lag windows (as the gap ``d``
+  of the former ``TimeSeriesSplit`` did).
+- :class:`~ncrf.CrossValidation` **takes** ``splits`` **instead of**
+  ``n_splits``: the number of folds, or an :class:`eelbrain.trf.Splits` object.
+  :func:`~ncrf.fit_ncrf` keeps its ``n_splits`` argument.
 - **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
   time)``.
 
@@ -56,13 +66,13 @@ Bug fixes
   scratch buffer across segments without resetting it, so from the second segment
   on the baseline residual was computed with the last source's weights still
   zeroed, corrupting every per-source value.
-- **``use_ES=True`` depended on the order in which workers returned.** The guard
+- ``use_ES=True`` **depended on the order in which workers returned.** The guard
   for "the cross-fit winner is already the largest ``mu``" compared it with the
   last element of the unordered result list instead of the largest ``mu``, so
   estimation-stability refinement was skipped or applied inconsistently from run
   to run. Selection is now order-independent, and the ``mu`` grid is extended
   before the criterion is applied, so it sees the complete search range.
-- **:attr:`ncrf.NCRF.h_scaled` undid the covariate scaling in the wrong
+- :attr:`ncrf.NCRF.h_scaled` **undid the covariate scaling in the wrong
   direction.** The covariates are divided by the scale, so restoring stimulus
   units requires dividing ``h`` by it as well, but ``h_scaled`` multiplied
   instead. Values obtained with ``normalize='l1'`` or ``normalize='l2'`` were
