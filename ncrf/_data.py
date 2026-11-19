@@ -290,7 +290,7 @@ class RegressionData:
 
         Shared by all datasets derived from this one through :meth:`subset`.
         """
-        segments = [y.astype(np.float64, copy=False) for y in self.data.y.segments]
+        segments = self.data.y.segments
         if self.forward is None:
             return segments
         return [np.dot(self.forward.whitening_filter, y) for y in segments]
