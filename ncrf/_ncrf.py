@@ -117,10 +117,9 @@ def fit_ncrf(
         Number of cross-validation folds (default 3): the last ``n_splits``
         windows of every segment are held out one at a time for validation,
         and the candidates are fit to the data preceding the window (see
-        :class:`~ncrf.CrossValidation`). This requires segments of equal
-        length; for segments of unequal length, pass an
-        :class:`eelbrain.Splits` object instead, e.g. one that holds out
-        whole segments (``split='case'`` in :func:`eelbrain.split_data`).
+        :class:`~ncrf.CrossValidation`). Alternatively, an
+        :class:`eelbrain.Splits` object, e.g. one that holds out whole
+        segments (``split='case'`` in :func:`eelbrain.split_data`).
     n_workers
         Number of worker processes for cross-validation. If ``None``, derive it
         from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).

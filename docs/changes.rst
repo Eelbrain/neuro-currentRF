@@ -15,10 +15,7 @@ API changes
   :meth:`~ncrf.RegressionData.from_data` takes the same input layout: M/EEG data
   as a single NDVar (with a ``case`` dimension for several segments) or a
   :class:`~eelbrain.Datalist` for segments of unequal length, which are now
-  supported (the default cross-validation scheme needs segments of equal
-  length, so pass an :class:`eelbrain.Splits` object as ``cv`` to select
-  ``mu`` for segments of unequal length); predictors as one NDVar/Datalist per
-  predictor variable. The
+  supported; predictors as one NDVar/Datalist per predictor variable. The
   ``stim_is_single`` argument is gone, and ``meg``/``stim`` lists in
   :func:`~ncrf.fit_ncrf` keep working as before. The dataset keeps one array per
   segment, which is a view into the NDVar data where possible, and the

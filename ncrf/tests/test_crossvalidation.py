@@ -153,34 +153,25 @@ def _negative_lag_data(seconds):
     return RegressionData.from_data(meg, stim, -0.1, 0.2, scale=None)
 
 
-def test_default_folds_need_equal_segments(monkeypatch):
-    """With segments of unequal length, the default folds are rejected, with mu='auto' before its grid is derived."""
+def test_folds_of_unequal_segments():
+    """Segments of unequal length are each cut in proportion to their length."""
     rng = np.random.RandomState(0)
     sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
     times = [UTS(0, 0.01, n) for n in (300, 400)]
     meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
     stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
     data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
-    match = r"requires segments of equal length, but the segments have 300, 400 samples\. Either cut the segments to a common length, or hold out whole segments .*split='case'"
-    with pytest.raises(ValueError, match=match):
-        cv._make_splits(data, CrossValidation(3))
-
-    def auto_candidates(self, forward, data):
-        raise AssertionError("mu grid derived")
-
-    monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
-    with pytest.raises(ValueError, match=match):
-        ChampLasso(mu='auto').search(data, CrossValidation(3))
-    # an invalid mu is reported as such, not as a problem with the folds
-    with pytest.raises(ValueError, match="mu='autp'"):
-        ChampLasso(mu='autp').search(data, CrossValidation(3))
-    # holding out whole segments works with segments of any length
+    # windows of 15 and 20 samples, and a gap of 4 samples (lags 0 to 4)
+    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 270, 285), (1, 360, 380)], [(0, 285, 300), (1, 380, 400)]]
+    assert [train.blocks for train, _ in folds] == [[(0, 4, 266), (1, 4, 356)], [(0, 4, 281), (1, 4, 376)]]
+    # as is holding out whole segments
     splits = split_data(data.data.segments, partitions=2, split='case', test=0)
     assert cv._make_splits(data, CrossValidation(splits)) is splits
 
 
 def test_held_out_data_without_lag_window(monkeypatch):
-    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts."""
+    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
     # 2 s: windows of ceil(0.05 * 200) = 10 samples, the last one, samples
     # 190-200, entirely in the 10 samples cropped for the negative lags
     data = _negative_lag_data(2)
@@ -200,6 +191,17 @@ def test_held_out_data_without_lag_window(monkeypatch):
     monkeypatch.setattr(cv, 'Pool', pool)
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
         crossvalidate(data, (ChampLasso(mu=0.1), ChampLasso(mu=0.2)), CrossValidation(3, n_workers=2))
+
+    # mu='auto' checks the folds before the solve that derives its grid
+    def auto_candidates(self, forward, data):
+        raise AssertionError("mu grid derived")
+
+    monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
+    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
+        ChampLasso(mu='auto').search(data, CrossValidation(3))
+    # an invalid mu is reported as such, not as a problem with the folds
+    with pytest.raises(ValueError, match="mu='autp'"):
+        ChampLasso(mu='autp').search(data, CrossValidation(3))
 
     # 4 s: windows of 20 samples, of which the last keeps 10
     data = _negative_lag_data(4)

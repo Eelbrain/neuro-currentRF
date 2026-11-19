@@ -47,8 +47,7 @@ class CrossValidation:
         out one at a time for validation, and the candidates are fit to the
         data preceding the window (``scheme='walk-forward'`` with
         ``split='within-case'`` and ``partitions=splits + 1`` in
-        :func:`eelbrain.split_data`); this requires a single segment or
-        segments of equal length. Alternatively, an
+        :func:`eelbrain.split_data`). Alternatively, an
         :class:`eelbrain.Splits` object made for the data's segments, e.g.
         with :func:`eelbrain.split_data` and one of its other partitioning
         schemes; its validation splits are the folds. Splits with a test set
@@ -99,9 +98,6 @@ def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
             raise ValueError(f"{cv.splits}: made for different data segments than {data}")
         splits = cv.splits
     else:
-        n_times = sorted(set(data.data.segment_n_times))
-        if len(n_times) > 1:
-            raise ValueError(f"cross-validation with {cv.splits} folds holds out the last windows of every segment, which requires segments of equal length, but the segments have {', '.join(map(str, n_times))} samples. Either cut the segments to a common length, or hold out whole segments with an eelbrain Splits object, e.g. eelbrain.split_data(segments, partitions={cv.splits}, split='case', test=0) with segments the [start, stop] of each segment on the concatenated time axis (RegressionData.data.segments), passed as n_splits to fit_ncrf() or as cv to NCRFEstimator.fit()")
         splits = split_data(data.data.segments, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
     _fold_ranges(data, splits)
     return splits
