@@ -5,8 +5,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from eelbrain import Datalist, NDVar, Sensor, UTS
-from eelbrain.trf import split_data
+from eelbrain import Datalist, NDVar, Sensor, UTS, split_data
 from ncrf import ChampLasso, CrossValidation, RegressionData, crossvalidate
 from ncrf import _crossvalidation as cv
 import ncrf._model
@@ -64,7 +63,7 @@ def test_make_folds():
 
     folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
 
-    # by default, the last 2 windows of ceil(0.05 / 1.05 * 100) = 5 samples of
+    # by default, the last 2 windows of ceil(0.05 * 100) = 5 samples of
     # every segment are held out in turn, trained on the data before the
     # window, minus a gap of 4 samples (lags 0 to 4)
     assert len(folds) == 2
@@ -82,7 +81,7 @@ def test_make_folds():
     # an Eelbrain Splits object is used with its own partitioning scheme; the
     # gap also separates training data that follows the held-out data, but
     # does not extend across segment boundaries
-    splits = split_data(data.data.segments, 2, validate=1, test=0, split='within_cases')
+    splits = split_data(data.data.segments, partitions=2, split='within-case', test=0)
     assert cv._make_splits(data, CrossValidation(splits)) is splits
     folds = cv._make_folds(data, splits)
     assert folds[0][1].blocks == [(0, 4, 50), (1, 4, 50), (2, 4, 50), (3, 4, 50)]
@@ -90,7 +89,7 @@ def test_make_folds():
     assert folds[1][1].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
     assert folds[1][0].blocks == [(0, 4, 46), (1, 4, 46), (2, 4, 46), (3, 4, 46)]
     # but it has to describe the data's segments
-    other = split_data(np.array([[0, 200], [200, 400]]), 2, validate=1, test=0)
+    other = split_data(np.array([[0, 200], [200, 400]]), partitions=2, test=0)
     with pytest.raises(ValueError, match="made for different data segments"):
         cv._make_splits(data, CrossValidation(other))
     # continuous data
@@ -115,10 +114,10 @@ def test_make_folds_gap():
 
     splits = cv._make_splits(data, CrossValidation(3))
     folds = cv._make_folds(data, splits)
-    # windows of ceil(0.05 / 1.05 * 6000) = 286 samples at the end of the data;
-    # training stops 59 samples before each window
-    assert [train.blocks for train, _ in folds] == [[(0, 49, 5083)], [(0, 49, 5369)], [(0, 49, 5655)]]
-    assert [validate.blocks for _, validate in folds] == [[(0, 5142, 5428)], [(0, 5428, 5714)], [(0, 5714, 5990)]]
+    # windows of 0.05 * 6000 = 300 samples at the end of the data; training
+    # stops 59 samples before each window
+    assert [train.blocks for train, _ in folds] == [[(0, 49, 5041)], [(0, 49, 5341)], [(0, 49, 5641)]]
+    assert [validate.blocks for _, validate in folds] == [[(0, 5100, 5400)], [(0, 5400, 5700)], [(0, 5700, 5990)]]
     # the predictor samples in the lag windows of training and held-out samples
     # are disjoint: row t uses x[t - 49] to x[t + 10]
     for train, validate in folds:
@@ -162,7 +161,7 @@ def test_default_folds_need_equal_segments(monkeypatch):
     meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
     stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
     data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
-    match = r"requires segments of equal length, but the segments have 300, 400 samples\. Either cut the segments to a common length, or hold out whole segments .*split='cases'"
+    match = r"requires segments of equal length, but the segments have 300, 400 samples\. Either cut the segments to a common length, or hold out whole segments .*split='case'"
     with pytest.raises(ValueError, match=match):
         cv._make_splits(data, CrossValidation(3))
 
@@ -176,20 +175,20 @@ def test_default_folds_need_equal_segments(monkeypatch):
     with pytest.raises(ValueError, match="mu='autp'"):
         ChampLasso(mu='autp').search(data, CrossValidation(3))
     # holding out whole segments works with segments of any length
-    splits = split_data(data.data.segments, 2, validate=1, test=0, split='cases')
+    splits = split_data(data.data.segments, partitions=2, split='case', test=0)
     assert cv._make_splits(data, CrossValidation(splits)) is splits
 
 
 def test_held_out_data_without_lag_window(monkeypatch):
     """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts."""
-    # 2 s: windows of ceil(0.05 / 1.05 * 200) = 10 samples, the last one, samples
+    # 2 s: windows of ceil(0.05 * 200) = 10 samples, the last one, samples
     # 190-200, entirely in the 10 samples cropped for the negative lags
     data = _negative_lag_data(2)
     assert data.blocks == [(0, 19, 190)]
     with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
         cv._make_splits(data, CrossValidation(3))
     # the same check applies to Splits objects
-    splits = split_data(data.data.segments, 3, validate=1, test=0, split='walk-forward')
+    splits = split_data(data.data.segments, partitions=4, scheme='walk-forward', test=0)
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
         cv._make_splits(data, CrossValidation(splits))
 
@@ -254,9 +253,9 @@ def test_cross_validation_rejects_invalid_splits():
             CrossValidation(validate=validate)
     # true cross-validation with a test set is not implemented yet
     with pytest.raises(NotImplementedError, match="test set is not implemented"):
-        CrossValidation(split_data(segments, 3, validate=1, test=1))
+        CrossValidation(split_data(segments, partitions=3, test=1))
     with pytest.raises(ValueError, match="no validation set"):
-        CrossValidation(split_data(segments, 3, validate=0, test=0))
+        CrossValidation(split_data(segments, partitions=3, validate=0, test=0))
 
 
 def test_extend_mu_grid():

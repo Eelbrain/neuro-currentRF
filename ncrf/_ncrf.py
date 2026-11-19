@@ -15,8 +15,7 @@ import collections
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from eelbrain import Datalist, NDVar
-from eelbrain.trf import Splits
+from eelbrain import Datalist, NDVar, Splits
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
@@ -120,8 +119,8 @@ def fit_ncrf(
         and the candidates are fit to the data preceding the window (see
         :class:`~ncrf.CrossValidation`). This requires segments of equal
         length; for segments of unequal length, pass an
-        :class:`eelbrain.trf.Splits` object instead, e.g. one that holds out
-        whole segments (``split='cases'`` in :func:`eelbrain.trf.split_data`).
+        :class:`eelbrain.Splits` object instead, e.g. one that holds out
+        whole segments (``split='case'`` in :func:`eelbrain.split_data`).
     n_workers
         Number of worker processes for cross-validation. If ``None``, derive it
         from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).

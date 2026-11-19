@@ -540,7 +540,7 @@ class RegressionData:
         ranges
             ``(n, 2)`` array of ``[start, stop]`` sample indices on the
             concatenated time axis of the segments, such as
-            :attr:`eelbrain.trf.Split.train`. Only samples that this dataset covers
+            :attr:`eelbrain.Split.train`. Only samples that this dataset covers
             are retained.
 
         Notes

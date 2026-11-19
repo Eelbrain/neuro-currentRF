@@ -20,7 +20,8 @@ from numbers import Integral
 from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
-from eelbrain.trf import Split, Splits, init_worker, n_workers, split_data
+from eelbrain import Split, Splits, split_data
+from eelbrain.trf import init_worker, n_workers
 import numpy as np
 from tqdm import tqdm
 
@@ -44,11 +45,12 @@ class CrossValidation:
         The cross-validation folds. An integer is the number of folds: the
         last ``splits`` windows of every segment (see ``validate``) are held
         out one at a time for validation, and the candidates are fit to the
-        data preceding the window (``split='walk-forward'`` in
-        :func:`eelbrain.trf.split_data`); this requires a single segment or
+        data preceding the window (``scheme='walk-forward'`` with
+        ``split='within-case'`` and ``partitions=splits + 1`` in
+        :func:`eelbrain.split_data`); this requires a single segment or
         segments of equal length. Alternatively, an
-        :class:`eelbrain.trf.Splits` object made for the data's segments, e.g.
-        with :func:`eelbrain.trf.split_data` and one of its other partitioning
+        :class:`eelbrain.Splits` object made for the data's segments, e.g.
+        with :func:`eelbrain.split_data` and one of its other partitioning
         schemes; its validation splits are the folds. Splits with a test set
         are not supported yet. In either case, the training data of each fold
         excludes the samples within one TRF length (minus one sample) of the
@@ -61,7 +63,7 @@ class CrossValidation:
     validate
         Length of each validation window as proportion of the segment (default
         0.05, i.e., 5% of the segment). Only applies when ``splits`` is the
-        number of folds; a :class:`eelbrain.trf.Splits` object defines its own
+        number of folds; a :class:`eelbrain.Splits` object defines its own
         validation sets.
     """
 
@@ -99,8 +101,8 @@ def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
     else:
         n_times = sorted(set(data.data.segment_n_times))
         if len(n_times) > 1:
-            raise ValueError(f"cross-validation with {cv.splits} folds holds out the last windows of every segment, which requires segments of equal length, but the segments have {', '.join(map(str, n_times))} samples. Either cut the segments to a common length, or hold out whole segments with an eelbrain Splits object, e.g. eelbrain.trf.split_data(segments, {cv.splits}, validate=1, test=0, split='cases') with segments the [start, stop] of each segment on the concatenated time axis (RegressionData.data.segments), passed as n_splits to fit_ncrf() or as cv to NCRFEstimator.fit()")
-        splits = split_data(data.data.segments, cv.splits, validate=cv.validate, test=0, split='walk-forward')
+            raise ValueError(f"cross-validation with {cv.splits} folds holds out the last windows of every segment, which requires segments of equal length, but the segments have {', '.join(map(str, n_times))} samples. Either cut the segments to a common length, or hold out whole segments with an eelbrain Splits object, e.g. eelbrain.split_data(segments, partitions={cv.splits}, split='case', test=0) with segments the [start, stop] of each segment on the concatenated time axis (RegressionData.data.segments), passed as n_splits to fit_ncrf() or as cv to NCRFEstimator.fit()")
+        splits = split_data(data.data.segments, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
     _fold_ranges(data, splits)
     return splits
 

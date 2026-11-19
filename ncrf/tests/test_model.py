@@ -10,8 +10,6 @@ import mne
 import numpy as np
 import pytest
 
-from eelbrain.trf import split_data
-
 from ncrf import ChampLassoFit, CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign, fit_model
 from ncrf._linalg import gaussian_basis
 from ncrf._solvers import champ_lasso
@@ -21,7 +19,7 @@ from ncrf._model import _score_fit
 from ncrf._typing import FloatArray
 from eelbrain.trf import DeconvolutionData
 
-from eelbrain import Categorial, Datalist, NDVar, Scalar, Sensor, UTS
+from eelbrain import Categorial, Datalist, NDVar, Scalar, Sensor, UTS, split_data
 
 
 SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
@@ -108,7 +106,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     searching_solver.search.assert_called_once_with(data, cv)
 
     # an Eelbrain Splits object stands in for a CrossValidation with those folds
-    splits = split_data(np.array([[0, 100]]), 4, validate=1, test=0)
+    splits = split_data(np.array([[0, 100]]), partitions=4, test=0)
     searching_solver.search.reset_mock()
 
     estimator.fit(data, searching_solver, cv=splits)
@@ -396,15 +394,14 @@ def test_champ_lasso_score_pooled():
 
 
 def test_champ_lasso_cross_validates_whole_segments():
-    """Cross-validation that holds out whole segments, the default of split_data() for segmented data."""
+    """Cross-validation that holds out whole segments (split='case')."""
     data = _synthetic_data('l2', n_segments=3).whiten(_forward())
     solver = champ_lasso.ChampLasso(mu=0.1, n_iter=1, n_iterc=1, n_iterf=2)
     # the fit records its training samples per segment
     fit = solver.solve(data.forward, data.subset([[0, 200], [300, 400]]))
     assert fit.n_samples == {0: 196, 1: 100}
 
-    splits = split_data(data.data.segments, 3, validate=1, test=0)
-    assert splits.split == 'cases'
+    splits = split_data(data.data.segments, partitions=3, split='case', test=0)
     results = champ_lasso.crossvalidate(data, [solver, replace(solver, mu=0.2)], CrossValidation(splits, n_workers=0))
     assert len(results) == 2
     for result in results:

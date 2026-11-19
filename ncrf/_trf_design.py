@@ -103,9 +103,7 @@ class TRFDesign:
         """
         blocks = list(data.x.blocks)
         tstep = data.time.tstep
-        starts, stops = lag_window(tstart, tstop, tstep, len(blocks))  # also validates the per-predictor format
-        tstart = [float(t) for t in np.broadcast_to(tstart, len(blocks))]
-        tstop = [float(t) for t in np.broadcast_to(tstop, len(blocks))]
+        tstart, tstop, starts, stops = lag_window(tstart, tstop, tstep, len(blocks))
         if basis_stride < 1:
             raise ValueError(f"{basis_stride=}: need an integer >= 1")
         basis = []
@@ -137,7 +135,7 @@ class TRFDesign:
 
     @property
     def _lag_window(self) -> tuple[list[int], list[int]]:
-        return lag_window(self.tstart, self.tstop, self.tstep, len(self.blocks))
+        return lag_window(self.tstart, self.tstop, self.tstep, len(self.blocks))[2:]
 
     @property
     def start_samples(self) -> list[int]:
