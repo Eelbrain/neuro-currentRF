@@ -24,7 +24,7 @@ from scipy import linalg
 from scipy.signal import find_peaks
 from tqdm import tqdm
 
-from .._crossvalidation import _make_splits, crossvalidate
+from .._crossvalidation import _fold_ranges, crossvalidate
 from .._fastac import Fasta
 from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
 from .._penalties import g, g_group, proxg_group, shrink
@@ -693,7 +693,7 @@ class ChampLasso(Solver):
         if isinstance(self.mu, str) and self.mu == 'auto':
             # 'auto' derives its grid with a solve on all of the data; check that
             # the folds can be formed first, rather than fail after that solve
-            _make_splits(data, cv)
+            _fold_ranges(data, cv)
         candidates = self.candidates(data.forward, data)
         if _is_number(self.mu):
             return candidates[0], []

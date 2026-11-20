@@ -61,7 +61,7 @@ def test_make_folds():
     stim = NDVar(rng.normal(size=(4, 100)), ('case', time), name='x')
     data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
 
-    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
 
     # by default, the last 2 windows of ceil(0.05 * 100) = 5 samples of
     # every segment are held out in turn, trained on the data before the
@@ -74,7 +74,7 @@ def test_make_folds():
     assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
     assert folds[1][0].blocks == [(0, 4, 91), (1, 4, 91), (2, 4, 91), (3, 4, 91)]
     # validate sets the length of the windows as proportion of the segment
-    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2, validate=0.2)))
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2, validate=0.2)))
     assert folds[0][1].blocks == [(0, 60, 80), (1, 60, 80), (2, 60, 80), (3, 60, 80)]
     assert folds[0][0].blocks == [(0, 4, 56), (1, 4, 56), (2, 4, 56), (3, 4, 56)]
     assert folds[1][1].blocks == [(0, 80, 100), (1, 80, 100), (2, 80, 100), (3, 80, 100)]
@@ -82,8 +82,7 @@ def test_make_folds():
     # gap also separates training data that follows the held-out data, but
     # does not extend across segment boundaries
     splits = split_data(data.data.segments, partitions=2, split='within-case', test=0)
-    assert cv._make_splits(data, CrossValidation(splits)) is splits
-    folds = cv._make_folds(data, splits)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
     assert folds[0][1].blocks == [(0, 4, 50), (1, 4, 50), (2, 4, 50), (3, 4, 50)]
     assert folds[0][0].blocks == [(0, 54, 100), (1, 54, 100), (2, 54, 100), (3, 54, 100)]
     assert folds[1][1].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
@@ -91,10 +90,10 @@ def test_make_folds():
     # but it has to describe the data's segments
     other = split_data(np.array([[0, 200], [200, 400]]), partitions=2, test=0)
     with pytest.raises(ValueError, match="made for different data segments"):
-        cv._make_splits(data, CrossValidation(other))
+        cv._fold_ranges(data, CrossValidation(other))
     # continuous data
     data = RegressionData.from_data(meg[0], stim[0], 0, 0.05, scale=None)
-    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
     assert folds[0][1].blocks == [(0, 90, 95)]
     assert folds[0][0].blocks == [(0, 4, 86)]
     assert folds[1][1].blocks == [(0, 95, 100)]
@@ -112,8 +111,8 @@ def test_make_folds_gap():
     data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
     assert data.blocks == [(0, 49, 5990)]
 
-    splits = cv._make_splits(data, CrossValidation(3))
-    folds = cv._make_folds(data, splits)
+    fold_ranges = cv._fold_ranges(data, CrossValidation(3))
+    folds = cv._make_folds(data, fold_ranges)
     # windows of 0.05 * 6000 = 300 samples at the end of the data; training
     # stops 59 samples before each window
     assert [train.blocks for train, _ in folds] == [[(0, 49, 5041)], [(0, 49, 5341)], [(0, 49, 5641)]]
@@ -127,11 +126,11 @@ def test_make_folds_gap():
 
     # changing the predictor in the lag windows of the held-out samples leaves the training fold unchanged
     for i, (train, _) in enumerate(folds):
-        validate_start = splits.splits[i].reserved[0, 0]
+        validate_start = fold_ranges[i][1][0, 0]
         stim_changed = stim.copy()
         stim_changed.x[validate_start - 49:] = rng.normal(size=6000 - validate_start + 49)
         data_changed = RegressionData.from_data(meg, stim_changed, -0.1, 0.5, scale=None)
-        train_changed, _ = cv._make_folds(data_changed, splits)[i]
+        train_changed, _ = cv._make_folds(data_changed, fold_ranges)[i]
         np.testing.assert_array_equal(train_changed.covariates[0], train.covariates[0])
         np.testing.assert_array_equal(train_changed.EtE[0], train.EtE[0])
         np.testing.assert_array_equal(train_changed.bE[0], train.bE[0])
@@ -140,7 +139,7 @@ def test_make_folds_gap():
     # first sample with a complete lag window
     data = RegressionData.from_data(meg.sub(time=(0, 1.25)), stim.sub(time=(0, 1.25)), -0.1, 0.5, scale=None)
     with pytest.raises(ValueError, match="no training data remains"):
-        cv._make_folds(data, cv._make_splits(data, CrossValidation(3)))
+        cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
 
 
 def _negative_lag_data(seconds):
@@ -162,12 +161,13 @@ def test_folds_of_unequal_segments():
     stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
     data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
     # windows of 15 and 20 samples, and a gap of 4 samples (lags 0 to 4)
-    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(2)))
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
     assert [validate.blocks for _, validate in folds] == [[(0, 270, 285), (1, 360, 380)], [(0, 285, 300), (1, 380, 400)]]
     assert [train.blocks for train, _ in folds] == [[(0, 4, 266), (1, 4, 356)], [(0, 4, 281), (1, 4, 376)]]
     # as is holding out whole segments
     splits = split_data(data.data.segments, partitions=2, split='case', test=0)
-    assert cv._make_splits(data, CrossValidation(splits)) is splits
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
 
 
 def test_held_out_data_without_lag_window(monkeypatch):
@@ -177,11 +177,11 @@ def test_held_out_data_without_lag_window(monkeypatch):
     data = _negative_lag_data(2)
     assert data.blocks == [(0, 19, 190)]
     with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
-        cv._make_splits(data, CrossValidation(3))
+        cv._fold_ranges(data, CrossValidation(3))
     # the same check applies to Splits objects
     splits = split_data(data.data.segments, partitions=4, scheme='walk-forward', test=0)
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
-        cv._make_splits(data, CrossValidation(splits))
+        cv._fold_ranges(data, CrossValidation(splits))
 
     # an error in a worker's initializer would hang the pool, so the folds are
     # checked before it is created
@@ -205,7 +205,7 @@ def test_held_out_data_without_lag_window(monkeypatch):
 
     # 4 s: windows of 20 samples, of which the last keeps 10
     data = _negative_lag_data(4)
-    folds = cv._make_folds(data, cv._make_splits(data, CrossValidation(3)))
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
     assert [validate.blocks for _, validate in folds] == [[(0, 340, 360)], [(0, 360, 380)], [(0, 380, 390)]]
 
 
@@ -288,8 +288,8 @@ def test_select_es_solver():
 def test_crossvalidate_progress(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, '_make_splits', lambda data, n_splits: None)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, splits: [])
+    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
+    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
     monkeypatch.setattr(
         cv, '_score_candidate',
         lambda data, folds, solver: _cv_result(solver.mu),
@@ -307,8 +307,8 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
     monkeypatch.setattr(cv, 'Pool', _InlinePool)
-    monkeypatch.setattr(cv, '_make_splits', lambda data, n_splits: None)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, splits: [])
+    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
+    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
 
     def score_candidate(data, folds, solver):
         if solver.mu == 0.2:

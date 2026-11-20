@@ -86,23 +86,6 @@ class CrossValidation:
             raise ValueError(f"validate={self.validate!r}: need a proportion of the segment, between 0 and 1")
 
 
-def _make_splits(data: RegressionData, cv: CrossValidation) -> Splits:
-    """The folds of ``cv`` for ``data``: its splits, or the last ``cv.splits`` windows of every segment held out in turn.
-
-    The folds are checked against the data here, in the parent process, since an
-    error in a :class:`~multiprocessing.pool.Pool` initializer, where the fold
-    datasets are built, hangs the pool (see :func:`_fold_ranges`).
-    """
-    if isinstance(cv.splits, Splits):
-        if not np.array_equal(cv.splits.segments, data.data.segments):
-            raise ValueError(f"{cv.splits}: made for different data segments than {data}")
-        splits = cv.splits
-    else:
-        splits = split_data(data.data.segments, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
-    _fold_ranges(data, splits)
-    return splits
-
-
 def _training_ranges(
         split: Split,
         segments: np.ndarray,
@@ -143,22 +126,34 @@ def _describe_blocks(blocks: Sequence[tuple[int, int, int]], max_items: int = 3)
     return ', '.join(items)
 
 
-def _fold_ranges(data: RegressionData, splits: Splits) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Training and held-out ranges of each fold, on the concatenated time axis, checked against the samples ``data`` covers.
+def _fold_ranges(data: RegressionData, cv: CrossValidation) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Training and held-out ranges of each fold of ``cv`` for ``data``, on the concatenated time axis.
 
-    Training data is separated from the held-out data by a gap of one TRF length
-    minus one sample, so that the lag windows of training and held-out samples
-    never share a predictor sample.
+    The folds are those of ``cv.splits``, or the last ``cv.splits`` windows of
+    every segment held out in turn. Training data is separated from the held-out
+    data by a gap of one TRF length minus one sample, so that the lag windows of
+    training and held-out samples never share a predictor sample.
+
+    The folds are checked against the samples ``data`` covers here, in the parent
+    process, since an error in a :class:`~multiprocessing.pool.Pool` initializer,
+    where the fold datasets are built, hangs the pool.
 
     Raises
     ------
     ValueError
-        If a fold has no training or no held-out samples with a complete lag
-        window. In particular, held-out data at the start or end of a segment
-        can lie entirely in the samples whose lag window extends beyond the
-        stimulus (e.g., the last window of the default scheme with a negative
-        ``tstart`` and short segments).
+        If the splits were made for different segments, or if a fold has no
+        training or no held-out samples with a complete lag window. In
+        particular, held-out data at the start or end of a segment can lie
+        entirely in the samples whose lag window extends beyond the stimulus
+        (e.g., the last window of the default scheme with a negative ``tstart``
+        and short segments).
     """
+    if isinstance(cv.splits, Splits):
+        if not np.array_equal(cv.splits.segments, data.data.segments):
+            raise ValueError(f"{cv.splits}: made for different data segments than {data}")
+        splits = cv.splits
+    else:
+        splits = split_data(data.data.segments, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
     gap = max(data.design.stop_samples) - 1 - min(data.design.start_samples)  # largest minus smallest lag
     folds = []
     for i_fold, split in enumerate(splits.splits):
@@ -172,16 +167,16 @@ def _fold_ranges(data: RegressionData, splits: Splits) -> list[tuple[np.ndarray,
     return folds
 
 
-def _make_folds(data: RegressionData, splits: Splits) -> list[tuple[RegressionData, RegressionData]]:
+def _make_folds(data: RegressionData, fold_ranges: Sequence[tuple[np.ndarray, np.ndarray]]) -> list[tuple[RegressionData, RegressionData]]:
     """Train/validation fold datasets, shared by every candidate scored on ``data`` (see :func:`_fold_ranges`)."""
-    return [(data.subset(train), data.subset(held_out)) for train, held_out in _fold_ranges(data, splits)]
+    return [(data.subset(train), data.subset(held_out)) for train, held_out in fold_ranges]
 
 
-def _initialize_worker(data: RegressionData, splits: Splits) -> None:
+def _initialize_worker(data: RegressionData, fold_ranges: Sequence[tuple[np.ndarray, np.ndarray]]) -> None:
     """Store the shared whitened data and the fold datasets once per multiprocessing worker."""
     global _worker_context
     init_worker()
-    _worker_context = data, _make_folds(data, splits)
+    _worker_context = data, _make_folds(data, fold_ranges)
 
 
 def _score_worker(solver: Solver) -> CVResult:
@@ -299,13 +294,11 @@ def crossvalidate(
         # since each worker's BLAS already runs its own thread pool
         n_processes = ceil(n_workers() / 8)
 
-    # Partition and check the folds in the parent process: an error in a Pool
-    # initializer hangs the pool
-    splits = _make_splits(data, cv)
+    fold_ranges = _fold_ranges(data, cv)
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
         if n_processes == 0:
-            folds = _make_folds(data, splits)
+            folds = _make_folds(data, fold_ranges)
             for candidate in candidates:
                 results.append(_score_candidate(data, folds, candidate))
                 prog.update()
@@ -313,7 +306,7 @@ def crossvalidate(
             with Pool(
                     processes=n_processes,
                     initializer=_initialize_worker,
-                    initargs=(data, splits),
+                    initargs=(data, fold_ranges),
             ) as pool:
                 for result in pool.imap_unordered(_score_worker, candidates):
                     results.append(result)
