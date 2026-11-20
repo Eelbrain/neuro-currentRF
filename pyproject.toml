@@ -14,12 +14,12 @@ classifiers = [
   'Operating System :: Microsoft :: Windows',
   'Operating System :: Unix',
   'Programming Language :: Python :: 3 :: Only',
-  'Programming Language :: Python :: 3.10',
   'Programming Language :: Python :: 3.11',
   'Programming Language :: Python :: 3.12',
   'Programming Language :: Python :: 3.13',
 ]
 dependencies = [
+  'eelbrain>=0.43.0b5',
   'numpy>=1.23,<3',
 ]
 description='add-on module to eelbrain for neural current RF estimation'
@@ -37,7 +37,7 @@ maintainers = [
 ]
 name = 'ncrf'
 readme = 'README.md'
-requires-python = '>=3.10'
+requires-python = '>=3.11'
 version = '0.5.0.dev0'
 
 [project.optional-dependencies]

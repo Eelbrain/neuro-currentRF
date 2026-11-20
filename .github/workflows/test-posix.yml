@@ -17,7 +17,7 @@ jobs:
       max-parallel: 5
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ['3.10']
+        python-version: ['3.12']  # oldest Python with conda builds of Eelbrain pre-releases
         include:
           - os: ubuntu-latest
             cv: 1
