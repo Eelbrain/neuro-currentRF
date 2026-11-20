@@ -387,14 +387,11 @@ class RegressionData:
             baseline: FloatArray | None,
             scaling: FloatArray | None,
             scale: ScaleArg,
-            covariates: list[FloatArray] | None = None,
     ) -> RegressionData:
-        """Update the design to the normalization applied to the predictors, and discard the derived arrays that it invalidates (or take over rescaled ``covariates``)."""
+        """Update the design to the normalization applied to the predictors, and discard the derived arrays that it invalidates."""
         self.design = replace(self.design, stim_baseline=baseline, stim_scaling=scaling, scale=scale)
         for key in ('_segment_covariates', 'EtE', 'bE'):
             self.__dict__.pop(key, None)
-        if covariates is not None:
-            self.__dict__['_segment_covariates'] = covariates
         return self
 
     def normalize(self, design: TRFDesign | Scale) -> RegressionData:
@@ -464,17 +461,11 @@ class RegressionData:
         if scale == 'spectral':
             data.x.normalize(True, 1.)
             self._record_normalization(data.x.mean, None, None)
-            scaling = self._spectral_norms()  # builds the centered covariates
+            scaling = self._spectral_norms()  # of the centered covariates
             _check_scaling(scaling, scale, data.x.names)
             data.x.normalize(False, scaling)
-            # The covariates are linear in the predictors, so the centered ones can
-            # be rescaled in place rather than rebuilt
-            covariates = self._segment_covariates
-            factors = self.design.expand(scaling)
-            for cov in covariates:
-                cov /= factors
-            return self._record_normalization(data.x.mean, data.x.scale, scale, covariates)
-        data.x.normalize(True, scale)
+        else:
+            data.x.normalize(True, scale)
         return self._record_normalization(data.x.mean, data.x.scale, scale)
 
     def whiten(self, forward: ForwardModel) -> RegressionData:

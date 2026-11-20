@@ -574,10 +574,6 @@ def test_normalize_derives_scale(scale):
     np.testing.assert_array_equal(derived.design.stim_baseline, expected.design.stim_baseline)
     np.testing.assert_array_equal(derived.design.stim_scaling, expected.design.stim_scaling)
     np.testing.assert_allclose(derived.covariates[0], expected.covariates[0])
-    # the handed-over 'spectral' covariates equal ones rebuilt from the predictors
-    rebuilt = replace(derived, design=derived.design)
-    assert 'covariates' not in rebuilt.__dict__
-    np.testing.assert_allclose(rebuilt.covariates[0], derived.covariates[0])
     with pytest.raises(ValueError, match="need one of"):
         raw.normalize('l3')
     with pytest.raises(ValueError, match="need None or one of"):
