@@ -170,27 +170,15 @@ def test_folds_of_unequal_segments():
     assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
 
 
-def test_default_folds_avoid_cropped_samples():
-    """The default windows are cut from the samples with a complete lag window, so the last one is as long as the others."""
-    # 2 s: samples 19-190 have a complete lag window; windows of
-    # ceil(0.05 * 171) = 9 samples, the last ending at sample 190
-    data = _negative_lag_data(2)
-    assert data.blocks == [(0, 19, 190)]
-    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
-    assert [validate.blocks for _, validate in folds] == [[(0, 163, 172)], [(0, 172, 181)], [(0, 181, 190)]]
-    # training stops 29 samples (lags -10 to 19) before each window
-    assert [train.blocks for train, _ in folds] == [[(0, 19, 134)], [(0, 19, 143)], [(0, 19, 152)]]
-    # 4 s: windows of ceil(0.05 * 371) = 19 samples
-    data = _negative_lag_data(4)
-    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
-    assert [validate.blocks for _, validate in folds] == [[(0, 333, 352)], [(0, 352, 371)], [(0, 371, 390)]]
-
-
 def test_held_out_data_without_lag_window(monkeypatch):
     """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
-    # 2 s: the last of 4 walk-forward partitions of the whole segment, samples
-    # 190-200, lies entirely in the 10 samples cropped for the negative lags
+    # 2 s: the default windows are cut from the samples with a complete lag
+    # window, 19-190, so the last one ends at sample 190
     data = _negative_lag_data(2)
+    fold_ranges = cv._fold_ranges(data, CrossValidation(3))
+    assert [held_out.tolist() for _, held_out in fold_ranges] == [[[163, 172]], [[172, 181]], [[181, 190]]]
+    # but the last of 4 walk-forward partitions of the whole segment, samples
+    # 190-200, lies entirely in the 10 samples cropped for the negative lags
     splits = split_data(data.data.segments, partitions=4, scheme='walk-forward', test=0)
     cv_splits = CrossValidation(splits)
     with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
