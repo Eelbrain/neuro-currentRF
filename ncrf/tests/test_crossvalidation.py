@@ -113,10 +113,10 @@ def test_make_folds_gap():
 
     fold_ranges = cv._fold_ranges(data, CrossValidation(3))
     folds = cv._make_folds(data, fold_ranges)
-    # windows of 0.05 * 6000 = 300 samples at the end of the data; training
-    # stops 59 samples before each window
-    assert [train.blocks for train, _ in folds] == [[(0, 49, 5041)], [(0, 49, 5341)], [(0, 49, 5641)]]
-    assert [validate.blocks for _, validate in folds] == [[(0, 5100, 5400)], [(0, 5400, 5700)], [(0, 5700, 5990)]]
+    # windows of ceil(0.05 * 5941) = 298 samples at the end of the samples
+    # with a complete lag window; training stops 59 samples before each window
+    assert [train.blocks for train, _ in folds] == [[(0, 49, 5037)], [(0, 49, 5335)], [(0, 49, 5633)]]
+    assert [validate.blocks for _, validate in folds] == [[(0, 5096, 5394)], [(0, 5394, 5692)], [(0, 5692, 5990)]]
     # the predictor samples in the lag windows of training and held-out samples
     # are disjoint: row t uses x[t - 49] to x[t + 10]
     for train, validate in folds:
@@ -135,8 +135,8 @@ def test_make_folds_gap():
         np.testing.assert_array_equal(train_changed.EtE[0], train.EtE[0])
         np.testing.assert_array_equal(train_changed.bE[0], train.bE[0])
 
-    # too short for the gap: the first training range, [0, 48), ends before the
-    # first sample with a complete lag window
+    # too short for the gap: the first window starts at sample 103, so the first
+    # training range, [49, 44), is empty
     data = RegressionData.from_data(meg.sub(time=(0, 1.25)), stim.sub(time=(0, 1.25)), -0.1, 0.5, scale=None)
     with pytest.raises(ValueError, match="no training data remains"):
         cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
@@ -170,18 +170,31 @@ def test_folds_of_unequal_segments():
     assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
 
 
-def test_held_out_data_without_lag_window(monkeypatch):
-    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
-    # 2 s: windows of ceil(0.05 * 200) = 10 samples, the last one, samples
-    # 190-200, entirely in the 10 samples cropped for the negative lags
+def test_default_folds_avoid_cropped_samples():
+    """The default windows are cut from the samples with a complete lag window, so the last one is as long as the others."""
+    # 2 s: samples 19-190 have a complete lag window; windows of
+    # ceil(0.05 * 171) = 9 samples, the last ending at sample 190
     data = _negative_lag_data(2)
     assert data.blocks == [(0, 19, 190)]
-    with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
-        cv._fold_ranges(data, CrossValidation(3))
-    # the same check applies to Splits objects
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 163, 172)], [(0, 172, 181)], [(0, 181, 190)]]
+    # training stops 29 samples (lags -10 to 19) before each window
+    assert [train.blocks for train, _ in folds] == [[(0, 19, 134)], [(0, 19, 143)], [(0, 19, 152)]]
+    # 4 s: windows of ceil(0.05 * 371) = 19 samples
+    data = _negative_lag_data(4)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 333, 352)], [(0, 352, 371)], [(0, 371, 390)]]
+
+
+def test_held_out_data_without_lag_window(monkeypatch):
+    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
+    # 2 s: the last of 4 walk-forward partitions of the whole segment, samples
+    # 190-200, lies entirely in the 10 samples cropped for the negative lags
+    data = _negative_lag_data(2)
     splits = split_data(data.data.segments, partitions=4, scheme='walk-forward', test=0)
-    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
-        cv._fold_ranges(data, CrossValidation(splits))
+    cv_splits = CrossValidation(splits)
+    with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
+        cv._fold_ranges(data, cv_splits)
 
     # an error in a worker's initializer would hang the pool, so the folds are
     # checked before it is created
@@ -190,7 +203,7 @@ def test_held_out_data_without_lag_window(monkeypatch):
 
     monkeypatch.setattr(cv, 'Pool', pool)
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
-        crossvalidate(data, (ChampLasso(mu=0.1), ChampLasso(mu=0.2)), CrossValidation(3, n_workers=2))
+        crossvalidate(data, (ChampLasso(mu=0.1), ChampLasso(mu=0.2)), CrossValidation(splits, n_workers=2))
 
     # mu='auto' checks the folds before the solve that derives its grid
     def auto_candidates(self, forward, data):
@@ -198,15 +211,10 @@ def test_held_out_data_without_lag_window(monkeypatch):
 
     monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
     with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
-        ChampLasso(mu='auto').search(data, CrossValidation(3))
+        ChampLasso(mu='auto').search(data, cv_splits)
     # an invalid mu is reported as such, not as a problem with the folds
     with pytest.raises(ValueError, match="mu='autp'"):
-        ChampLasso(mu='autp').search(data, CrossValidation(3))
-
-    # 4 s: windows of 20 samples, of which the last keeps 10
-    data = _negative_lag_data(4)
-    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
-    assert [validate.blocks for _, validate in folds] == [[(0, 340, 360)], [(0, 360, 380)], [(0, 380, 390)]]
+        ChampLasso(mu='autp').search(data, cv_splits)
 
 
 def test_score_candidate_uses_fit_primitive(monkeypatch):

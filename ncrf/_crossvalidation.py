@@ -48,7 +48,9 @@ class CrossValidation:
         out one at a time for validation, and the candidates are fit to the
         data preceding the window (``scheme='walk-forward'`` with
         ``split='within-case'`` and ``partitions=splits + 1`` in
-        :func:`eelbrain.split_data`). Alternatively, an
+        :func:`eelbrain.split_data`). The windows are cut from the samples
+        whose lag window lies inside the stimulus, i.e., the samples the
+        dataset covers. Alternatively, an
         :class:`eelbrain.Splits` object made for the data's segments, e.g.
         with :func:`eelbrain.split_data` and one of its other partitioning
         schemes; its validation splits are the folds. Splits with a test set
@@ -61,9 +63,9 @@ class CrossValidation:
         ``n_workers`` setting (see :func:`eelbrain.configure`). Set to ``0`` to
         run without :mod:`multiprocessing`, for debugging.
     validate
-        Length of each validation window as proportion of the segment (default
-        0.05, i.e., 5% of the segment). Only applies when ``splits`` is the
-        number of folds; a :class:`eelbrain.Splits` object defines its own
+        Length of each validation window as proportion of the samples the
+        dataset covers in each segment (default 0.05, i.e., 5%). Only applies
+        when ``splits`` is the number of folds; a :class:`eelbrain.Splits` object defines its own
         validation sets.
     """
 
@@ -135,9 +137,10 @@ def _fold_ranges(data: RegressionData, cv: CrossValidation) -> list[tuple[np.nda
     """Training and held-out ranges of each fold of ``cv`` for ``data``, on the concatenated time axis.
 
     The folds are those of ``cv.splits``, or the last ``cv.splits`` windows of
-    every segment held out in turn. Training data is separated from the held-out
-    data by a gap of one TRF length minus one sample, so that the lag windows of
-    training and held-out samples never share a predictor sample.
+    the samples ``data`` covers in every segment, held out in turn. Training
+    data is separated from the held-out data by a gap of one TRF length minus
+    one sample, so that the lag windows of training and held-out samples never
+    share a predictor sample.
 
     The folds are checked against the samples ``data`` covers here, in the parent
     process, since an error in a :class:`~multiprocessing.pool.Pool` initializer,
@@ -148,21 +151,23 @@ def _fold_ranges(data: RegressionData, cv: CrossValidation) -> list[tuple[np.nda
     ValueError
         If the splits were made for different segments, or if a fold has no
         training or no held-out samples with a complete lag window. In
-        particular, held-out data at the start or end of a segment can lie
-        entirely in the samples whose lag window extends beyond the stimulus
-        (e.g., the last window of the default scheme with a negative ``tstart``
-        and short segments).
+        particular, held-out data of a :class:`eelbrain.Splits` object at the
+        start or end of a segment can lie entirely in the samples whose lag
+        window extends beyond the stimulus.
     """
     if isinstance(cv.splits, Splits):
         if not np.array_equal(cv.splits.segments, data.data.segments):
             raise ValueError(f"{cv.splits}: made for different data segments than {data}")
         splits = cv.splits
     else:
-        splits = split_data(data.data.segments, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
+        # cut the windows from the samples the dataset covers, so that none falls in the cropped segment ends
+        offsets = data.data.segments[:, 0]
+        covered = np.array([(offsets[i] + start, offsets[i] + stop) for i, start, stop in data.blocks])
+        splits = split_data(covered, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
     gap = max(data.design.stop_samples) - 1 - min(data.design.start_samples)  # largest minus smallest lag
     folds = []
     for i_fold, split in enumerate(splits.splits):
-        train_ranges = _training_ranges(split, splits.segments, gap)
+        train_ranges = _training_ranges(split, data.data.segments, gap)
         if not data._blocks_in(split.reserved):
             held_out = data.data.segment_slices(split.reserved)
             raise ValueError(f"cross-validation fold {i_fold}: none of its held-out samples ({_describe_blocks(held_out)}) has a complete lag window; the dataset only covers the samples whose lag window lies inside the stimulus ({_describe_blocks(data.blocks)}). Use longer segments, a TRF with tstart and tstop closer to 0, or Splits that hold out other samples")
