@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
 from eelbrain import Split, Splits, split_data
-from eelbrain.trf import init_worker, n_workers
+from eelbrain.trf import init_worker
+from eelbrain._config import CONFIG
 import numpy as np
 from tqdm import tqdm
 
