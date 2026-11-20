@@ -102,20 +102,15 @@ def _training_ranges(
     gap
         Number of training samples to drop next to the held-out data.
     """
-    exclude = []
+    train = np.zeros(segments[-1, 1], bool)
+    for start, stop in split.train:
+        train[start:stop] = True
     for start, stop in split.reserved:
         # held-out ranges never span a segment boundary
         seg_start, seg_stop = segments[np.searchsorted(segments[:, 1], start, 'right')]
-        exclude.append((max(seg_start, start - gap), start))
-        exclude.append((stop, min(seg_stop, stop + gap)))
-    exclude = [(start, stop) for start, stop in exclude if start < stop]
-    ranges = []
-    for start, stop in split.train:
-        pieces = [(start, stop)]
-        for ex_start, ex_stop in exclude:
-            pieces = [piece for a, b in pieces for piece in ((a, min(b, ex_start)), (max(a, ex_stop), b)) if piece[0] < piece[1]]
-        ranges.extend(pieces)
-    return np.array(ranges, np.int64).reshape((-1, 2))
+        train[max(seg_start, start - gap):min(seg_stop, stop + gap)] = False
+    # ranges that are adjacent across a segment boundary are merged here, and separated again by RegressionData.subset()
+    return np.flatnonzero(np.diff(train, prepend=False, append=False)).reshape((-1, 2))
 
 
 def _describe_blocks(blocks: Sequence[tuple[int, int, int]], max_items: int = 3) -> str:
