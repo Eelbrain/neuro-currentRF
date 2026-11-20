@@ -9,55 +9,22 @@ Changes
 API changes
 ^^^^^^^^^^^
 
-- **Data handling is shared with Eelbrain.** :class:`~ncrf.RegressionData` is
-  built on the dataset that :func:`eelbrain.boosting` uses (requires Eelbrain
-  0.43), and
-  :meth:`~ncrf.RegressionData.from_data` takes the same input layout: M/EEG data
-  as a single NDVar (with a ``case`` dimension for several segments) or a
-  :class:`~eelbrain.Datalist` for segments of unequal length, which are now
-  supported; predictors as one NDVar/Datalist per predictor variable. The
-  ``stim_is_single`` argument is gone, and ``meg``/``stim`` lists in
-  :func:`~ncrf.fit_ncrf` keep working as before. The dataset keeps one array per
-  segment, which is a view into the NDVar data where possible, and the
-  per-segment covariates are built once and shared by the datasets derived from
-  it. The ``samples`` field and ``timeslice()`` are replaced by ``blocks`` and
-  :meth:`~ncrf.RegressionData.subset`, and
-  :attr:`~ncrf.RegressionData.responses` and
-  :attr:`~ncrf.RegressionData.covariates` are views that are not divided by the
-  :attr:`~ncrf.RegressionData.norm_factor` (which is applied in the Gram matrices
-  the solver's objective is built from). The fit metrics and
-  :meth:`~ncrf.NCRF.predict` with ``whitened=True`` are in the units of the
-  whitened responses, and all scores are averages per sample.
-- ``mu`` **is relative to the average error per sample.** The data term of the
-  objective used to be the sum of each trial's average error, so the
-  regularization depended on the number of trials, and cross-validation folds
-  that held out the middle of a trial applied half the regularization of the
-  final fit. It is now the average error over all samples, which every sample
-  contributes to equally regardless of how the data is divided into trials. To
-  reproduce a fixed ``mu`` from ncrf 0.4 on data with several trials of equal
-  length, divide it by the number of trials; ``mu='auto'`` derives its grid from
-  the same objective and is unaffected, apart from the numeric values it reports.
-- ``tstop`` **is exclusive.** TRF windows follow Eelbrain's time-axis
-  convention: ``tstop`` is the end of the window and not itself a lag, so
-  ``tstart=0, tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used
-  to yield 51. The window is derived with :func:`eelbrain.trf.lag_window`, the
-  function :func:`eelbrain.boosting` uses.
-- **More flexible cross-validation:** :meth:`~ncrf.NCRFEstimator.fit` now
-  accepts any Eelbrain cross-validation scheme as ``cv`` (any
-  :class:`eelbrain.Splits` instance, created through
-  :func:`eelbrain.split_data`). :class:`~ncrf.ChampLasso` estimates its
-  covariances per segment, and scores a segment that is held out entirely
-  (``split='case'`` in :func:`eelbrain.split_data`) with the average covariance
-  of the training segments (:attr:`~ncrf.ChampLassoFit.sigma_b_pooled`). The
-  training data of each fold excludes the samples within one TRF length (minus
-  one sample) of the held-out data, so that training and held-out samples never
-  share a predictor sample in their lag windows (as the gap ``d`` of the former
-  ``TimeSeriesSplit`` did).
-- :class:`~ncrf.CrossValidation` **takes** ``splits`` **instead of**
-  ``n_splits``: the number of folds, or an :class:`eelbrain.Splits` object.
-  :func:`~ncrf.fit_ncrf` keeps its ``n_splits`` argument.
-- **Predictors can now carry several feature dimensions**, e.g. ``(band, onset,
-  time)``.
+- ``mu`` **is relative to the average error per sample**, and no longer depends
+  on the number of trials. To reproduce a fixed ``mu`` from ncrf 0.4 on data
+  with several trials of equal length, divide it by the number of trials.
+  ``mu='auto'`` is unaffected, apart from the numeric values it reports.
+- ``tstop`` **is exclusive**, as in :func:`eelbrain.boosting`: ``tstart=0,
+  tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used to yield 51.
+- **More flexible cross-validation:** ``n_splits`` also accepts an
+  :class:`eelbrain.Splits` object (see :func:`eelbrain.split_data`), e.g. to
+  hold out whole segments (``split='case'``).
+- **Fit metrics are averages per sample**, in the units of the whitened
+  responses (as is :meth:`~ncrf.NCRF.predict` with ``whitened=True``).
+- **Lower-level API:** :meth:`~ncrf.RegressionData.from_data` takes the same
+  input layout as :func:`eelbrain.boosting` and lost its ``stim_is_single``
+  argument; ``samples`` and ``timeslice()`` are replaced by ``blocks`` and
+  :meth:`~ncrf.RegressionData.subset`; :class:`~ncrf.CrossValidation` takes
+  ``splits`` instead of ``n_splits``.
 
 Bug fixes
 ^^^^^^^^^
