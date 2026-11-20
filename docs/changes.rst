@@ -166,8 +166,12 @@ fitted model is applied to new data (see :doc:`guide`).
   which changes the scale of ``h`` (but not of ``h_scaled``) for such fits. Since
   ``mu`` regularizes coefficients on the covariate scale, values tuned before this
   change are not comparable for those fits.
-- The ``'spectral'`` norm is measured on centered covariates, so its value differs
-  slightly from the post-normalization factor of earlier versions.
+- The ``'spectral'`` norm is measured on centered covariates, and it is the
+  spectral norm of all segments' covariates together per sample (previously, the
+  average of each segment's spectral norm), so that it does not depend on how the
+  data is divided into segments or on its length. Its value differs from the
+  factor of earlier versions, and so does the scale of ``h`` (but not of
+  ``h_scaled``).
 - With ``pad_stim=True``, the zero-padded edge rows now represent a raw stimulus
   of 0: normalization subtracts the same constant offset from every covariate
   row, including rows whose lag window extends beyond the data. Previously the

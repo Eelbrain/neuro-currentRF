@@ -373,14 +373,16 @@ class RegressionData:
         return [np.dot(E.T, E) / self.norm_factor ** 2 for E in self.covariates]
 
     def _spectral_norms(self) -> FloatArray:
-        """Spectral norm of each covariate channel, averaged across blocks and divided by the square root of the mean block length.
+        """Spectral norm of each covariate channel over all blocks, per sample: ``sqrt(λ_max(Σ E.T @ E) / n_samples)``.
 
-        Independent of :attr:`norm_factor`, so that the ``'spectral'`` scale of
-        the predictors does not change with the normalization of the objective.
+        Like the data term of the objective (see :attr:`norm_factor`), it is
+        independent of how the samples are divided into segments and blocks,
+        so a given ``mu`` regularizes data of any length and segmentation alike.
         """
         splits = np.cumsum(self.design.basis_widths)[:-1]
-        norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
-        return np.array(norms).mean(axis=0) / sqrt(self.n_samples / len(self.blocks))
+        channel_blocks = zip(*(np.split(cov, splits, axis=1) for cov in self.covariates))
+        grams = [sum(np.dot(E.T, E) for E in blocks) for blocks in channel_blocks]
+        return np.sqrt([linalg.eigvalsh(gram)[-1] / self.n_samples for gram in grams])
 
     def _record_normalization(
             self,
@@ -425,9 +427,10 @@ class RegressionData:
             must describe the same coefficient space as this dataset's design.
             Alternatively, a scale to derive from this dataset:
 
-            - ``'spectral'``: the channel's average spectral norm, which
-              equalizes covariate scales across predictor variables (measured on
-              the covariates of the retained samples).
+            - ``'spectral'``: the spectral norm of the channel's covariates per
+              sample, which equalizes covariate scales across predictor
+              variables (measured on the covariates of the retained samples,
+              all segments together).
             - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
               deviation (measured on all samples of the predictor).
 

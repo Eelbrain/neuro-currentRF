@@ -572,6 +572,17 @@ def test_normalize_updates_dataset(scale):
         np.testing.assert_allclose(raw.EtE[0], expected.EtE[0])
 
 
+def test_spectral_norm_independent_of_blocks():
+    """The 'spectral' scale is the spectral norm of all samples' covariates per sample, however they are divided into blocks."""
+    data = _synthetic_data(n_segments=2)
+    channels = np.split(np.vstack(data.covariates), np.cumsum(data.design.basis_widths)[:-1], axis=1)
+    norms = data._spectral_norms()
+    np.testing.assert_allclose(norms, [np.linalg.norm(E, 2) / np.sqrt(data.n_samples) for E in channels])
+    # the same samples in blocks of unequal length
+    pieces = data.subset([[0, 50], [50, 200], [200, 380], [380, 400]])
+    np.testing.assert_allclose(pieces._spectral_norms(), norms)
+
+
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
 def test_normalize_derives_scale(scale):
     """normalize(scale) derives the values from the dataset itself, which is what from_data uses."""

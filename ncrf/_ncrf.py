@@ -98,7 +98,7 @@ def fit_ncrf(
         Normalization applied before model fitting: each predictor's mean is
         subtracted, and the covariates are divided by the ``'l2'`` (standard
         deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
-        ``'spectral'`` (average spectral norm of the covariates, which equalizes
+        ``'spectral'`` (spectral norm of the covariates per sample, which equalizes
         covariate scales across predictor variables; the default) scale. Use
         ``None`` to leave the covariates on their raw scale.
         :attr:`~ncrf.NCRF.h_scaled` undoes the scaling, whichever one is used.

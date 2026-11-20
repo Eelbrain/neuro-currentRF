@@ -37,9 +37,11 @@ normalized in place, the values are recorded on the ``design``, and
 Each predictor's mean is subtracted, and each covariate channel is
 divided by a scaling factor, determined through the ``scale`` argument:
 
-- ``'spectral'`` (the default): the average spectral norm of the channel's
-  covariates. This equalizes covariate scales across predictor variables, so that
-  one regularization parameter is appropriate for all of them.
+- ``'spectral'`` (the default): the spectral norm of the channel's covariates
+  per sample, measured on all segments together. This equalizes covariate scales
+  across predictor variables, so that one regularization parameter is
+  appropriate for all of them, and does not depend on how the data is divided
+  into segments.
 - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
   deviation.
 - ``None``: leave the covariates on their raw scale, without centering.
