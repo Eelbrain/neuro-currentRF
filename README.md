@@ -52,6 +52,19 @@ auditory periphery) across the frequency bands, sampled at `200 Hz`.  A volume s
 
 Isn't that cool? Do expect to see something like that with any other source localization method? If you realize you could use this method on your data, please feel free to use the codes. You can reach me at proloy@umd.edu if you have any issues with the codes. And don't forget to go over the papers/ posters before applying the algorithm. 
 
+## Versioning and releases
+The version is derived from git tags by [setuptools_scm](https://setuptools-scm.readthedocs.io); it is not stored in the source. A commit tagged `v0.5.0` builds as `0.5.0`; later commits build as a development version of the next release, e.g. `0.5.1.dev3+g1a2b3c4`. The installed version is available as `ncrf.__version__`.
+
+To release, [create a release on GitHub](https://github.com/Eelbrain/neuro-currentRF/releases/new) with a new tag of the form `v0.5.0`. Publishing the release creates the tag and triggers the `wheels` workflow, which builds and tests the sdist and wheel and publishes them to [PyPI](https://pypi.org/project/ncrf/). Clones need the tags for the version to resolve (`git fetch --tags`); `pip install -e .` must be re-run for `ncrf.__version__` to reflect new tags.
+
+The files involved:
+
+- `pyproject.toml`: declares the version as dynamic and enables setuptools_scm (`[tool.setuptools_scm]`), which computes it from git at build time.
+- `ncrf/__init__.py`: reads the version of the installed package from its metadata into `ncrf.__version__`.
+- `.git_archival.txt` and `.gitattributes`: let GitHub archive downloads (`.zip`/`.tar.gz`), which have no git history, still carry the tag information.
+- `.github/workflows/wheels.yml`: builds, tests and publishes the sdist and wheel; the other workflows check out the full history (`fetch-depth: 0`) so tags are available.
+- `docs/conf.py`: takes the documentation version from `ncrf.__version__`.
+
 ## References
 [1] P. Das, C. Brodbeck, J. Z. Simon, B. Babadi, [Direct Cortical Localization of the MEG Auditory Temporal Response 
 Function: a Non-Convex Optimization Approach](https://isr.umd.edu/Labs/CSSL/simonlab/pubs/SFN2018.pdf); Proceedings 

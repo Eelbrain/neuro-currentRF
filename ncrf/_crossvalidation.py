@@ -85,6 +85,15 @@ class CrossValidation:
         if not 0 < self.validate < 1:
             raise ValueError(f"validate={self.validate!r}: need a proportion of the segment, between 0 and 1")
 
+    def worker_processes(self) -> int:
+        """Number of worker processes, resolving ``n_workers=None`` from Eelbrain's setting."""
+        if self.n_workers is not None:
+            return self.n_workers
+        # Eelbrain's setting is cpu_count() by default, and 0 when multiprocessing
+        # is disabled. Use a fraction of the CPUs to avoid oversubscribing them,
+        # since each worker's BLAS already runs its own thread pool
+        return ceil(CONFIG['n_workers'] / 8)
+
 
 def _training_ranges(
         split: Split,
@@ -282,13 +291,7 @@ def crossvalidate(
         Cross-validation results.
     """
     logging.getLogger(__name__).info('Crossvalidation initiated!')
-    n_processes = cv.n_workers
-    if n_processes is None:
-        # Eelbrain's setting is cpu_count() by default, and 0 when multiprocessing
-        # is disabled. Use a fraction of the CPUs to avoid oversubscribing them,
-        # since each worker's BLAS already runs its own thread pool
-        n_processes = ceil(n_workers() / 8)
-
+    n_processes = cv.worker_processes()
     fold_ranges = _fold_ranges(data, cv)
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
