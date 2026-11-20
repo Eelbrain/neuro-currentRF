@@ -382,28 +382,6 @@ class RegressionData:
         norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
         return np.array(norms).mean(axis=0) / sqrt(self.n_samples / len(self.blocks))
 
-    def _derive(self, **changes: Any) -> RegressionData:
-        """A dataset with changed fields, taking over this dataset's derived arrays where they remain valid.
-
-        Parameters
-        ----------
-        **changes
-            Field values for the new dataset (``blocks`` and/or ``forward``). The
-            covariates are shared, the responses unless the forward model changes.
-        """
-        out = replace(self, **changes)
-        shared = ['_segment_covariates']
-        if 'blocks' not in changes:
-            shared.append('EtE')
-        if 'forward' not in changes:
-            shared.append('_segment_responses')
-            if 'blocks' not in changes:
-                shared.append('bbt')
-        for key in shared:
-            if key in self.__dict__:
-                out.__dict__[key] = self.__dict__[key]
-        return out
-
     def _record_normalization(
             self,
             baseline: FloatArray | None,
@@ -526,7 +504,12 @@ class RegressionData:
             if current is forward or (current.lead_field.shape == forward.lead_field.shape and np.allclose(current.lead_field, forward.lead_field, atol=0) and np.allclose(current.noise_covariance, forward.noise_covariance, atol=0)):
                 return self
             raise ValueError("data is already whitened with a different forward model; fitting or evaluating it with this one would use the wrong lead field or whitening, so rebuild the dataset from raw data")
-        return self._derive(forward=forward)
+        out = replace(self, forward=forward)
+        # The covariates do not depend on the whitening, so share them
+        for key in ('_segment_covariates', 'EtE'):
+            if key in self.__dict__:
+                out.__dict__[key] = self.__dict__[key]
+        return out
 
     def _blocks_in(self, ranges: npt.ArrayLike) -> list[Block]:
         """The parts of this dataset's blocks within ``ranges`` (see :meth:`subset`), without building any arrays."""
@@ -562,7 +545,7 @@ class RegressionData:
         blocks = self._blocks_in(ranges)
         if not blocks:
             raise ValueError(f"{ranges=}: contains none of the dataset's samples")
-        out = self._derive(blocks=blocks)
+        out = replace(self, blocks=blocks)
         # build the per-segment arrays here, so that all subsets share them
         out.__dict__['_segment_responses'] = self._segment_responses
         out.__dict__['_segment_covariates'] = self._segment_covariates
