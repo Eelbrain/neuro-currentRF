@@ -317,6 +317,12 @@ def test_rejects_inconsistent_inputs():
         replace(data, blocks=[(1, 0, 100)])
     with pytest.raises(ValueError, match="out of range for segment with 200 samples"):
         replace(data, blocks=[(0, 100, 201)])
+    # the design only records a normalization that the predictors carry
+    normalized = _synthetic_data('l2').design
+    with pytest.raises(ValueError, match="records a centering that the predictors do not carry"):
+        replace(data, design=normalized)
+    with pytest.raises(ValueError, match="records a scaling that the predictors do not carry"):
+        replace(data, design=replace(normalized, stim_baseline=None))
     # mismatched inputs are rejected by the Eelbrain data layer
     with pytest.raises(ValueError, match="same time dimension"):
         RegressionData.from_data(NDVar(rng.normal(size=(3, 200)), (SENSOR, time)), NDVar(stim.x, (UTS(1, 0.01, 200),)), 0, 0.05)

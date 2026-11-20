@@ -176,6 +176,11 @@ class RegressionData:
                     raise ValueError(f"block ({i}, {start}, {stop}): out of range for segment with {_count_repr(n_times[i], 'sample')}")
         if design.stim_scaling is not None:
             _check_scaling(design.stim_scaling, design.scale, data.x.names)
+        # The predictors carry the normalization, and the design only records it
+        for name, recorded, applied, neutral in (('centering', design.stim_baseline, data.x.mean, 0.), ('scaling', design.stim_scaling, data.x.scale, 1.)):
+            recorded, applied = (np.broadcast_to(neutral if value is None else value, data.x.n_rows) for value in (recorded, applied))
+            if not np.array_equal(recorded, applied):
+                raise ValueError(f"the design records a {name} that the predictors do not carry; apply a design's normalization with data.normalize(design)")
 
     @classmethod
     def from_data(
