@@ -514,14 +514,13 @@ class ChampLassoFit(SolverFit):
         same segment in :meth:`score`.
     n_samples
         Number of training samples of each segment, keyed like ``gamma``; the
-        weights of :attr:`sigma_b_pooled`. ``None`` for fits pickled before it
-        was recorded, which can only score the segments they were fit on.
+        weights of :attr:`sigma_b_pooled`.
     """
 
     history: ChampLassoHistory
     gamma: dict[int, FloatArray]
     sigma_b: dict[int, FloatArray]
-    n_samples: dict[int, int] | None = None
+    n_samples: dict[int, int]
 
     @cached_property
     def sigma_b_pooled(self) -> FloatArray:
@@ -532,8 +531,6 @@ class ChampLassoFit(SolverFit):
         covariances, weighted here by each segment's number of training samples.
         Computed when :meth:`score` first needs it.
         """
-        if self.n_samples is None:
-            raise ValueError("this ChampLassoFit has no sensor covariance for segments it was not fit on, since it predates the pooled covariance (ncrf 0.5); refit the model to score held-out segments")
         return sum(n * self.sigma_b[i] for i, n in self.n_samples.items()) / sum(self.n_samples.values())
 
     def __repr__(self) -> str:
@@ -577,12 +574,6 @@ class ChampLassoFit(SolverFit):
         :attr:`sigma_b_pooled`, the average covariance of the training segments.
         Its scores thus also reflect how the trials differ from each other, and
         are not comparable with scores of held-out parts of training segments.
-
-        Raises
-        ------
-        ValueError
-            If ``data`` contains a segment that was not part of the training
-            data, and the fit predates :attr:`sigma_b_pooled`.
         """
         sigma_b = {i: self.sigma_b[i] if i in self.sigma_b else self.sigma_b_pooled for i in data.segment_blocks}
         cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, sigma_b, data)

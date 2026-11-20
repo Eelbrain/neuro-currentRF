@@ -347,7 +347,7 @@ def test_champ_lasso_score_by_segment():
     forward = data.forward
     theta = np.random.RandomState(2).normal(size=(4, data.design.n_coefficients))
     sigma_b = {i: np.eye(3) * (i + 1) for i in range(2)}  # fit on segments 0 and 1
-    fit = ChampLassoFit(theta, ChampLassoHistory(), {}, sigma_b)
+    fit = ChampLassoFit(theta, ChampLassoHistory(), {}, sigma_b, {0: 196, 1: 196})
 
     # a block of the second segment (samples 200-400 on the concatenated axis)
     held_out = data.subset([[300, 350]])
@@ -367,10 +367,6 @@ def test_champ_lasso_score_by_segment():
     np.testing.assert_allclose(scores['weighted_l2_error'], weighted_l2_error)
     logdet = (100 * np.log(np.linalg.det(sigma_b[0])) + 50 * np.log(np.linalg.det(sigma_b[1]))) / 150
     np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * logdet)
-    # a fit without training sample counts (pickled before they were recorded)
-    # can not score a segment it has no covariance for
-    with pytest.raises(ValueError, match="predates the pooled covariance"):
-        fit.score(forward, data.subset([[500, 550]]))
 
 
 def test_champ_lasso_score_pooled():
