@@ -191,31 +191,18 @@ def fit_ncrf(
     if isinstance(meg, NDVar):
         y, x = meg, stim
     elif isinstance(meg, collections.abc.Sequence):
-        if len(stim) != len(meg):
-            raise ValueError(f"{meg=}, {stim=}: different length")
-        y_trials = []  # [trial_1, trial_2, ...]
-        stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
-        stim_is_single = None
+        if len(stim) != len(meg) or len(meg) == 0:
+            raise ValueError(f"{meg=}, {stim=}: need one stim item for each of at least one meg item")
+        stim_is_single = isinstance(stim[0], NDVar)
+        trials = []  # [[trial_1_meg, trial_1_stim_1, trial_1_stim_2, ...], ...]
         for meg_chunk, stim_chunk in zip(meg, stim):
-            if stim_is_single is None:
-                stim_is_single = isinstance(stim_chunk, NDVar)
-            elif stim_is_single != isinstance(stim_chunk, NDVar):
+            if isinstance(stim_chunk, NDVar) != stim_is_single:
                 raise ValueError(f"{stim=}: inconsistent element types (NDVar/list)")
-            if stim_is_single:
-                stim_chunk = [stim_chunk]
-            if meg_chunk.has_case:
-                n_trials = len(meg_chunk)
-                if not all(s.has_case and len(s) == n_trials for s in stim_chunk):
-                    raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
-                y_trials.extend(meg_chunk)
-                stim_trials.extend(zip(*stim_chunk))
-            else:
-                if any(s.has_case for s in stim_chunk):
-                    raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
-                y_trials.append(meg_chunk)
-                stim_trials.append(stim_chunk)
-        y = Datalist(y_trials)
-        x = [Datalist(list(trials)) for trials in zip(*stim_trials)]
+            chunk = [meg_chunk, stim_chunk] if stim_is_single else [meg_chunk, *stim_chunk]
+            if len({len(v) if v.has_case else None for v in chunk}) > 1:
+                raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
+            trials.extend(zip(*chunk) if meg_chunk.has_case else [chunk])
+        y, *x = (Datalist(list(v)) for v in zip(*trials))
         if stim_is_single:
             x = x[0]
     else:
