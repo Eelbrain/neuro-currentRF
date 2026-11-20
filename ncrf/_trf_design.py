@@ -162,16 +162,6 @@ class TRFDesign:
         """Number of basis functions of each covariate channel."""
         return np.repeat([basis.shape[1] for basis in self.basis], self.stim_lens)
 
-    @property
-    def basis_column_sums(self) -> FloatArray:
-        """Sum of each covariate column's basis function, one value per column.
-
-        The covariate for a constant stimulus of 1, for rows whose full lag window
-        lies inside the stimulus; i.e. the offset a unit :attr:`~ncrf.TRFDesign.stim_baseline`
-        introduces in each covariate column.
-        """
-        return np.concatenate([np.tile(basis.sum(0), n) for basis, n in zip(self.basis, self.stim_lens)])
-
     def expand(self, values: FloatArray) -> FloatArray:
         """Expand one value per covariate channel to one value per covariate column."""
         return np.repeat(values, self.basis_widths)
