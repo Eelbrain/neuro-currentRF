@@ -27,15 +27,14 @@ from eelbrain import Categorial, Datalist, NDVar, Scalar, Sensor, UTS, split_dat
 SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
 
 
-def test_fit_model():
+def test_fit(monkeypatch):
+    """fit_model() and NCRFEstimator.fit() work with any Solver, and a fixed configuration needs no cross-validation."""
     forward = Mock()
     solver = Mock()
     solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
     data = Mock(design=object(), forward=forward)
-
     model, returned_fit = fit_model(data, solver, True)
-
     assert model.forward is forward
     assert model.theta is solver_fit.theta
     assert model.design is data.design
@@ -47,22 +46,7 @@ def test_fit_model():
     with pytest.raises(ValueError, match="data is not whitened"):
         fit_model(data, solver)
 
-
-@dataclass(frozen=True)
-class _ZeroSolver(Solver):
-    def solve(self, forward, data, *, verbose=False):
-        return SolverFit(np.zeros((1, 1)))
-
-
-@dataclass(frozen=True)
-class _ShapedZeroSolver(Solver):
-    """Zero coefficients matching the forward model and design it is fit to."""
-
-    def solve(self, forward, data, *, verbose=False):
-        return SolverFit(np.zeros((forward.lead_field.shape[1], data.design.n_coefficients)))
-
-
-def test_fit_accepts_generic_solver(monkeypatch):
+    # NCRFEstimator.fit() with a generic solver
     data = MagicMock()
     data.whiten.return_value = data
     forward = Mock(
@@ -81,9 +65,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     data.__iter__.side_effect = lambda: iter(zip(data.responses, data.covariates))
     data.__len__.return_value = 1
     solver = _ZeroSolver()
-
     result = estimator.fit(data, solver)
-
     assert result.solver is solver
     assert result.solver_fit.theta.shape == (1, 1)
     assert result.scores == {
@@ -106,9 +88,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     cv_results = [Mock()]
     searching_solver.search.return_value = (selected_solver, cv_results)
     cv = CrossValidation(splits=4, n_workers=0)
-
     result = estimator.fit(data, searching_solver, cv=cv)
-
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
     assert result.execution_context.n_workers == 0
@@ -118,16 +98,10 @@ def test_fit_accepts_generic_solver(monkeypatch):
     # an Eelbrain Splits object stands in for a CrossValidation with those folds
     splits = split_data(np.array([[0, 100]]), partitions=4, test=0)
     searching_solver.search.reset_mock()
-
     estimator.fit(data, searching_solver, cv=splits)
-
     searching_solver.search.assert_called_once_with(data, CrossValidation(splits))
 
-
-def test_default_search_contract():
-    """A solver implementing only solve() is a fixed configuration that needs no CV."""
-    solver = _ZeroSolver()
-
+    # a solver implementing only solve() is a fixed configuration that needs no CV
     assert solver.without_history() is solver
     # no estimator or cv config is touched, since nothing is cross-validated
     assert solver.search(None, None) == (solver, [])
@@ -140,40 +114,54 @@ def test_default_search_contract():
     assert 'l2_error' in str(solver.cv_table(cv_results))
 
 
-def test_score_fit():
-    """Training and cross-validation fold scores use the same composition."""
+@dataclass(frozen=True)
+class _ZeroSolver(Solver):
+    def solve(self, forward, data, *, verbose=False):
+        return SolverFit(np.zeros((1, 1)))
+
+
+@dataclass(frozen=True)
+class _ShapedZeroSolver(Solver):
+    """Zero coefficients matching the forward model and design it is fit to."""
+
+    def solve(self, forward, data, *, verbose=False):
+        return SolverFit(np.zeros((forward.lead_field.shape[1], data.design.n_coefficients)))
+
+
+def test_scores():
+    """Training and fold scores combine the model metrics with the solver's own scores, which must not shadow them."""
+    # training and cross-validation fold scores use the same composition
     model = Mock()
     model.evaluate.return_value = {'l2_error': 3.0, 'explained_variance': 0.5}
     solver_fit = Mock()
     solver_fit.score.return_value = {'cross_fit': 1.0}
     data = Mock(forward=object())
-
     scores = _score_fit(model, solver_fit, data)
-
     model.evaluate.assert_called_once_with(data)
     solver_fit.score.assert_called_once_with(data.forward, data)
     assert scores == {'l2_error': 3.0, 'explained_variance': 0.5, 'cross_fit': 1.0}
 
-
-def test_solver_fit_score_defaults_empty():
-    """Solvers without their own scores contribute nothing to the score dict."""
+    # solvers without their own scores contribute nothing to the score dict
     assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}
 
-
-def test_merge_scores_rejects_shadowing():
-    """Candidates are selected by score name, so a silent overwrite is not acceptable."""
+    # candidates are selected by score name, so a silent overwrite is not acceptable
     metrics = {'explained_variance': 0.5, 'l2_error': 3.0}
-
     assert merge_scores(metrics, {'cross_fit': 1.0}) == {**metrics, 'cross_fit': 1.0}
     with pytest.raises(ValueError, match="duplicate score l2_error"):
         merge_scores(metrics, {'cross_fit': 1.0, 'l2_error': 0.0})
 
 
-def test_whitening_guard():
+def test_whiten():
+    """whiten() attaches a forward model once, for the data's sensors, and only changes the responses."""
     raw = _synthetic_data()
+    ete = raw.EtE
     forward = _forward(noise_covariance=np.eye(3) / 4)
     data = raw.whiten(forward)
     assert data.forward is forward
+    # only the responses change, so arrays derived from the covariates carry over
+    assert data._segment_covariates is raw._segment_covariates
+    assert data.EtE is ete
+    assert '_segment_responses' not in data.__dict__
     np.testing.assert_allclose(data.responses[0], 2 * raw.responses[0])
     np.testing.assert_array_equal(data.covariates[0], raw.covariates[0])
 
@@ -212,19 +200,6 @@ def test_whitening_guard():
         data.whiten(fewer_sensors)
 
 
-def test_whiten_shares_covariates():
-    """Whitening only changes the responses, so arrays derived from the covariates carry over."""
-    raw = _synthetic_data('spectral')
-    list(raw)  # populate the responses and covariates
-    ete = raw.EtE
-
-    data = raw.whiten(_forward())
-
-    assert data._segment_covariates is raw._segment_covariates
-    assert data.EtE is ete
-    assert '_segment_responses' not in data.__dict__
-
-
 def _synthetic_data(
         scale: str | None = None,
         seed: int = 0,
@@ -248,13 +223,13 @@ def _synthetic_data(
 
 
 def test_subset():
-    """A subset's arrays are views into the full dataset's, and its Gram matrices are normalized by its own sample count."""
+    """A subset's arrays are views into the full dataset's, its Gram matrices are normalized by its own sample count, and pickles carry only the inputs."""
+    # a subset's arrays are views into the full dataset's, and its Gram matrices are
+    # normalized by its own sample count
     data = _synthetic_data('l2', n_segments=2).whiten(_forward())
     assert data.blocks == [(0, 4, 200), (1, 4, 200)]  # lags 0-4 samples: the first 4 samples lack a full lag window
     assert len(data) == 2
-
     fold = data.subset([[10, 50], [195, 230]])
-
     assert fold.blocks == [(0, 10, 50), (0, 195, 200), (1, 4, 30)]
     assert fold.is_whitened
     assert fold.n_samples == 71
@@ -278,14 +253,9 @@ def test_subset():
     with pytest.raises(ValueError, match="contains none of the dataset's samples"):
         fold.subset([[100, 150]])
 
-
-def test_norm_factor_independent_of_blocks():
-    """Cutting segments into more blocks leaves the data term of the objective unchanged.
-
-    A cross-validation fold that holds out the middle of a segment trains on two
-    blocks of it, and has to be regularized like the complete data.
-    """
-    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
+    # cutting segments into more blocks leaves the data term of the objective unchanged.
+    # A cross-validation fold that holds out the middle of a segment trains on two
+    # blocks of it, and has to be regularized like the complete data
     assert data.norm_factor ** 2 == data.n_samples
     # the same samples, each segment cut in two
     cut = data.subset([[4, 100], [100, 200], [204, 300], [300, 400]])
@@ -294,14 +264,9 @@ def test_norm_factor_independent_of_blocks():
     for key in ('bbt', 'bE', 'EtE'):
         np.testing.assert_allclose(sum(getattr(cut, key)), sum(getattr(data, key)), err_msg=key)
 
-
-def test_pickle_ships_raw_inputs():
-    """Pickles carry the inputs and design; the solver's arrays are rebuilt on demand."""
-    data = _synthetic_data('l2').whiten(_forward())
+    # pickles carry the inputs and design; the solver's arrays are rebuilt on demand
     responses, covariates = data.responses, data.covariates  # populate the caches
-
     restored = pickle.loads(pickle.dumps(data))
-
     assert '_segment_responses' not in restored.__dict__ and '_segment_covariates' not in restored.__dict__
     assert restored.blocks == data.blocks
     np.testing.assert_array_equal(restored.forward.whitening_filter, data.forward.whitening_filter)
@@ -309,13 +274,13 @@ def test_pickle_ships_raw_inputs():
     np.testing.assert_allclose(restored.covariates[0], covariates[0])
 
 
-def test_rejects_inconsistent_inputs():
-    """Directly constructed datasets have to match their design."""
+def test_from_data_validation(caplog):
+    """Datasets have to match their design, flat or NaN M/EEG channels are rejected, and segments too short for the TRF are left out."""
+    # directly constructed datasets have to match their design
     data = _synthetic_data()
     time = UTS(0, 0.01, 200)
     rng = np.random.RandomState(0)
     stim = NDVar(rng.normal(size=200), (time,), name='loud')
-
     with pytest.raises(ValueError, match="needs a sensor and a time dimension"):
         replace(data, data=DeconvolutionData(stim, NDVar(rng.normal(size=(3, 2, 200)), (SENSOR, Categorial('rep', ['a', 'b']), time))))
     with pytest.raises(ValueError, match="do not match the design"):
@@ -338,6 +303,36 @@ def test_rejects_inconsistent_inputs():
     with pytest.raises(ValueError, match="same time dimension"):
         RegressionData.from_data(NDVar(rng.normal(size=(3, 200)), (SENSOR, time)), NDVar(stim.x, (UTS(1, 0.01, 200),)), 0, 0.05)
 
+    # a flat channel (or NaN) corrupts the whitened data and the metrics, so it is
+    # rejected up front
+    x = rng.normal(size=(2, 3, 200))
+    x[:, 1] = 0
+    meg = Datalist([NDVar(x_seg, (SENSOR, time)) for x_seg in x])
+    stim = Datalist([NDVar(rng.normal(size=200), (time,), name='x') for _ in meg])
+    with pytest.raises(ValueError, match="flat data in <NDVar>-b"):
+        RegressionData.from_data(meg, stim, 0, 0.05)
+    x[:, 1] = rng.normal(size=(2, 200))
+    x[1, 2, 10] = np.nan
+    with pytest.raises(ValueError, match="NaN in <NDVar>-c"):
+        RegressionData.from_data(meg, stim, 0, 0.05)
+
+    # segments without a sample with a complete lag window are left out, with a warning
+    # TRF from -0.1 to 0.5 s: lags -10 to 49, so segments need more than 59 samples
+    times = [UTS(0, 0.01, n) for n in (300, 50, 59, 60)]
+    meg = Datalist([NDVar(rng.normal(size=(3, len(time))), (SENSOR, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    with caplog.at_level(logging.WARNING, 'ncrf._data'):
+        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
+    assert data.blocks == [(0, 49, 290), (3, 49, 50)]
+    assert "2 segments not used" in caplog.text
+    assert "longer than 59 samples: segment 1 (50 samples), 2 (59 samples)" in caplog.text
+    # with padded predictors, all samples are kept
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, 'ncrf._data'):
+        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None, pad_stim=True)
+    assert [i for i, _, _ in data.blocks] == [0, 1, 2, 3]
+    assert not caplog.records
+
 
 def _forward(seed: int = 1, noise_covariance: FloatArray | None = None) -> ForwardModel:
     """Forward model for the sensors of :func:`_synthetic_data`, with 4 sources."""
@@ -352,8 +347,10 @@ def _model(design: TRFDesign, n_coefficients: int, seed: int = 1) -> NCRF:
     return NCRF(_forward(seed), rng.normal(size=(4, n_coefficients)), design)
 
 
-def test_champ_lasso_score_by_segment():
-    """ChampLassoFit scores held-out data with the covariance of its own segment, not by block position."""
+def test_champ_lasso_segments():
+    """ChampLasso estimates and scores the sensor covariance per segment, from the segment's own samples."""
+    # ChampLassoFit scores held-out data with the covariance of its own segment, not by
+    # block position
     data = _synthetic_data('l2', n_segments=3).whiten(_forward())
     forward = data.forward
     theta = np.random.RandomState(2).normal(size=(4, data.design.n_coefficients))
@@ -379,12 +376,8 @@ def test_champ_lasso_score_by_segment():
     logdet = (100 * np.log(np.linalg.det(sigma_b[0])) + 50 * np.log(np.linalg.det(sigma_b[1]))) / 150
     np.testing.assert_allclose(scores['cross_fit'], weighted_l2_error + 0.5 * logdet)
 
-
-def test_champ_lasso_score_pooled():
-    """A segment the fit has no covariance for is scored with the training covariances averaged over the training samples."""
-    data = _synthetic_data('l2', n_segments=3).whiten(_forward())
-    forward = data.forward
-    theta = np.random.RandomState(2).normal(size=(4, data.design.n_coefficients))
+    # a segment the fit has no covariance for is scored with the training covariances
+    # averaged over the training samples
     sigma_b = {0: np.eye(3), 1: np.diag([2., 3., 4.])}
     fit = ChampLassoFit(theta, ChampLassoHistory(), {}, sigma_b, n_samples={0: 150, 1: 50})
     pooled = (150 * sigma_b[0] + 50 * sigma_b[1]) / 200
@@ -392,7 +385,6 @@ def test_champ_lasso_score_pooled():
     assert 'sigma_b_pooled' not in fit.__dict__
     fit.score(forward, data.subset([[300, 350]]))
     assert 'sigma_b_pooled' not in fit.__dict__
-
     held_out = data.subset([[500, 550]])
     assert held_out.blocks == [(2, 100, 150)]
     scores = fit.score(forward, held_out)
@@ -405,15 +397,11 @@ def test_champ_lasso_score_pooled():
     # a pickled fit keeps its training sample counts
     assert pickle.loads(pickle.dumps(fit)).n_samples == {0: 150, 1: 50}
 
-
-def test_champ_lasso_cross_validates_whole_segments():
-    """Cross-validation that holds out whole segments (split='case')."""
-    data = _synthetic_data('l2', n_segments=3).whiten(_forward())
+    # cross-validation that holds out whole segments (split='case')
     solver = champ_lasso.ChampLasso(mu=0.1, n_iter=1, n_iterc=1, n_iterf=2)
     # the fit records its training samples per segment
     fit = solver.solve(data.forward, data.subset([[0, 200], [300, 400]]))
     assert fit.n_samples == {0: 196, 1: 100}
-
     splits = split_data(data.data.segments, partitions=3, split='case', test=0)
     results = champ_lasso.crossvalidate(data, [solver, replace(solver, mu=0.2)], CrossValidation(splits, n_workers=0))
     assert len(results) == 2
@@ -421,28 +409,8 @@ def test_champ_lasso_cross_validates_whole_segments():
         assert np.isfinite(result.scores['cross_fit'])
         assert np.isfinite(result.scores['weighted_l2_error'])
 
-
-def test_scores_per_sample():
-    """The metrics weight blocks by their number of samples, so a block's contribution does not depend on how the data is cut."""
-    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
-    model = _model(data.design, data.design.n_coefficients)
-    a, b = data.subset([[10, 110]]), data.subset([[300, 350]])
-    both = data.subset([[10, 110], [300, 350]])
-    assert [stop - start for _, start, stop in both.blocks] == [100, 50]
-
-    scores_a, scores_b, scores = model.evaluate(a), model.evaluate(b), model.evaluate(both)
-    for key in ('explained_variance', 'l2_error'):
-        np.testing.assert_allclose(scores[key], (100 * scores_a[key] + 50 * scores_b[key]) / 150)
-    expected = (100 * model.voxelwise_explained_variance(a).x + 50 * model.voxelwise_explained_variance(b).x) / 150
-    np.testing.assert_allclose(model.voxelwise_explained_variance(both).x, expected)
-    # the whitened prediction is in the units of the whitened responses
-    predicted = model.predict(both, whitened=True)
-    np.testing.assert_allclose(predicted[1], model.forward.whitened_lead_field @ model.theta @ both.covariates[1].T)
-    np.testing.assert_allclose(scores['l2_error'], sum(0.5 * ((meg - p) ** 2).sum() for (meg, _), p in zip(both, predicted)) / 150)
-
-
-def test_champagne_covariances_per_segment():
-    """Champagne's per-segment seeds and residual covariances average over the segment's own samples, whatever the other segments' lengths."""
+    # champagne's per-segment seeds and residual covariances average over the segment's
+    # own samples, whatever the other segments' lengths
     rng = np.random.RandomState(0)
     times = [UTS(0, 0.01, 300), UTS(0, 0.01, 100)]
     meg = Datalist([NDVar(rng.normal(size=(3, len(time))), (SENSOR, time)) for time in times])
@@ -451,7 +419,6 @@ def test_champagne_covariances_per_segment():
     forward = data.forward
     theta = np.zeros((4, data.design.n_coefficients))
     gamma, sigma_b = champ_lasso._mne_seeds(forward, data)
-
     for i_segment in range(2):
         alone = RegressionData.from_data(meg[i_segment], stim[i_segment], 0, 0.05, scale=None).whiten(forward)
         assert alone.blocks == [(0, *data.blocks[i_segment][1:])]
@@ -464,26 +431,6 @@ def test_champagne_covariances_per_segment():
         np.testing.assert_allclose(yhat @ yhat.T, y @ y.T / y.shape[1])
 
 
-def test_short_segments_dropped_with_warning(caplog):
-    """Segments without a sample with a complete lag window are left out, with a warning."""
-    rng = np.random.RandomState(0)
-    # TRF from -0.1 to 0.5 s: lags -10 to 49, so segments need more than 59 samples
-    times = [UTS(0, 0.01, n) for n in (300, 50, 59, 60)]
-    meg = Datalist([NDVar(rng.normal(size=(3, len(time))), (SENSOR, time)) for time in times])
-    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
-    with caplog.at_level(logging.WARNING, 'ncrf._data'):
-        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
-    assert data.blocks == [(0, 49, 290), (3, 49, 50)]
-    assert "2 segments not used" in caplog.text
-    assert "longer than 59 samples: segment 1 (50 samples), 2 (59 samples)" in caplog.text
-    # with padded predictors, all samples are kept
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, 'ncrf._data'):
-        data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None, pad_stim=True)
-    assert [i for i, _, _ in data.blocks] == [0, 1, 2, 3]
-    assert not caplog.records
-
-
 def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, FloatArray]:
     """Covariance of noise with one direction removed, as ICA component removal does; returns (covariance, projector)."""
     u = rng.normal(size=3)
@@ -493,8 +440,10 @@ def _rank_deficient_covariance(rng: np.random.RandomState) -> tuple[FloatArray, 
     return np.dot(noise, noise.T) / 500, projector
 
 
-def test_forward_rank_deficient():
-    """A rank-deficient noise covariance whitens into its noise subspace rather than being rejected."""
+def test_forward_model():
+    """ForwardModel whitens into the noise subspace, dropping negligible directions and rejecting channels without noise."""
+    # a rank-deficient noise covariance whitens into its noise subspace rather than
+    # being rejected
     rng = np.random.RandomState(0)
     covariance, projector = _rank_deficient_covariance(rng)
     forward = _forward(noise_covariance=covariance)
@@ -523,9 +472,7 @@ def test_forward_rank_deficient():
     with pytest.raises(ValueError, match="already whitened with a different forward model"):
         data.whiten(_forward(noise_covariance=covariance + np.eye(3)))
 
-
-def test_forward_rank_threshold():
-    """Directions far below the largest eigenvalue are dropped; measured ones are kept."""
+    # directions far below the largest eigenvalue are dropped; measured ones are kept
     lead_field = np.ones((3, 4))
     source = Scalar('source', range(4))
     # eigenvectors spread over the channels, so that dropping one does not drop a channel
@@ -542,39 +489,33 @@ def test_forward_rank_threshold():
         ForwardModel(lead_field, np.diag([1., 1e-20, 1.]), source, SENSOR, None)
 
 
-@pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
-def test_normalize_matches_from_data(scale):
-    """Applying normalization to covariates == applying it to the stimulus."""
-    expected = _synthetic_data(scale)
-    raw = _synthetic_data()
-    assert not np.allclose(raw.covariates[0], expected.covariates[0])
+def test_normalize():
+    """normalize() applies a design's normalization or derives a scale, in place, as from_data() does."""
+    # applying normalization to the covariates == applying it to the stimulus; the
+    # scale derived from the dataset itself is what from_data uses
+    for scale in ['l1', 'l2', 'spectral']:
+        expected = _synthetic_data(scale)
+        for design in (scale, expected.design):
+            raw = _synthetic_data()
+            stale = raw.covariates[0].copy()
+            raw.EtE
+            # the predictors are normalized in place, and the dataset itself is updated,
+            # including derived arrays built before
+            assert raw.normalize(design) is raw
+            assert raw.design.scale == scale
+            np.testing.assert_array_equal(raw.data.x.mean, expected.design.stim_baseline)
+            np.testing.assert_array_equal(raw.design.stim_baseline, expected.design.stim_baseline)
+            np.testing.assert_array_equal(raw.design.stim_scaling, expected.design.stim_scaling)
+            assert not np.allclose(raw.covariates[0], stale)
+            np.testing.assert_allclose(raw.covariates[0], expected.covariates[0])
+            np.testing.assert_allclose(raw.EtE[0], expected.EtE[0])
+    with pytest.raises(ValueError, match="need one of"):
+        _synthetic_data().normalize('l3')
+    with pytest.raises(ValueError, match="need None or one of"):
+        _synthetic_data('l3')
 
-    normalized = raw.normalize(expected.design)
-    np.testing.assert_allclose(normalized.covariates[0], expected.covariates[0])
-    # the predictors are normalized in place, and the dataset itself is updated
-    assert normalized is raw
-    np.testing.assert_array_equal(raw.data.x.mean, expected.design.stim_baseline)
-
-
-@pytest.mark.parametrize('scale', ['l2', 'spectral'])
-def test_normalize_updates_dataset(scale):
-    """normalize() keeps the dataset consistent: derived arrays built before follow the predictors."""
-    expected = _synthetic_data(scale)
-    for design in (scale, expected.design):
-        raw = _synthetic_data()
-        stale = raw.covariates[0].copy()
-        raw.EtE
-
-        assert raw.normalize(design) is raw
-
-        assert raw.design.scale == scale
-        assert not np.allclose(raw.covariates[0], stale)
-        np.testing.assert_allclose(raw.covariates[0], expected.covariates[0])
-        np.testing.assert_allclose(raw.EtE[0], expected.EtE[0])
-
-
-def test_spectral_norm_independent_of_blocks():
-    """The 'spectral' scale is the spectral norm of all samples' covariates per sample, however they are divided into blocks."""
+    # the 'spectral' scale is the spectral norm of all samples' covariates per sample,
+    # however they are divided into blocks
     data = _synthetic_data(n_segments=2)
     channels = np.split(np.vstack(data.covariates), np.cumsum(data.design.basis_widths)[:-1], axis=1)
     norms = data._spectral_norms()
@@ -584,158 +525,91 @@ def test_spectral_norm_independent_of_blocks():
     np.testing.assert_allclose(pieces._spectral_norms(), norms)
 
 
-@pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
-def test_normalize_derives_scale(scale):
-    """normalize(scale) derives the values from the dataset itself, which is what from_data uses."""
-    expected = _synthetic_data(scale)
-    raw = _synthetic_data()
-
-    derived = raw.normalize(scale)
-
-    assert derived.design.scale == scale
-    np.testing.assert_array_equal(derived.design.stim_baseline, expected.design.stim_baseline)
-    np.testing.assert_array_equal(derived.design.stim_scaling, expected.design.stim_scaling)
-    np.testing.assert_allclose(derived.covariates[0], expected.covariates[0])
-    with pytest.raises(ValueError, match="need one of"):
-        raw.normalize('l3')
-    with pytest.raises(ValueError, match="need None or one of"):
-        _synthetic_data('l3')
-
-
-def test_normalize_rejects_renormalization():
-    """The predictors are normalized in place, so a normalized dataset cannot be normalized differently."""
+def test_normalize_rejects():
+    """Normalization that would corrupt the covariates or does not fit the dataset is rejected."""
+    # the predictors are normalized in place, so a normalized dataset cannot be
+    # normalized differently
     spectral = _synthetic_data('spectral')
-    l2 = _synthetic_data('l2')
-
     with pytest.raises(ValueError, match="already normalized, and can not be normalized with a different design"):
-        spectral.normalize(l2.design)
+        spectral.normalize(_synthetic_data('l2').design)
     with pytest.raises(ValueError, match="already normalized with scale='spectral'"):
         spectral.normalize('l2')
     # applying the same normalization again is a no-op
     assert spectral.normalize(spectral.design) is spectral
     assert spectral.normalize(replace(spectral.design, basis_stride=None)) is spectral
 
-
-@pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
-def test_rejects_constant_predictor(scale):
-    """A predictor without variation has no scale, and dividing by it destroys its covariates."""
+    # a predictor without variation has no scale, and dividing by it destroys its
+    # covariates; a single constant channel of a multi-channel predictor is enough,
+    # and a NaN would silently poison every scale
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
     meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
     varying = NDVar(rng.normal(size=200), (time,), name='varying')
     constant = NDVar(np.full(200, 2.5), (time,), name='constant')
-    unnamed = NDVar(np.full(200, 2.5), (time,))
-    # a single constant channel of a multi-channel predictor is enough
     x = rng.normal(size=(2, 200))
     x[1] = 7.
-    bands = NDVar(x, (Categorial('band', ['low', 'high']), time), name='bands')
-
-    with pytest.raises(ValueError, match="x: flat data in constant"):
-        RegressionData.from_data(meg, [varying, constant], 0, 0.05, scale=scale)
-    with pytest.raises(ValueError, match="x: flat data in <NDVar>"):
-        RegressionData.from_data(meg, [varying, unnamed], 0, 0.05, scale=scale)
-    with pytest.raises(ValueError, match="x: flat data in bands-high"):
-        RegressionData.from_data(meg, [varying, bands], 0, 0.05, scale=scale)
-    # a NaN would silently poison every scale
-    nan = NDVar(np.where(np.arange(200) == 7, np.nan, 1.), (time,), name='nan')
-    with pytest.raises(ValueError, match="x: NaN in nan"):
-        RegressionData.from_data(meg, [varying, nan], 0, 0.05, scale=scale)
-
+    invalid = [
+        (constant, "x: flat data in constant"),
+        (NDVar(np.full(200, 2.5), (time,)), "x: flat data in <NDVar>"),
+        (NDVar(x, (Categorial('band', ['low', 'high']), time), name='bands'), "x: flat data in bands-high"),
+        (NDVar(np.where(np.arange(200) == 7, np.nan, 1.), (time,), name='nan'), "x: NaN in nan"),
+    ]
+    for scale in ['l1', 'l2', 'spectral']:
+        for stim, match in invalid:
+            with pytest.raises(ValueError, match=match):
+                RegressionData.from_data(meg, [varying, stim], 0, 0.05, scale=scale)
     # without scaling there is nothing to divide by
     data = RegressionData.from_data(meg, [varying, constant], 0, 0.05, scale=None)
     assert np.isfinite(data.covariates[0]).all()
 
-
-def test_from_data_rejects_flat_channels():
-    """A flat channel (or NaN) corrupts the whitened data and the metrics, so it is rejected up front."""
-    rng = np.random.RandomState(0)
-    time = UTS(0, 0.01, 200)
-    x = rng.normal(size=(2, 3, 200))
-    x[:, 1] = 0
-    meg = Datalist([NDVar(x_seg, (SENSOR, time)) for x_seg in x])
-    stim = Datalist([NDVar(rng.normal(size=200), (time,), name='x') for _ in meg])
-
-    with pytest.raises(ValueError, match="flat data in <NDVar>-b"):
-        RegressionData.from_data(meg, stim, 0, 0.05)
-    x[:, 1] = rng.normal(size=(2, 200))
-    x[1, 2, 10] = np.nan
-    with pytest.raises(ValueError, match="NaN in <NDVar>-c"):
-        RegressionData.from_data(meg, stim, 0, 0.05)
-
-
-@pytest.mark.parametrize('factor', [0., np.nan, np.inf, -1.])
-def test_normalize_rejects_invalid_scaling(factor):
-    """Scaling factors that would fill the covariates with NaN or infinity are rejected."""
+    # a design for other predictors or lags
     data = _synthetic_data()
-    design = _synthetic_data('l2').design
-    scaling = design.stim_scaling.copy()
-    scaling[1] = factor
-
-    with pytest.raises(ValueError, match=r"invalid 'l2' scaling \(quiet="):
-        data.normalize(replace(design, stim_scaling=scaling))
-    # the valid scaling still applies
-    np.testing.assert_allclose(data.normalize(design).covariates[0], _synthetic_data('l2').covariates[0])
-
-
-def test_normalize_rejects_incompatible_design():
-    data = _synthetic_data()
-
     with pytest.raises(ValueError, match="predictors"):
         data.normalize(_synthetic_data(names=('quiet', 'loud')).design)
     with pytest.raises(ValueError, match="tstop"):
         data.normalize(_synthetic_data(tstop=0.06).design)
+    # scaling factors that would fill the covariates with NaN or infinity are rejected
+    design = _synthetic_data('l2').design
+    for factor in [0., np.nan, np.inf, -1.]:
+        scaling = design.stim_scaling.copy()
+        scaling[1] = factor
+        with pytest.raises(ValueError, match=r"invalid 'l2' scaling \(quiet="):
+            data.normalize(replace(design, stim_scaling=scaling))
+    # the rejected designs left the data unchanged, so the valid scaling still applies
+    np.testing.assert_allclose(data.normalize(design).covariates[0], _synthetic_data('l2').covariates[0])
 
 
-def test_predict_requires_fit_normalization():
-    """Coefficients fit on normalized covariates must not be applied to raw ones."""
+def test_predict():
+    """predict() and evaluate() require the fit's normalization and sensors, and weight blocks by their number of samples."""
+    # coefficients fit on normalized covariates must not be applied to raw ones
     normalized = _synthetic_data('l2')
     model = _model(normalized.design, normalized.design.n_coefficients)
     raw = _synthetic_data()
-
     with pytest.raises(ValueError, match="different centering"):
         model.predict(raw)
+    with pytest.raises(ValueError, match="different centering"):
+        model.predict(_synthetic_data('l2', seed=2))
     with pytest.raises(ValueError, match="different scaling"):
         model.predict(raw.normalize(replace(normalized.design, stim_scaling=None, scale=None)))
     with pytest.raises(ValueError, match="predictors"):
         model.predict(_synthetic_data(names=('quiet', 'loud')))
-
     for expected, actual in zip(model.predict(normalized), model.predict(_synthetic_data().normalize(model.design))):
         np.testing.assert_allclose(expected, actual)
 
-
-def test_predict_returns_meg_scale():
-    """predict() is in the units of the MEG data; whitened=True gives the fitting space."""
-    data = _synthetic_data('l2')
-    model = _model(data.design, data.design.n_coefficients)
+    # predict() is in the units of the MEG data; whitened=True gives the fitting space
     forward = model.forward
-
-    predicted = model.predict(data)
-    whitened = model.predict(data, whitened=True)
-
+    predicted = model.predict(normalized)
+    whitened = model.predict(normalized, whitened=True)
     for meg_scale, fit_scale in zip(predicted, whitened):
         # the whitened prediction is the prediction whitened like the responses
         np.testing.assert_allclose(np.dot(forward.whitening_filter, meg_scale), fit_scale)
     # whitening the input does not change the prediction, which only uses covariates
-    for expected, actual in zip(predicted, model.predict(data.whiten(forward))):
+    for expected, actual in zip(predicted, model.predict(normalized.whiten(forward))):
         np.testing.assert_array_equal(expected, actual)
 
-
-def test_predict_rejects_mismatched_normalization():
-    design = _synthetic_data('l2').design
-    model = _model(design, design.n_coefficients)
-    other = _synthetic_data('l2', seed=2)
-
-    with pytest.raises(ValueError, match="different centering"):
-        model.predict(other)
-
-
-def test_rejects_sensor_mismatch():
-    """Data whose sensors differ from the forward model must not be whitened silently."""
-    data = _synthetic_data('l2')
+    # data whose sensors differ from the forward model must not be whitened silently
     # same channels in a different order: whitening would apply to the wrong channels
     reordered = _synthetic_data('l2', sensor=Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']))
-
-    model = _model(data.design, data.design.n_coefficients)
     with pytest.raises(ValueError, match="same channels in a different order"):
         model.predict(reordered)
     with pytest.raises(ValueError, match="same channels in a different order"):
@@ -745,19 +619,35 @@ def test_rejects_sensor_mismatch():
     renamed = _synthetic_data('l2', sensor=Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']))
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
-
     with pytest.raises(ValueError, match="no lead field to derive a forward model from"):
         NCRFEstimator().fit(renamed, _ZeroSolver())
 
+    # the metrics weight blocks by their number of samples, so a block's contribution
+    # does not depend on how the data is cut
+    data = _synthetic_data('l2', n_segments=2).whiten(_forward())
+    model = _model(data.design, data.design.n_coefficients)
+    a, b = data.subset([[10, 110]]), data.subset([[300, 350]])
+    both = data.subset([[10, 110], [300, 350]])
+    assert [stop - start for _, start, stop in both.blocks] == [100, 50]
+    scores_a, scores_b, scores = model.evaluate(a), model.evaluate(b), model.evaluate(both)
+    for key in ('explained_variance', 'l2_error'):
+        np.testing.assert_allclose(scores[key], (100 * scores_a[key] + 50 * scores_b[key]) / 150)
+    expected = (100 * model.voxelwise_explained_variance(a).x + 50 * model.voxelwise_explained_variance(b).x) / 150
+    np.testing.assert_allclose(model.voxelwise_explained_variance(both).x, expected)
+    # the whitened prediction is in the units of the whitened responses
+    predicted = model.predict(both, whitened=True)
+    np.testing.assert_allclose(predicted[1], model.forward.whitened_lead_field @ model.theta @ both.covariates[1].T)
+    np.testing.assert_allclose(scores['l2_error'], sum(0.5 * ((meg - p) ** 2).sum() for (meg, _), p in zip(both, predicted)) / 150)
 
-def test_estimator_noise_forms():
-    """Every form of noise input yields the covariance of the lead field's sensors."""
+
+def test_estimator_forward():
+    """NCRFEstimator accepts the noise in any form, and derives the forward model for the data's channels."""
+    # every form of noise input yields the covariance of the lead field's sensors
     rng = np.random.RandomState(0)
     lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
     names = list(SENSOR.names)
     a = rng.normal(size=(3, 3))
     data = a.dot(a.T)
-
     covariance = mne.Covariance(data, names, [], [], 0)
     np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, covariance).noise_covariance, data)
 
@@ -788,14 +678,7 @@ def test_estimator_noise_forms():
     np.testing.assert_array_equal(estimator.noise_covariance, data[:2, :2])
     assert estimator.lead_field is lead_field
 
-
-def test_estimator_rejects_invalid_noise():
-    """Noise for channels beyond the lead field points to a data error."""
-    rng = np.random.RandomState(0)
-    lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
-    names = list(SENSOR.names)
-
-    # an extra channel is not silently dropped
+    # noise for channels beyond the lead field points to a data error; an extra channel is not silently dropped
     with pytest.raises(ValueError, match=r"noise covariance channels missing from the lead field: \['x'\]"):
         NCRFEstimator.from_lead_field(lead_field, mne.Covariance(np.eye(4), [*names, 'x'], [], [], 0))
     # a bare array has no channel names to align by
@@ -804,24 +687,16 @@ def test_estimator_rejects_invalid_noise():
     with pytest.raises(TypeError, match="Invalid noise type"):
         NCRFEstimator.from_lead_field(lead_field, 'noise-cov.fif')
 
-
-def test_fit_trims_forward_to_data():
-    """Data on a subset of the forward model's channels is fit with a matching sub-forward."""
-    rng = np.random.RandomState(0)
-    lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
-    names = list(SENSOR.names)
-    a = rng.normal(size=(3, 3))
-    noise = mne.Covariance(a.dot(a.T), names, [], [], 0)
+    # data on a subset of the forward model's channels is fit with a matching sub-
+    # forward
+    noise = covariance
     estimator = NCRFEstimator.from_lead_field(lead_field, noise)
-
     time = UTS(0, 0.01, 200)
     sensor_sub = Sensor([[0., 0, 1], [1., 0, 0]], ['c', 'a'])
     meg = NDVar(rng.normal(size=(2, 200)), (sensor_sub, time))
     stim = NDVar(rng.normal(size=200), (time,), name='x')
     data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
-
     result = estimator.fit(data, _ShapedZeroSolver())
-
     # the model's forward is derived for the data's channels, in the data's order
     model = result.model
     assert list(model.forward.sensor.names) == ['c', 'a']
@@ -861,8 +736,9 @@ def test_fit_trims_forward_to_data():
         estimator_sub.fit(data_full, _ShapedZeroSolver())
 
 
-def test_h_scaled():
-    """h_scaled restores the original stimulus scale, whichever scaling was used."""
+def test_h():
+    """h is the full TRF on the time axis of the fit lags, and h_scaled restores the stimulus scale."""
+    # h_scaled restores the original stimulus scale, whichever scaling was used
     for scale in [None, 'l1', 'l2', 'spectral']:
         data = _synthetic_data(scale)
         model = _model(data.design, data.design.n_coefficients)
@@ -873,16 +749,13 @@ def test_h_scaled():
         for i, factor in enumerate(data.design.stim_scaling):
             np.testing.assert_allclose(h_scaled[i].x, h[i].x / factor)
 
-
-def test_h_scaled_matches_unscaled_fit():
-    """h_scaled equals the h of an equivalent model whose covariates were not scaled."""
+    # h_scaled equals the h of an equivalent model whose covariates were not scaled
     scaled = _synthetic_data('l2')
     design = scaled.design
     centered = _synthetic_data().normalize(replace(design, stim_scaling=None, scale=None))
     model = _model(design, design.n_coefficients)
     # coefficients on the unscaled covariates that make the same predictions
     unscaled_model = NCRF(model.forward, model.theta / design.expand(design.stim_scaling), centered.design)
-
     for expected, actual in zip(model.predict(scaled), unscaled_model.predict(centered)):
         np.testing.assert_allclose(expected, actual)
     # h of the unscaled fit is already in stimulus units
@@ -890,57 +763,47 @@ def test_h_scaled_matches_unscaled_fit():
     for expected, actual in zip(unscaled_model.h, model.h_scaled):
         np.testing.assert_allclose(actual.x, expected.x)
 
-
-@pytest.mark.parametrize('tstop, n_atoms', [(0.03, 1), (0.06, 4)])
-def test_h_with_narrow_basis(tstop, n_atoms):
-    """A predictor with a single basis function still expands into a full TRF."""
+    # a predictor with a single basis function still expands into a full TRF
     rng = np.random.RandomState(0)
     time = UTS(0, 0.01, 200)
     meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
     bands = Categorial('band', ['low', 'high'])
     onsets = Categorial('onset', ['on', 'off', 'both'])
-    n_lags = int(round(tstop / 0.01))  # tstop is exclusive
-    for stim, dimnames, shape in [
-        (NDVar(rng.normal(size=200), (time,), name='x'), ('source', 'time'), (4, n_lags)),
-        (NDVar(rng.normal(size=(2, 200)), (bands, time), name='x'), ('band', 'source', 'time'), (2, 4, n_lags)),
-        (NDVar(rng.normal(size=(2, 3, 200)), (bands, onsets, time), name='x'), ('band', 'onset', 'source', 'time'), (2, 3, 4, n_lags)),
-    ]:
-        data = RegressionData.from_data(meg, stim, 0, tstop, scale=None)
-        assert data.design.basis[0].shape[1] == n_atoms
-        model = _model(data.design, data.design.n_coefficients)
+    for tstop, n_atoms in [(0.03, 1), (0.06, 4)]:
+        n_lags = int(round(tstop / 0.01))  # tstop is exclusive
+        for stim, dimnames, shape in [
+            (NDVar(rng.normal(size=200), (time,), name='x'), ('source', 'time'), (4, n_lags)),
+            (NDVar(rng.normal(size=(2, 200)), (bands, time), name='x'), ('band', 'source', 'time'), (2, 4, n_lags)),
+            (NDVar(rng.normal(size=(2, 3, 200)), (bands, onsets, time), name='x'), ('band', 'onset', 'source', 'time'), (2, 3, 4, n_lags)),
+        ]:
+            data = RegressionData.from_data(meg, stim, 0, tstop, scale=None)
+            assert data.design.basis[0].shape[1] == n_atoms
+            h = _model(data.design, data.design.n_coefficients).h
+            assert h.dimnames == dimnames
+            assert h.shape == shape
+            np.testing.assert_allclose(h.time.times, np.arange(n_lags) * 0.01)
+            # the scaling is undone along the predictor's feature dimensions
+            scaled = RegressionData.from_data(meg, stim, 0, tstop, scale='l2')
+            h_scaled = _model(scaled.design, scaled.design.n_coefficients).h_scaled
+            assert h_scaled.dimnames == dimnames
+            np.testing.assert_allclose(h_scaled.x, h.x / scaled.design.stim_scaling.reshape((*stim.shape[:-1], 1, 1)))
 
-        h = model.h
-
-        assert h.dimnames == dimnames
-        assert h.shape == shape
-        np.testing.assert_allclose(h.time.times, np.arange(n_lags) * 0.01)
-        # the scaling is undone along the predictor's feature dimensions
-        scaled = RegressionData.from_data(meg, stim, 0, tstop, scale='l2')
-        h_scaled = _model(scaled.design, scaled.design.n_coefficients).h_scaled
-        assert h_scaled.dimnames == dimnames
-        np.testing.assert_allclose(h_scaled.x, h.x / scaled.design.stim_scaling.reshape((*stim.shape[:-1], 1, 1)))
-
-
-def test_h_time_axis_on_sample_grid():
-    """The TRF's time axis is that of the lags that were fit, i.e. tstart rounded to the sample grid."""
-    rng = np.random.RandomState(0)
-    time = UTS(0, 0.01, 200)
-    meg = NDVar(rng.normal(size=(3, 200)), (SENSOR, time))
+    # the TRF's time axis is that of the lags that were fit, i.e. tstart rounded to the
+    # sample grid
     stim = NDVar(rng.normal(size=200), (time,), name='x')
     data = RegressionData.from_data(meg, stim, -0.104, 0.053, scale=None)
     assert data.design.start_samples == [-10]
     assert data.design.filter_length == [16]
-
     h = _model(data.design, data.design.n_coefficients).h
-
     np.testing.assert_allclose(h.time.times, np.arange(-10, 6) * 0.01)
 
 
-def test_design_timing_per_predictor():
-    """A scalar TRF time applies to all predictors, a sequence has one value per predictor."""
+def test_design():
+    """TRF timing per predictor, and the Gaussian basis."""
+    # a scalar TRF time applies to all predictors, a sequence has one value per
+    # predictor
     time = UTS(0, 0.01, 200)
     stim = [NDVar(np.zeros(200), (time,), name='a'), NDVar(np.zeros(200), (time,), name='b')]
-
     design = TRFDesign.from_data(DeconvolutionData(stim), -0.1, [0.2, 0.3])
     assert design.tstart == [-0.1, -0.1]
     assert design.tstop == [0.2, 0.3]
@@ -948,10 +811,8 @@ def test_design_timing_per_predictor():
     with pytest.raises(ValueError, match="need one value per predictor"):
         TRFDesign.from_data(DeconvolutionData(stim), [-0.1], 0.2)
 
-
-def test_gaussian_basis():
+    # the Gaussian basis does not depend on the time offset
     basis = gaussian_basis(4, np.linspace(0, 1, 11), 0.1)
     shifted_basis = gaussian_basis(4, np.linspace(10, 11, 11), 0.1)
-
     assert basis.shape == (11, 4)
     np.testing.assert_allclose(basis, shifted_basis)

@@ -98,6 +98,19 @@ def test_make_folds():
     assert folds[0][0].blocks == [(0, 4, 86)]
     assert folds[1][1].blocks == [(0, 95, 100)]
     assert folds[1][0].blocks == [(0, 4, 91)]
+    # segments of unequal length are each cut in proportion to their length:
+    # windows of 15 and 20 samples
+    times = [UTS(0, 0.01, n) for n in (300, 400)]
+    meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 270, 285), (1, 360, 380)], [(0, 285, 300), (1, 380, 400)]]
+    assert [train.blocks for train, _ in folds] == [[(0, 4, 266), (1, 4, 356)], [(0, 4, 281), (1, 4, 376)]]
+    # as is holding out whole segments
+    splits = split_data(data.data.segments, partitions=2, split='case', test=0)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
 
 
 def test_make_folds_gap():
@@ -152,24 +165,6 @@ def _negative_lag_data(seconds):
     return RegressionData.from_data(meg, stim, -0.1, 0.2, scale=None)
 
 
-def test_folds_of_unequal_segments():
-    """Segments of unequal length are each cut in proportion to their length."""
-    rng = np.random.RandomState(0)
-    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
-    times = [UTS(0, 0.01, n) for n in (300, 400)]
-    meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
-    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
-    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
-    # windows of 15 and 20 samples, and a gap of 4 samples (lags 0 to 4)
-    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
-    assert [validate.blocks for _, validate in folds] == [[(0, 270, 285), (1, 360, 380)], [(0, 285, 300), (1, 380, 400)]]
-    assert [train.blocks for train, _ in folds] == [[(0, 4, 266), (1, 4, 356)], [(0, 4, 281), (1, 4, 376)]]
-    # as is holding out whole segments
-    splits = split_data(data.data.segments, partitions=2, split='case', test=0)
-    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
-    assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
-
-
 def test_held_out_data_without_lag_window(monkeypatch):
     """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
     # 2 s: the default windows are cut from the samples with a complete lag
@@ -205,38 +200,6 @@ def test_held_out_data_without_lag_window(monkeypatch):
         ChampLasso(mu='autp').search(data, cv_splits)
 
 
-def test_score_candidate_uses_fit_primitive(monkeypatch):
-    train_data = object()
-    test_data = object()
-    data = Mock()
-    monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
-
-    model = Mock()
-    solver_fit = Mock()
-    solver = ChampLasso(mu=0.1, tol=1e-5)
-    fit_model = Mock(return_value=(model, solver_fit))
-    score_fit = Mock(return_value={'cross_fit': 1.0, 'weighted_l2_error': 2.0, 'l2_error': 3.0, 'explained_variance': 0.5})
-    monkeypatch.setattr(ncrf._model, 'fit_model', fit_model)
-    monkeypatch.setattr(ncrf._model, '_score_fit', score_fit)
-
-    result = cv._score_candidate(data, [(train_data, test_data)], solver)
-
-    fold_solver = fit_model.call_args.args[1]
-    assert fold_solver.mu == 0.1
-    assert fold_solver.tol == solver.tol
-    assert not fold_solver.store
-    fit_model.assert_called_once_with(train_data, fold_solver)
-    score_fit.assert_called_once_with(model, solver_fit, test_data)
-    assert result.solver is solver
-    assert result.scores == {
-        'cross_fit': 1.0,
-        'weighted_l2_error': 2.0,
-        'l2_error': 3.0,
-        'explained_variance': 0.5,
-        'estimation_stability': 4.0,
-    }
-
-
 def test_cross_validation_rejects_invalid_splits():
     segments = np.array([[0, 100], [100, 200], [200, 300]])
     with pytest.raises(ValueError, match="splits=0: need at least one cross-validation fold"):
@@ -262,83 +225,92 @@ def test_cross_validation_rejects_invalid_splits():
         CrossValidation(splits, validate=0.1)
 
 
-def test_extend_mu_grid():
+def test_crossvalidate(monkeypatch):
+    """Each candidate is fit and scored on every fold, with progress reported per candidate."""
+    # a candidate is fit with the fold primitive, without history, and scored on the held-out data
+    train_data = object()
+    test_data = object()
+    monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
+    model = Mock()
+    solver_fit = Mock()
+    solver = ChampLasso(mu=0.1, tol=1e-5)
+    fit_model = Mock(return_value=(model, solver_fit))
+    score_fit = Mock(return_value={'cross_fit': 1.0, 'weighted_l2_error': 2.0, 'l2_error': 3.0, 'explained_variance': 0.5})
+    monkeypatch.setattr(ncrf._model, 'fit_model', fit_model)
+    monkeypatch.setattr(ncrf._model, '_score_fit', score_fit)
+    result = cv._score_candidate(Mock(), [(train_data, test_data)], solver)
+    fold_solver = fit_model.call_args.args[1]
+    assert fold_solver.mu == 0.1
+    assert fold_solver.tol == solver.tol
+    assert not fold_solver.store
+    fit_model.assert_called_once_with(train_data, fold_solver)
+    score_fit.assert_called_once_with(model, solver_fit, test_data)
+    assert result.solver is solver
+    assert result.scores == {
+        'cross_fit': 1.0,
+        'weighted_l2_error': 2.0,
+        'l2_error': 3.0,
+        'explained_variance': 0.5,
+        'estimation_stability': 4.0,
+    }
+
+    # crossvalidate() returns the results in candidate order and advances the progress bar per candidate
+    progress = _Progress()
+    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
+    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
+    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
+    monkeypatch.setattr(cv, '_score_candidate', lambda data, folds, solver: _cv_result(solver.mu))
+    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
+    results = crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=0))
+    assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
+    assert progress.updates == [1, 1, 1]
+    assert progress.closed
+
+    # a worker's error propagates, and the progress bar is closed
+    def score_candidate(data, folds, solver):
+        if solver.mu == 0.2:
+            raise RuntimeError("worker failed")
+        return _cv_result(solver.mu)
+
+    progress = _Progress()
+    monkeypatch.setattr(cv, 'Pool', _InlinePool)
+    monkeypatch.setattr(cv, '_score_candidate', score_candidate)
+    with pytest.raises(RuntimeError, match="worker failed"):
+        crossvalidate(object(), candidates[:2], CrossValidation(splits=2, n_workers=2))
+    assert progress.updates == [1]
+    assert progress.closed
+
+
+def test_search(monkeypatch):
+    """ChampLasso.search() cross-validates the mu grid, extends it at the boundary, and selects by cross-fit or estimation stability."""
+    # the grid is extended beyond a boundary winner, by a decade in 3 steps
     champ = ChampLasso(mu=0.1)
     mus = (0.1, 0.2, 0.3)
-
     left = champ._extend_grid([_cv_result(mu, cross_fit=mu) for mu in mus])
     right = champ._extend_grid([_cv_result(mu, cross_fit=-mu) for mu in mus])
     interior = champ._extend_grid([_cv_result(mu, cross_fit=abs(mu - 0.2)) for mu in mus])
-
     np.testing.assert_allclose([solver.mu for solver in left], np.logspace(-2, -1, 4)[:-1])
     np.testing.assert_allclose([solver.mu for solver in right], np.logspace(np.log10(0.3), np.log10(3), 4)[1:])
     assert interior == ()
 
-
-def test_select_es_solver():
+    # estimation stability selects its first local minimum above the cross-fit winner
     results = [
         _cv_result(0.1, es=5.0),
         _cv_result(0.2, es=4.0),
         _cv_result(0.3, es=2.0),
         _cv_result(0.4, es=3.0),
     ]
-
     assert champ_lasso._select_es_solver(results, 0.2).mu == 0.3
     assert champ_lasso._select_es_solver(results, 0.4) is None
 
-
-def test_crossvalidate_progress(monkeypatch):
-    progress = _Progress()
-    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
-    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
-    monkeypatch.setattr(
-        cv, '_score_candidate',
-        lambda data, folds, solver: _cv_result(solver.mu),
-    )
-    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
-
-    results = crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=0))
-
-    assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
-    assert progress.updates == [1, 1, 1]
-    assert progress.closed
-
-
-def test_crossvalidate_propagates_worker_error(monkeypatch):
-    progress = _Progress()
-    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, 'Pool', _InlinePool)
-    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
-    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
-
-    def score_candidate(data, folds, solver):
-        if solver.mu == 0.2:
-            raise RuntimeError("worker failed")
-        return _cv_result(solver.mu)
-
-    monkeypatch.setattr(cv, '_score_candidate', score_candidate)
-    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2))
-
-    with pytest.raises(RuntimeError, match="worker failed"):
-        crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=2))
-
-    assert progress.updates == [1]
-    assert progress.closed
-
-
-def test_search_single_candidate_skips_crossvalidation(monkeypatch):
+    # a single candidate is not cross-validated
     crossvalidate = Mock()
     monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
-
     solver, cv_results = ChampLasso(mu=0.1).search(Mock(), None)
-
     assert (solver.mu, cv_results) == (0.1, [])
     crossvalidate.assert_not_called()
 
-
-def test_search_extends_grid_before_es_selection(monkeypatch):
-    """The boundary extension follows the cross-fit winner, not the ES selection."""
+    # the boundary extension follows the cross-fit winner, not the ES selection
     mus = (0.1, 0.2, 0.3, 0.4)
     extension = [float(mu) for mu in np.logspace(-2, -1, 4)[:-1]]
     # cross-fit selects the smallest mu, while ES would select an interior candidate
@@ -361,16 +333,13 @@ def test_search_extends_grid_before_es_selection(monkeypatch):
         return [_cv_result(solver.mu, cross_fit=scores[solver.mu][0], es=scores[solver.mu][1]) for solver in candidates]
 
     monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
-
     solver, returned_results = ChampLasso(mu=mus, use_es=True).search(data, cv_config)
-
     assert calls == [list(mus), extension]
     # ES minimum above the extended cross-fit winner (extension[1]), not the 0.3 of the truncated grid
     assert solver.mu == extension[2]
     assert [result.solver.mu for result in returned_results] == [*mus, *extension]
 
-
-def test_search_es_is_independent_of_result_order(monkeypatch):
+    # the ES selection does not depend on the order of the results
     results = [
         _cv_result(0.1, es=5.0, cross_fit=3.0),
         _cv_result(0.3, es=2.0, cross_fit=2.0),
@@ -378,9 +347,7 @@ def test_search_es_is_independent_of_result_order(monkeypatch):
         _cv_result(0.2, es=4.0, cross_fit=1.0),
     ]
     monkeypatch.setattr(champ_lasso, 'crossvalidate', lambda *args: results.copy())
-
     solver, returned_results = ChampLasso(mu=(0.1, 0.2, 0.3, 0.4), use_es=True).search(Mock(), None)
-
     assert solver.mu == 0.3
     assert returned_results == results
     assert '0.30000*' in str(solver.cv_table(returned_results))

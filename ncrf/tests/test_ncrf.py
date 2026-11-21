@@ -21,48 +21,29 @@ from eelbrain.testing import assert_dataobj_equal
 MU = 0.0019444 / 2
 
 
-@pytest.mark.parametrize(
-    'mu, expected',
-    [
+def test_champ_lasso_arguments(monkeypatch):
+    """ChampLasso resolves mu to its candidates, and rejects invalid mu and store arguments."""
+    for mu, expected in [
         (0.1, (0.1,)),
         (1, (1.0,)),
         ([0.1], (0.1,)),
         ((0.1, 0.2), (0.1, 0.2)),
         (np.array([0.1, 0.2]), (0.1, 0.2)),
-    ],
-)
-def test_champ_lasso_candidates(mu, expected):
-    candidates = ChampLasso(mu).candidates(None, None)
-    assert tuple(candidate.mu for candidate in candidates) == expected
-
-
-@pytest.mark.parametrize('mu', [[], 'invalid', [0.1, 'invalid']])
-def test_champ_lasso_candidates_invalid(mu):
-    with pytest.raises((TypeError, ValueError)):
-        ChampLasso(mu).candidates(None, None)
-
-
-def test_champ_lasso_auto_candidates(monkeypatch):
+    ]:
+        assert tuple(candidate.mu for candidate in ChampLasso(mu).candidates(None, None)) == expected
+    for mu in ([], 'invalid', [0.1, 'invalid']):
+        with pytest.raises((TypeError, ValueError)):
+            ChampLasso(mu).candidates(None, None)
+    # mu='auto' (the default) derives its candidates from the data
     expected = (ChampLasso(0.1), ChampLasso(0.2))
-    monkeypatch.setattr(
-        ChampLasso,
-        'auto_candidates',
-        lambda self, forward, data: expected,
-    )
-
+    monkeypatch.setattr(ChampLasso, 'auto_candidates', lambda self, forward, data: expected)
     assert ChampLasso().candidates(None, None) == expected
 
-
-@pytest.mark.parametrize('store', ['theta', ('theta', 'bogus')])
-def test_champ_lasso_rejects_invalid_store(store):
-    """A misspelled quantity has to be an error rather than silently storing nothing."""
-    with pytest.raises(ValueError, match='store='):
-        ChampLasso(mu=0.1, store=store)
-
-
-def test_history_rejects_unknown_quantity():
+    # a misspelled quantity has to be an error rather than silently storing nothing
+    for store in ('theta', ('theta', 'bogus')):
+        with pytest.raises(ValueError, match='store='):
+            ChampLasso(mu=0.1, store=store)
     history = ChampLassoHistory(frozenset({'relative_change'}))
-
     history.record(relative_change=0.5, theta=None)
     assert history.relative_change == [0.5]
     with pytest.raises(ValueError, match='name=.relative_changes.'):
@@ -70,7 +51,7 @@ def test_history_rejects_unknown_quantity():
 
 
 @pytest.mark.slow
-def test_ncrf():
+def test_ncrf(monkeypatch):
     meg = load('meg').sub(time=(0, 5))
     stim = load('stim').sub(time=(0, 5))
     fwd = load('fwd_sol')
@@ -154,18 +135,13 @@ def test_ncrf():
     result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
 
-
-def test_ncrf_validate(monkeypatch):
-    """validate sets the length of the default validation windows, and can not be combined with a Splits object."""
-    meg = load('meg').sub(case=0)
-    stim = load('stim').sub(case=0)
-    fwd = load('fwd_sol')
-    emptyroom = load('emptyroom')
+    # validate sets the length of the default validation windows, and can not be combined with a Splits object
     cvs = []
     monkeypatch.setattr(NCRFEstimator, 'fit', lambda self, data, solver, cv, **kwargs: cvs.append(cv))
     fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, validate=0.1)
     assert cvs[0].validate == 0.1
-    splits = split_data(np.array([[0, len(meg.time)]]), partitions=3, test=0)
+    n = len(meg.time)
+    splits = split_data(np.array([[0, n], [n, 2 * n]]), partitions=3, test=0)
     with pytest.raises(ValueError, match="the Splits object defines its own validation sets"):
         fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, n_splits=splits, validate=0.1)
 
