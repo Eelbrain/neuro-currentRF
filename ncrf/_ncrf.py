@@ -46,6 +46,7 @@ def fit_ncrf(
         verbose: bool = False,
         n_splits: int | Splits = 3,
         n_workers: int | None = None,
+        validate: float | None = None,
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
@@ -125,6 +126,11 @@ def fit_ncrf(
         Number of worker processes for cross-validation. If ``None``, derive it
         from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).
         Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
+    validate
+        Length of each validation window as proportion of the samples with a
+        complete lag window in each segment (default 0.05, i.e., 5%). Only
+        applies when ``n_splits`` is the number of folds; a
+        :class:`eelbrain.Splits` object defines its own validation sets.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
         choose the best ``mu``. (``False`` by default, see :class:`~ncrf.ChampLasso`).
@@ -135,8 +141,9 @@ def fit_ncrf(
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     solver
         Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
-        iteration arguments are ignored; configure them on the solver. ``n_splits`` and
-        ``n_workers`` still configure the folds a searching solver is scored on.
+        iteration arguments are ignored; configure them on the solver. ``n_splits``,
+        ``n_workers`` and ``validate`` still configure the folds a searching
+        solver is scored on.
     compute_explained_variance
         Compute explained variance by source/voxel.
 
@@ -221,7 +228,7 @@ def fit_ncrf(
     return estimator.fit(
         ds,
         solver,
-        cv=CrossValidation(n_splits, n_workers),
+        cv=CrossValidation(n_splits, n_workers, validate),
         verbose=verbose,
         compute_explained_variance=compute_explained_variance,
     )

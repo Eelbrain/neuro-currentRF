@@ -17,7 +17,9 @@ API changes
   tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used to yield 51.
 - **More flexible cross-validation:** ``n_splits`` also accepts an
   :class:`eelbrain.Splits` object (see :func:`eelbrain.split_data`), e.g. to
-  hold out whole segments (``split='case'``).
+  hold out whole segments (``split='case'``). The new ``validate`` argument
+  sets the length of the default validation windows (5% of each segment by
+  default).
 - **Fit metrics are averages per sample**, in the units of the whitened
   responses (as is :meth:`~ncrf.NCRF.predict` with ``whitened=True``).
 - **Lower-level API:** :meth:`~ncrf.RegressionData.from_data` takes the same

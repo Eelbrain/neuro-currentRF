@@ -4,11 +4,11 @@
 # License: BSD (3-clause)
 import pickle
 
-from eelbrain import set_time, set_tmin
+from eelbrain import set_time, set_tmin, split_data
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, fit_ncrf, NCRF
+from ncrf import ChampLasso, fit_ncrf, NCRF, NCRFEstimator
 from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf.tests.fetch import load
 
@@ -153,6 +153,21 @@ def test_ncrf():
     # test without multiprocessing
     result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
+
+
+def test_ncrf_validate(monkeypatch):
+    """validate sets the length of the default validation windows, and can not be combined with a Splits object."""
+    meg = load('meg').sub(case=0)
+    stim = load('stim').sub(case=0)
+    fwd = load('fwd_sol')
+    emptyroom = load('emptyroom')
+    cvs = []
+    monkeypatch.setattr(NCRFEstimator, 'fit', lambda self, data, solver, cv, **kwargs: cvs.append(cv))
+    fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, validate=0.1)
+    assert cvs[0].validate == 0.1
+    splits = split_data(np.array([[0, len(meg.time)]]), partitions=3, test=0)
+    with pytest.raises(ValueError, match="the Splits object defines its own validation sets"):
+        fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, n_splits=splits, validate=0.1)
 
 
 @pytest.mark.slow

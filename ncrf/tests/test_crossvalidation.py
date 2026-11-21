@@ -254,6 +254,12 @@ def test_cross_validation_rejects_invalid_splits():
         CrossValidation(split_data(segments, partitions=3, test=1))
     with pytest.raises(ValueError, match="no validation set"):
         CrossValidation(split_data(segments, partitions=3, validate=0, test=0))
+    # the window length only applies to the default folds
+    splits = split_data(segments, partitions=3, test=0)
+    assert CrossValidation(splits).validate is None
+    assert CrossValidation(2).validate == 0.05
+    with pytest.raises(ValueError, match="validate=0.1: the Splits object defines its own validation sets"):
+        CrossValidation(splits, validate=0.1)
 
 
 def test_extend_mu_grid():

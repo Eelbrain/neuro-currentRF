@@ -65,13 +65,14 @@ class CrossValidation:
     validate
         Length of each validation window as proportion of the samples the
         dataset covers in each segment (default 0.05, i.e., 5%). Only applies
-        when ``splits`` is the number of folds; a :class:`eelbrain.Splits` object defines its own
-        validation sets.
+        when ``splits`` is the number of folds; a :class:`eelbrain.Splits`
+        object defines its own validation sets, so ``validate`` can not be set
+        with it.
     """
 
     splits: int | Splits = 3
     n_workers: int | None = None
-    validate: float = 0.05
+    validate: float | None = None
 
     def __post_init__(self) -> None:
         splits = self.splits
@@ -80,12 +81,17 @@ class CrossValidation:
                 raise NotImplementedError(f"{splits}: cross-validation with a test set is not implemented; create the splits with test=0")
             elif not splits.n_validate:
                 raise ValueError(f"{splits}: no validation set to score candidates on; create the splits with validate=1")
+            elif self.validate is not None:
+                raise ValueError(f"validate={self.validate!r}: the Splits object defines its own validation sets; set the number of folds instead to use windows of this length")
+            return
         elif isinstance(splits, Integral) and not isinstance(splits, bool):
             if splits < 1:
                 raise ValueError(f"{splits=}: need at least one cross-validation fold")
         else:
             raise TypeError(f"{splits=}: need the number of partitions or an eelbrain Splits object")
-        if not 0 < self.validate < 1:
+        if self.validate is None:
+            object.__setattr__(self, 'validate', 0.05)  # frozen dataclass
+        elif not 0 < self.validate < 1:
             raise ValueError(f"validate={self.validate!r}: need a proportion of the segment, between 0 and 1")
 
     def worker_processes(self) -> int:
