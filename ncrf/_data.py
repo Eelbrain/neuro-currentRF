@@ -272,6 +272,14 @@ class RegressionData:
         return out
 
     @property
+    def segment_n_samples(self) -> dict[int, int]:
+        """Number of time samples the dataset covers in each segment, ``{i_segment: n_samples}``."""
+        out = {}
+        for i_segment, start, stop in self.blocks:
+            out[i_segment] = out.get(i_segment, 0) + stop - start
+        return out
+
+    @property
     def norm_factor(self) -> float:
         """Square root of the number of samples, by which the Gram matrices normalize the responses and covariates.
 

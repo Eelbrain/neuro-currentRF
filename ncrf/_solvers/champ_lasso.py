@@ -201,13 +201,14 @@ def _evaluate_objective(
         (:meth:`ChampLassoFit.score` supplies one for every segment).
     """
     segment_blocks = data.segment_blocks
+    segment_n_samples = data.segment_n_samples
     missing = [i for i in segment_blocks if i not in Sigma_b]
     if missing:
         raise ValueError(f"no sensor covariance for segment {', '.join(map(str, missing))}")
     ll2 = 0
     logdet = 0
     for i_segment, blocks in segment_blocks.items():
-        n_times = sum(data.blocks[i][2] - data.blocks[i][1] for i in blocks)
+        n_times = segment_n_samples[i_segment]
         yhat = _residual_factor(forward, theta, data, blocks)
         (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[i_segment], yhat)
         # yhat @ yhat.T is the residual's sample covariance: sum over the samples
@@ -809,7 +810,7 @@ class ChampLasso(Solver):
             history=history,
             gamma=state.Gamma,
             sigma_b=state.Sigma_b,
-            n_samples={i: sum(data.blocks[k][2] - data.blocks[k][1] for k in blocks) for i, blocks in data.segment_blocks.items()},
+            n_samples=data.segment_n_samples,
         )
 
     def auto_candidates(

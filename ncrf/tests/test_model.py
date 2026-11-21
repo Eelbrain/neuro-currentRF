@@ -258,6 +258,7 @@ def test_subset():
     assert fold.blocks == [(0, 10, 50), (0, 195, 200), (1, 4, 30)]
     assert fold.is_whitened
     assert fold.n_samples == 71
+    assert fold.segment_n_samples == {0: 45, 1: 26}
     # the covariates are built once, on the source dataset, and sliced from there
     assert fold._segment_covariates is data._segment_covariates
     assert np.shares_memory(fold.covariates[0], data.covariates[0])
