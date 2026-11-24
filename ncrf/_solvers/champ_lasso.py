@@ -525,7 +525,7 @@ class ChampLassoFit(SolverFit):
 
     @cached_property
     def sigma_b_pooled(self) -> FloatArray:
-        """Sensor covariance for segments the model was not fit on: :attr:`sigma_b` averaged over the training samples.
+        """Sensor covariance for segments the model was not fit on, i.e., :attr:`~ChampLassoFit.sigma_b` averaged over the training samples.
 
         If trials are draws from one population, each with its own source
         covariances, the data of a new trial has the average of their

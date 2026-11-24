@@ -76,6 +76,11 @@ nitpick_ignore = [
     ("py:class", "numpy.int64"),
     # Documented through ChampLassoFit.history, no page of its own
     ("py:class", "ncrf._solvers.champ_lasso.ChampLassoHistory"),
+    # eelbrain.trf is not part of Eelbrain's documented API
+    ("py:func", "eelbrain.trf.lag_window"),
+    ("py:class", "eelbrain.trf.RowBlock"),
+    ("py:class", "eelbrain._trf.shared.RowBlock"),
+    ("py:class", "eelbrain._trf.shared.DeconvolutionData"),
 ]
 
 # A list of ignored prefixes for module index sorting.
@@ -129,7 +134,7 @@ intersphinx_mapping = get_intersphinx_mapping(
     }
 )
 intersphinx_mapping.update({
-    "eelbrain": ("https://eelbrain.readthedocs.io/en/stable", None),
+    "eelbrain": ("https://eelbrain.readthedocs.io/en/latest", None),
     'surfer': ('https://pysurfer.github.io', None),
 })
 intersphinx_timeout = 5

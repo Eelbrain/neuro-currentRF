@@ -265,7 +265,7 @@ class RegressionData:
 
     @property
     def segment_blocks(self) -> dict[int, list[int]]:
-        """Indices into :attr:`blocks` (and :attr:`responses`, :attr:`covariates`) grouped by data segment, ``{i_segment: [i_block, ...]}``."""
+        """Indices into :attr:`~RegressionData.blocks` (and :attr:`~RegressionData.responses`, :attr:`~RegressionData.covariates`) grouped by data segment, ``{i_segment: [i_block, ...]}``."""
         out = {}
         for i, (i_segment, _, _) in enumerate(self.blocks):
             out.setdefault(i_segment, []).append(i)
