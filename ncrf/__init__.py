@@ -16,14 +16,21 @@ from ._metrics import explained_variance, l2_error
 from ._solvers import ChampLasso, ChampLassoFit, Solver, SolverFit
 from ._ncrf import fit_ncrf
 
-from importlib.metadata import version
+try:
+    # Written by setuptools_scm when the package is built
+    from ._version import __version__
+except ImportError:
+    # Source tree that has never been built
+    from importlib.metadata import version
+
+    try:
+        __version__ = version("ncrf")
+    except Exception:
+        __version__ = "0.0.0"
+    del version
+# In a git checkout (e.g., editable install), derive the current version from git
 from pathlib import Path
 
-try:
-    __version__ = version("ncrf")
-except Exception:
-    __version__ = "0.0.0"
-# In a git checkout (e.g., editable install), derive the current version from git
 if (Path(__file__).parent.parent / '.git').exists():
     try:
         from setuptools_scm import get_version
@@ -31,4 +38,4 @@ if (Path(__file__).parent.parent / '.git').exists():
         del get_version
     except Exception:
         pass
-del version, Path
+del Path

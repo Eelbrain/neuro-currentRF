@@ -1,7 +1,7 @@
 [build-system]
 requires = [
     "setuptools >= 64.0.0",
-    "setuptools_scm >= 6.2",
+    "setuptools_scm >= 8",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -102,3 +102,4 @@ include-package-data = false
 include = ['ncrf*']
 
 [tool.setuptools_scm]
+version_file = "ncrf/_version.py"
