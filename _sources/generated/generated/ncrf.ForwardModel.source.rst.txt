@@ -1,0 +1,6 @@
+ncrf.ForwardModel.source
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.source

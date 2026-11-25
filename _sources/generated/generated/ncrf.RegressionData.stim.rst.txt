@@ -1,0 +1,6 @@
+ncrf.RegressionData.stim
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: RegressionData.stim

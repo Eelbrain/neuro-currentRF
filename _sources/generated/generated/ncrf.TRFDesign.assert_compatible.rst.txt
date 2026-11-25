@@ -1,0 +1,6 @@
+ncrf.TRFDesign.assert\_compatible
+=================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: TRFDesign.assert_compatible

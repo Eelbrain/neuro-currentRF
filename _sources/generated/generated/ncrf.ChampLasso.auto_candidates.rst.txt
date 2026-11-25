@@ -1,0 +1,6 @@
+ncrf.ChampLasso.auto\_candidates
+================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLasso.auto_candidates

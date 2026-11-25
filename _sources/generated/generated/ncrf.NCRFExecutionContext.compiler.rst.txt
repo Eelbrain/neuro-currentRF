@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.compiler
+==================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.compiler

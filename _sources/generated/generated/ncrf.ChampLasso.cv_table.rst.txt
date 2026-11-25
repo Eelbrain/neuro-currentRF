@@ -1,0 +1,6 @@
+ncrf.ChampLasso.cv\_table
+=========================
+
+.. currentmodule:: ncrf
+
+.. automethod:: ChampLasso.cv_table

@@ -1,0 +1,6 @@
+ncrf.TRFDesign.expand
+=====================
+
+.. currentmodule:: ncrf
+
+.. automethod:: TRFDesign.expand

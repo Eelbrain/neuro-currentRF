@@ -1,0 +1,6 @@
+ncrf.RegressionData.samples
+===========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: RegressionData.samples

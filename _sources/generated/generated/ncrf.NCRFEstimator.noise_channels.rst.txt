@@ -1,0 +1,6 @@
+ncrf.NCRFEstimator.noise\_channels
+==================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFEstimator.noise_channels

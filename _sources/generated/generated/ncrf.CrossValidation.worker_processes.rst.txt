@@ -1,0 +1,6 @@
+ncrf.CrossValidation.worker\_processes
+======================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: CrossValidation.worker_processes

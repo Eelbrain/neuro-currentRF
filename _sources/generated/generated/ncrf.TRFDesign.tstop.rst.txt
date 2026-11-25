@@ -1,0 +1,6 @@
+ncrf.TRFDesign.tstop
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: TRFDesign.tstop

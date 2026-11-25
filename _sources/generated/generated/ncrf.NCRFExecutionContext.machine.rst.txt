@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.machine
+=================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.machine

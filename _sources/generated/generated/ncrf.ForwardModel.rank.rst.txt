@@ -1,0 +1,6 @@
+ncrf.ForwardModel.rank
+======================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.rank

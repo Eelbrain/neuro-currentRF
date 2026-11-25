@@ -1,0 +1,6 @@
+ncrf.RegressionData.timeslice
+=============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.timeslice

@@ -1,0 +1,6 @@
+ncrf.CrossValidation.n\_workers
+===============================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: CrossValidation.n_workers

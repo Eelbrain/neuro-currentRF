@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.duration
+==================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.duration

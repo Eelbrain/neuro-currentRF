@@ -1,0 +1,32 @@
+﻿ncrf.CVResult
+=============
+
+.. currentmodule:: ncrf
+
+.. autoclass:: CVResult
+
+
+
+
+
+.. rubric:: Methods
+
+.. autosummary::
+   :toctree: generated
+
+
+
+
+
+
+
+
+.. rubric:: Attributes
+
+.. autosummary::
+   :toctree: generated
+
+
+   ~CVResult.solver
+   ~CVResult.scores
+

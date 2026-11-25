@@ -1,0 +1,6 @@
+ncrf.ForwardModel.mne\_initializer
+==================================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: ForwardModel.mne_initializer

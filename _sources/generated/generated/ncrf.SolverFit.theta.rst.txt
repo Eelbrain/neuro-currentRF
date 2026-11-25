@@ -1,0 +1,6 @@
+ncrf.SolverFit.theta
+====================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: SolverFit.theta

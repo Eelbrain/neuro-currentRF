@@ -1,0 +1,6 @@
+ncrf.RegressionData.norm\_factor
+================================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.norm_factor

@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.n\_workers
+====================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.n_workers

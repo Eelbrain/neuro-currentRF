@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.eelbrain\_version
+===========================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.eelbrain_version

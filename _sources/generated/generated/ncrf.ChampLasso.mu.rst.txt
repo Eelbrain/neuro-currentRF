@@ -1,0 +1,6 @@
+ncrf.ChampLasso.mu
+==================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ChampLasso.mu

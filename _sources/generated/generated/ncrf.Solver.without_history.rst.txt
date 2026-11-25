@@ -1,0 +1,6 @@
+ncrf.Solver.without\_history
+============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: Solver.without_history

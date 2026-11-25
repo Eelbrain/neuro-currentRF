@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.collect
+=================================
+
+.. currentmodule:: ncrf
+
+.. automethod:: NCRFExecutionContext.collect

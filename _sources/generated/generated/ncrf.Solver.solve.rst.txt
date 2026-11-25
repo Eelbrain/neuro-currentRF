@@ -1,0 +1,6 @@
+ncrf.Solver.solve
+=================
+
+.. currentmodule:: ncrf
+
+.. automethod:: Solver.solve

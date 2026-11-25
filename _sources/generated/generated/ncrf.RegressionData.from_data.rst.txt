@@ -1,0 +1,6 @@
+ncrf.RegressionData.from\_data
+==============================
+
+.. currentmodule:: ncrf
+
+.. automethod:: RegressionData.from_data

@@ -1,0 +1,6 @@
+ncrf.Solver.search
+==================
+
+.. currentmodule:: ncrf
+
+.. automethod:: Solver.search

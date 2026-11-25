@@ -1,0 +1,6 @@
+ncrf.ForwardModel.sensor
+========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: ForwardModel.sensor

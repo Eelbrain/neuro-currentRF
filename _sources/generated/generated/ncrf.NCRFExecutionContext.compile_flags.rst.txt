@@ -1,0 +1,6 @@
+ncrf.NCRFExecutionContext.compile\_flags
+========================================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: NCRFExecutionContext.compile_flags

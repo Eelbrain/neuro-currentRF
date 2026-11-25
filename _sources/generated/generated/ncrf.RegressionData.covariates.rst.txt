@@ -1,0 +1,6 @@
+ncrf.RegressionData.covariates
+==============================
+
+.. currentmodule:: ncrf
+
+.. autoproperty:: RegressionData.covariates

@@ -1,0 +1,6 @@
+ncrf.RegressionData.design
+==========================
+
+.. currentmodule:: ncrf
+
+.. autoattribute:: RegressionData.design
