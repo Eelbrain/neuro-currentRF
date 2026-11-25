@@ -19,7 +19,7 @@ from ._ncrf import fit_ncrf
 from pathlib import Path
 
 __version__ = None
-if (Path(__file__).parents[1] / '.git').exists():
+if (Path(__file__).parent.parent / '.git').exists():
     # Git checkout (e.g., editable install): _version.py is not updated with new commits
     try:
         from setuptools_scm import get_version
