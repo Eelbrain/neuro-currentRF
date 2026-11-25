@@ -15,7 +15,7 @@ import collections
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from eelbrain import NDVar
+from eelbrain import Datalist, NDVar, Splits
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
@@ -44,8 +44,9 @@ def fit_ncrf(
         mu: MuArg = 'auto',
         tol: float = 1e-3,
         verbose: bool = False,
-        n_splits: int = 3,
+        n_splits: int | Splits = 3,
         n_workers: int | None = None,
+        validate: float | None = None,
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
@@ -81,8 +82,9 @@ def fit_ncrf(
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
     tstop
-        Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
-        specifies one stop time per predictor.
+        Stop of the TRF in seconds (exclusive, like ``tstop`` of an
+        :class:`eelbrain.UTS`; see :func:`eelbrain.trf.lag_window`). A scalar
+        applies to all predictors; a sequence specifies one stop time per predictor.
     basis_stride
         Spacing between neighboring Gabor atoms, in samples: with the default of
         ``1`` the atoms are one sample apart, and larger values make the basis
@@ -97,14 +99,16 @@ def fit_ncrf(
         Normalization applied before model fitting: each predictor's mean is
         subtracted, and the covariates are divided by the ``'l2'`` (standard
         deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
-        ``'spectral'`` (average spectral norm of the covariates, which equalizes
+        ``'spectral'`` (spectral norm of the covariates per sample, which equalizes
         covariate scales across predictor variables; the default) scale. Use
         ``None`` to leave the covariates on their raw scale.
         :attr:`~ncrf.NCRF.h_scaled` undoes the scaling, whichever one is used.
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
-        search range from the data.
+        search range from the data. The penalty weighs against the average error
+        per sample. To reproduce a fixed ``mu`` from ncrf 0.4 on data with
+        several trials of equal length, divide it by the number of trials.
     tol
         Tolerance factor deciding stopping criterion for the overall algorithm. The iterations
         are stooped when ``norm(trf_new - trf_old)/norm(trf_old) < tol`` condition is met.
@@ -112,11 +116,21 @@ def fit_ncrf(
     verbose
         If True prints intermediate results, by default False.
     n_splits
-        Number of cross-validation folds. By default it uses 3-fold cross-validation.
+        Number of cross-validation folds (default 3): the last ``n_splits``
+        windows of every segment are held out one at a time for validation,
+        and the candidates are fit to the data preceding the window (see
+        :class:`~ncrf.CrossValidation`). Alternatively, an
+        :class:`eelbrain.Splits` object, e.g. one that holds out whole
+        segments (``split='case'`` in :func:`eelbrain.split_data`).
     n_workers
         Number of worker processes for cross-validation. If ``None``, derive it
         from Eelbrain's ``n_workers`` setting (see :func:`eelbrain.configure`).
         Set to ``0`` to run without :mod:`multiprocessing`, for debugging.
+    validate
+        Length of each validation window as proportion of the samples with a
+        complete lag window in each segment (default 0.05, i.e., 5%). Only
+        applies when ``n_splits`` is the number of folds; a
+        :class:`eelbrain.Splits` object defines its own validation sets.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
         choose the best ``mu``. (``False`` by default, see :class:`~ncrf.ChampLasso`).
@@ -127,8 +141,9 @@ def fit_ncrf(
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     solver
         Solver configuration. When supplied, ``mu``, ``use_ES``, ``tol`` and the
-        iteration arguments are ignored; configure them on the solver. ``n_splits`` and
-        ``n_workers`` still configure the folds a searching solver is scored on.
+        iteration arguments are ignored; configure them on the solver. ``n_splits``,
+        ``n_workers`` and ``validate`` still configure the folds a searching
+        solver is scored on.
     compute_explained_variance
         Compute explained variance by source/voxel.
 
@@ -181,49 +196,28 @@ def fit_ncrf(
     .. bibliography::
         :cited:
     """
-    # make meg/stim representation uniform:
-    meg_trials = []  # [trial_1, trial_2, ...]
-    stim_trials = []  # [[trial_1_stim_1, trial_1_stim_2, ...], ...]
+    # bring meg/stim into the layout of RegressionData.from_data: trials along a
+    # case dimension or in a Datalist, and predictors as separate items
     if isinstance(meg, NDVar):
-        meg_list = [meg]
-        stim_list = [stim]
+        y, x = meg, stim
     elif isinstance(meg, collections.abc.Sequence):
-        if len(stim) != len(meg):
-            raise ValueError(f"{meg=}, {stim=}: different length")
-        meg_list = list(meg)
-        stim_list = list(stim)
+        if len(stim) != len(meg) or len(meg) == 0:
+            raise ValueError(f"{meg=}, {stim=}: need one stim item for each of at least one meg item")
+        stim_is_single = isinstance(stim[0], NDVar)
+        trials = []  # [[trial_1_meg, trial_1_stim_1, trial_1_stim_2, ...], ...]
+        for meg_chunk, stim_chunk in zip(meg, stim):
+            if isinstance(stim_chunk, NDVar) != stim_is_single:
+                raise ValueError(f"{stim=}: inconsistent element types (NDVar/list)")
+            chunk = [meg_chunk, stim_chunk] if stim_is_single else [meg_chunk, *stim_chunk]
+            if len({len(v) if v.has_case else None for v in chunk}) > 1:
+                raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
+            trials.extend(zip(*chunk) if meg_chunk.has_case else [chunk])
+        y, *x = (Datalist(list(v)) for v in zip(*trials))
+        if stim_is_single:
+            x = x[0]
     else:
         raise TypeError(f"meg={meg!r}")
-    stim_is_single = None
-    for meg_chunk, stim_chunk in zip(meg_list, stim_list):
-        if meg_chunk.has_case:
-            n_trials = len(meg_chunk)
-            meg_trials.extend(meg_chunk)
-        else:
-            n_trials = 0
-            meg_trials.append(meg_chunk)
-
-        if stim_is_single is None:
-            stim_is_single = isinstance(stim_chunk, NDVar)
-        elif stim_is_single != isinstance(stim_chunk, NDVar):
-            raise ValueError(f"{stim=}: inconsistent element types (NDVar/list)")
-
-        if stim_is_single:
-            stim_chunk = [stim_chunk]
-
-        if n_trials:
-            if not all(s.has_case and len(s) == n_trials for s in stim_chunk):
-                raise ValueError(f"{meg=}, {stim=}: inconsistent number of cases")
-            stim_trials.extend(zip(*stim_chunk))
-        else:
-            if any(s.has_case for s in stim_chunk):
-                raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
-            stim_trials.append(stim_chunk)
-
-    ds = RegressionData.from_data(
-        meg_trials, stim_trials, tstart, tstop, basis_stride,
-        scale, stim_is_single, basis_std=basis_std,
-    )
+    ds = RegressionData.from_data(y, x, tstart, tstop, basis_stride, scale, basis_std=basis_std)
 
     # the estimator trims the forward model to the noise channels, and its fit()
     # trims further to the sensors of the data
@@ -234,7 +228,7 @@ def fit_ncrf(
     return estimator.fit(
         ds,
         solver,
-        cv=CrossValidation(n_splits, n_workers),
+        cv=CrossValidation(n_splits, n_workers, validate),
         verbose=verbose,
         compute_explained_variance=compute_explained_variance,
     )

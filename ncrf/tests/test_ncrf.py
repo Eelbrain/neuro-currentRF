@@ -4,60 +4,46 @@
 # License: BSD (3-clause)
 import pickle
 
-from eelbrain import set_time, set_tmin
+from eelbrain import set_time, set_tmin, split_data
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, fit_ncrf, NCRF
+from ncrf import ChampLasso, fit_ncrf, NCRF, NCRFEstimator
 from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf.tests.fetch import load
 
 from eelbrain import Case, Categorial, NDVar, concatenate
 from eelbrain.testing import assert_dataobj_equal
 
+#: Regularization of the reference fits on the 2 trials of the test data. The data
+#: term of the objective is an average per sample, so this equals the 0.0019444 of
+#: ncrf 0.4, whose data term was the sum of the average per trial.
+MU = 0.0019444 / 2
 
-@pytest.mark.parametrize(
-    'mu, expected',
-    [
+
+def test_champ_lasso_arguments(monkeypatch):
+    """ChampLasso resolves mu to its candidates, and rejects invalid mu and store arguments."""
+    for mu, expected in [
         (0.1, (0.1,)),
         (1, (1.0,)),
         ([0.1], (0.1,)),
         ((0.1, 0.2), (0.1, 0.2)),
         (np.array([0.1, 0.2]), (0.1, 0.2)),
-    ],
-)
-def test_champ_lasso_candidates(mu, expected):
-    candidates = ChampLasso(mu).candidates(None, None)
-    assert tuple(candidate.mu for candidate in candidates) == expected
-
-
-@pytest.mark.parametrize('mu', [[], 'invalid', [0.1, 'invalid']])
-def test_champ_lasso_candidates_invalid(mu):
-    with pytest.raises((TypeError, ValueError)):
-        ChampLasso(mu).candidates(None, None)
-
-
-def test_champ_lasso_auto_candidates(monkeypatch):
+    ]:
+        assert tuple(candidate.mu for candidate in ChampLasso(mu).candidates(None, None)) == expected
+    for mu in ([], 'invalid', [0.1, 'invalid']):
+        with pytest.raises((TypeError, ValueError)):
+            ChampLasso(mu).candidates(None, None)
+    # mu='auto' (the default) derives its candidates from the data
     expected = (ChampLasso(0.1), ChampLasso(0.2))
-    monkeypatch.setattr(
-        ChampLasso,
-        'auto_candidates',
-        lambda self, forward, data: expected,
-    )
-
+    monkeypatch.setattr(ChampLasso, 'auto_candidates', lambda self, forward, data: expected)
     assert ChampLasso().candidates(None, None) == expected
 
-
-@pytest.mark.parametrize('store', ['theta', ('theta', 'bogus')])
-def test_champ_lasso_rejects_invalid_store(store):
-    """A misspelled quantity has to be an error rather than silently storing nothing."""
-    with pytest.raises(ValueError, match='store='):
-        ChampLasso(mu=0.1, store=store)
-
-
-def test_history_rejects_unknown_quantity():
+    # a misspelled quantity has to be an error rather than silently storing nothing
+    for store in ('theta', ('theta', 'bogus')):
+        with pytest.raises(ValueError, match='store='):
+            ChampLasso(mu=0.1, store=store)
     history = ChampLassoHistory(frozenset({'relative_change'}))
-
     history.record(relative_change=0.5, theta=None)
     assert history.relative_change == [0.5]
     with pytest.raises(ValueError, match='name=.relative_changes.'):
@@ -65,25 +51,25 @@ def test_history_rejects_unknown_quantity():
 
 
 @pytest.mark.slow
-def test_ncrf():
+def test_ncrf(monkeypatch):
     meg = load('meg').sub(time=(0, 5))
     stim = load('stim').sub(time=(0, 5))
     fwd = load('fwd_sol')
     emptyroom = load('emptyroom')
 
     # 1 stimulus
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10, compute_explained_variance=True)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=MU, n_iter=3, n_iterc=3, n_iterf=10, compute_explained_variance=True)
     # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
-    np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)
-    np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.004410796436808832, rtol=0.001)
-    np.testing.assert_allclose(result.scores['cross_fit'], 178.512, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.006780584215243968, rtol=0.001)
+    np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.0053790649440054175, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 178.523, rtol=0.001)
     # check scaling
     stim_baseline = stim.mean()
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim_baseline)
     np.testing.assert_equal(result.model.design.stim_scaling[0], (stim - stim_baseline).abs().mean())
-    np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 9.240443e-10, rtol=0.001)
     # by default, objective/relative_change accumulate but trajectories are not stored
     assert len(result.solver_fit.history.objective) > 0
     assert len(result.solver_fit.history.relative_change) > 0
@@ -103,7 +89,7 @@ def test_ncrf():
     assert_dataobj_equal(model_2.h, result.model.h)
 
     # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
-    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
+    solver = ChampLasso(mu=MU, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
     assert result.solver == solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
@@ -116,38 +102,48 @@ def test_ncrf():
     # 2 stimuli, one of them 2-d, l2 normalization
     diff = stim.diff('time')
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], scale='l2', mu=MU, n_iter=3, n_iterc=3, n_iterf=10)
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
-    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 7.0088e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 4.3177e-10, rtol=0.001)
 
     # 2 stimuli, different tstarts (-ve)
     diff = stim.diff('time')
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
     tstart = [-0.1, 0.1]
     tstop = [0.2, 0.3]
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=MU, n_iter=3, n_iterc=3, n_iterf=10)
 
     # check residual and explained var
-    np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
-    np.testing.assert_allclose(result.scores['cross_fit'], 177.15021740565106, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.021405417036547858, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 177.16340907078322, rtol=0.001)
     # check start and stop
     np.testing.assert_equal(result.model.design.tstart, tstart)
     np.testing.assert_equal(result.model.design.tstop, tstop)
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
-    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 6.6065539e-10, rtol=0.001)
+    np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 7.3105016e-10, rtol=0.001)
 
     # cross-validation
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2)
-    np.testing.assert_allclose(result.solver.mu, 0.0203, rtol=0.001)
+    np.testing.assert_allclose(result.solver.mu, 0.020424 / 2, rtol=0.001)
     result.cv_info()
 
     # test without multiprocessing
     result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
+
+    # validate sets the length of the default validation windows, and can not be combined with a Splits object
+    cvs = []
+    monkeypatch.setattr(NCRFEstimator, 'fit', lambda self, data, solver, cv, **kwargs: cvs.append(cv))
+    fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, validate=0.1)
+    assert cvs[0].validate == 0.1
+    n = len(meg.time)
+    splits = split_data(np.array([[0, n], [n, 2 * n]]), partitions=3, test=0)
+    with pytest.raises(ValueError, match="the Splits object defines its own validation sets"):
+        fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, n_splits=splits, validate=0.1)
 
 
 @pytest.mark.slow
@@ -165,7 +161,7 @@ def test_ncrf_rank_deficient_noise():
     meg = NDVar(np.einsum('ij,cjt->cit', projector, meg.get_data(('case', 'sensor', 'time'))), (Case, meg.sensor, meg.time))
     emptyroom = NDVar(np.dot(projector, emptyroom.get_data(('sensor', 'time'))), (emptyroom.sensor, emptyroom.time))
 
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=5)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=MU, n_iter=1, n_iterc=1, n_iterf=5)
     forward = result.model.forward
     assert forward.rank == len(u) - 1
     assert forward.whitening_filter.shape == (len(u) - 1, len(u))

@@ -1,9 +1,10 @@
 """Cross-validation machinery used by the NCRF estimator.
 
-This module only scores fixed solver configurations: it splits the time series,
-fits and evaluates each candidate on every fold, and computes the
-estimation-stability metric across folds. Which candidates to score, and which
-of them wins, is decided by :meth:`~ncrf.Solver.search`.
+This module only scores fixed solver configurations: it partitions the data
+with Eelbrain's cross-validation scheme, fits and evaluates each candidate on
+every fold, and computes the estimation-stability metric across folds. Which
+candidates to score, and which of them wins, is decided by
+:meth:`~ncrf.Solver.search`.
 """
 
 from __future__ import annotations
@@ -12,20 +13,21 @@ from __future__ import annotations
 # License: BSD (3-clause)
 
 import logging
-import os
 from dataclasses import dataclass
 from math import ceil
 from multiprocessing import Pool
+from numbers import Integral
 from typing import TYPE_CHECKING
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 
+from eelbrain import Split, Splits, split_data
+from eelbrain.trf import init_worker
 from eelbrain._config import CONFIG
 import numpy as np
 from tqdm import tqdm
 
 from ._data import RegressionData
 from ._metrics import merge_scores
-from ._typing import FloatArray, IndexArray
 
 if TYPE_CHECKING:
     from ._model import NCRF
@@ -40,20 +42,57 @@ class CrossValidation:
 
     Parameters
     ----------
-    n_splits
-        Number of cross-validation folds.
+    splits
+        The cross-validation folds. An integer is the number of folds: the
+        last ``splits`` windows of every segment (see ``validate``) are held
+        out one at a time for validation, and the candidates are fit to the
+        data preceding the window (``scheme='walk-forward'`` with
+        ``split='within-case'`` and ``partitions=splits + 1`` in
+        :func:`eelbrain.split_data`). The windows are cut from the samples
+        whose lag window lies inside the stimulus, i.e., the samples the
+        dataset covers. Alternatively, an
+        :class:`eelbrain.Splits` object made for the data's segments, e.g.
+        with :func:`eelbrain.split_data` and one of its other partitioning
+        schemes; its validation splits are the folds. Splits with a test set
+        are not supported yet. In either case, the training data of each fold
+        excludes the samples within one TRF length (minus one sample) of the
+        held-out data, so that the lag windows of the training and held-out
+        samples never share a predictor sample.
     n_workers
         Number of worker processes, or ``None`` to derive it from Eelbrain's
         ``n_workers`` setting (see :func:`eelbrain.configure`). Set to ``0`` to
         run without :mod:`multiprocessing`, for debugging.
+    validate
+        Length of each validation window as proportion of the samples the
+        dataset covers in each segment (default 0.05, i.e., 5%). Only applies
+        when ``splits`` is the number of folds; a :class:`eelbrain.Splits`
+        object defines its own validation sets, so ``validate`` can not be set
+        with it.
     """
 
-    n_splits: int = 3
+    splits: int | Splits = 3
     n_workers: int | None = None
+    validate: float | None = None
 
     def __post_init__(self) -> None:
-        if self.n_splits < 1:
-            raise ValueError(f"n_splits={self.n_splits!r}: need at least one cross-validation fold")
+        splits = self.splits
+        if isinstance(splits, Splits):
+            if splits.n_test:
+                raise NotImplementedError(f"{splits}: cross-validation with a test set is not implemented; create the splits with test=0")
+            elif not splits.n_validate:
+                raise ValueError(f"{splits}: no validation set to score candidates on; create the splits with validate=1")
+            elif self.validate is not None:
+                raise ValueError(f"validate={self.validate!r}: the Splits object defines its own validation sets; set the number of folds instead to use windows of this length")
+            return
+        elif isinstance(splits, Integral) and not isinstance(splits, bool):
+            if splits < 1:
+                raise ValueError(f"{splits=}: need at least one cross-validation fold")
+        else:
+            raise TypeError(f"{splits=}: need the number of partitions or an eelbrain Splits object")
+        if self.validate is None:
+            object.__setattr__(self, 'validate', 0.05)  # frozen dataclass
+        elif not 0 < self.validate < 1:
+            raise ValueError(f"validate={self.validate!r}: need a proportion of the segment, between 0 and 1")
 
     def worker_processes(self) -> int:
         """Number of worker processes, resolving ``n_workers=None`` from Eelbrain's setting."""
@@ -65,19 +104,95 @@ class CrossValidation:
         return ceil(CONFIG['n_workers'] / 8)
 
 
-def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionData, RegressionData]]:
-    """Train/test fold datasets, shared by every candidate scored on ``data``."""
-    d = max(data.design.filter_length)
-    kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
-    return [(data.timeslice(train), data.timeslice(test)) for train, test in kf.split(data.samples)]
+def _training_ranges(
+        split: Split,
+        segments: np.ndarray,
+        gap: int,
+) -> np.ndarray:
+    """``split.train`` without the ``gap`` samples on either side of each held-out range (within its segment).
+
+    Parameters
+    ----------
+    split
+        Split whose training ranges to trim.
+    segments
+        ``(n_segments, 2)`` array of the data segments on the concatenated time axis.
+    gap
+        Number of training samples to drop next to the held-out data.
+    """
+    train = np.zeros(segments[-1, 1], bool)
+    for start, stop in split.train:
+        train[start:stop] = True
+    for start, stop in split.reserved:
+        # held-out ranges never span a segment boundary
+        seg_start, seg_stop = segments[np.searchsorted(segments[:, 1], start, 'right')]
+        train[max(seg_start, start - gap):min(seg_stop, stop + gap)] = False
+    # ranges that are adjacent across a segment boundary are merged here, and separated again by RegressionData.subset()
+    return np.flatnonzero(np.diff(train, prepend=False, append=False)).reshape((-1, 2))
 
 
-def _initialize_worker(data: RegressionData, n_splits: int) -> None:
+def _describe_blocks(blocks: Sequence[tuple[int, int, int]], max_items: int = 3) -> str:
+    """Segment-relative sample ranges of ``blocks``, for error messages."""
+    items = [f"segment {i}: samples {start}-{stop}" for i, start, stop in blocks[:max_items]]
+    if len(blocks) > max_items:
+        items.append('...')
+    return ', '.join(items)
+
+
+def _fold_ranges(data: RegressionData, cv: CrossValidation) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Training and held-out ranges of each fold of ``cv`` for ``data``, on the concatenated time axis.
+
+    The folds are those of ``cv.splits``, or the last ``cv.splits`` windows of
+    the samples ``data`` covers in every segment, held out in turn. Training
+    data is separated from the held-out data by a gap of one TRF length minus
+    one sample, so that the lag windows of training and held-out samples never
+    share a predictor sample.
+
+    The folds are checked against the samples ``data`` covers here, in the parent
+    process, since an error in a :class:`~multiprocessing.pool.Pool` initializer,
+    where the fold datasets are built, hangs the pool.
+
+    Raises
+    ------
+    ValueError
+        If the splits were made for different segments, or if a fold has no
+        training or no held-out samples with a complete lag window. In
+        particular, held-out data of a :class:`eelbrain.Splits` object at the
+        start or end of a segment can lie entirely in the samples whose lag
+        window extends beyond the stimulus.
+    """
+    if isinstance(cv.splits, Splits):
+        if not np.array_equal(cv.splits.segments, data.data.segments):
+            raise ValueError(f"{cv.splits}: made for different data segments than {data}")
+        splits = cv.splits
+    else:
+        # cut the windows from the samples the dataset covers, so that none falls in the cropped segment ends
+        offsets = data.data.segments[:, 0]
+        covered = np.array([(offsets[i] + start, offsets[i] + stop) for i, start, stop in data.blocks])
+        splits = split_data(covered, tstep=data.data.time.tstep, partitions=cv.splits + 1, split='within-case', scheme='walk-forward', validate=cv.validate, test=0)
+    gap = max(data.design.stop_samples) - 1 - min(data.design.start_samples)  # largest minus smallest lag
+    folds = []
+    for i_fold, split in enumerate(splits.splits):
+        train_ranges = _training_ranges(split, data.data.segments, gap)
+        if not data._blocks_in(split.reserved):
+            held_out = data.data.segment_slices(split.reserved)
+            raise ValueError(f"cross-validation fold {i_fold}: none of its held-out samples ({_describe_blocks(held_out)}) has a complete lag window; the dataset only covers the samples whose lag window lies inside the stimulus ({_describe_blocks(data.blocks)}). Use longer segments, a TRF with tstart and tstop closer to 0, or Splits that hold out other samples")
+        elif not data._blocks_in(train_ranges):
+            raise ValueError(f"cross-validation fold {i_fold}: no training data remains after removing {gap} samples next to the held-out data; use fewer partitions, a shorter TRF, or more data")
+        folds.append((train_ranges, split.reserved))
+    return folds
+
+
+def _make_folds(data: RegressionData, fold_ranges: Sequence[tuple[np.ndarray, np.ndarray]]) -> list[tuple[RegressionData, RegressionData]]:
+    """Train/validation fold datasets, shared by every candidate scored on ``data`` (see :func:`_fold_ranges`)."""
+    return [(data.subset(train), data.subset(held_out)) for train, held_out in fold_ranges]
+
+
+def _initialize_worker(data: RegressionData, fold_ranges: Sequence[tuple[np.ndarray, np.ndarray]]) -> None:
     """Store the shared whitened data and the fold datasets once per multiprocessing worker."""
     global _worker_context
-    if CONFIG['nice']:
-        os.nice(CONFIG['nice'])
-    _worker_context = data, _make_folds(data, n_splits)
+    init_worker()
+    _worker_context = data, _make_folds(data, fold_ranges)
 
 
 def _score_worker(solver: Solver) -> CVResult:
@@ -188,103 +303,23 @@ def crossvalidate(
         Cross-validation results.
     """
     logging.getLogger(__name__).info('Crossvalidation initiated!')
-    n_workers = cv.worker_processes()
+    n_processes = cv.worker_processes()
+    fold_ranges = _fold_ranges(data, cv)
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
-        if n_workers == 0:
-            folds = _make_folds(data, cv.n_splits)
+        if n_processes == 0:
+            folds = _make_folds(data, fold_ranges)
             for candidate in candidates:
                 results.append(_score_candidate(data, folds, candidate))
                 prog.update()
         else:
             with Pool(
-                    processes=n_workers,
+                    processes=n_processes,
                     initializer=_initialize_worker,
-                    initargs=(data, cv.n_splits),
+                    initargs=(data, fold_ranges),
             ) as pool:
                 for result in pool.imap_unordered(_score_worker, candidates):
                     results.append(result)
                     prog.update()
 
     return results
-
-
-class TimeSeriesSplit:
-    """Split contiguous time indices into ordered train/test windows.
-
-    The last ``p`` windows of the time series are held out one at a time, and
-    each split trains on the samples preceding its window, so training data
-    always comes before the held-out data. Successive splits move the validation
-    window forward in time and thus train on progressively more data.
-
-    Parameters
-    ----------
-    r
-        Size of each validation window relative to the samples left for
-        training: for ``n`` samples the window is ``ceil(r / (1 + r) * n)``
-        samples long.
-    p
-        Number of splits.
-    d
-        Number of samples to skip between the end of the training window and the
-        start of the validation window. Set it to the TRF length so that lagged
-        predictors in the training data do not reach into the held-out window.
-
-    Notes
-    -----
-    Only the length of the array passed to :meth:`split` is used; the splits are
-    index arrays that the caller applies to the data itself.
-    """
-
-    def __init__(self, r: float = 0.05, p: int = 5, d: int = 100):
-        self.ratio = r
-        self.p = p
-        self.d = d
-
-    def __repr__(self) -> str:
-        r, p, d = self.ratio, self.p, self.d
-        return f'{type(self).__name__}({r=}, {p=}, {d=})'
-
-    def _iter_part_masks(self, X: FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-        """Yield boolean masks for each backward-moving validation split."""
-        n_v = ceil(self.ratio / (1 + self.ratio) * len(X))
-        for i in range(self.p, 0, -1):
-            test_mask = np.zeros(len(X), dtype=bool)
-            train_mask = np.ones(len(X), dtype=bool)
-            train_mask[-(i * n_v + self.d):] = False
-            if i == 1:
-                test_mask[-i * n_v:] = True
-            else:
-                test_mask[-i * n_v:-(i - 1) * n_v] = True
-            yield train_mask, test_mask
-
-    def split(self, X: FloatArray) -> Iterator[tuple[IndexArray, IndexArray]]:
-        """Yield integer index arrays for each validation split.
-
-        Parameters
-        ----------
-        X
-            Time course defining the number of samples to split; only its length
-            is used.
-
-        Yields
-        ------
-        train_index
-            Time indices preceding the validation window, excluding the
-            ``d``-sample gap.
-        test_index
-            Time indices of the validation window.
-
-        Raises
-        ------
-        ValueError
-            If ``X`` is too short to leave any training samples once the
-            validation windows and the gap between them are removed.
-        """
-        indices = np.arange(len(X))
-        for (train_mask, test_mask) in self._iter_part_masks(X):
-            train_index = indices[train_mask]
-            test_index = indices[test_mask]
-            if not len(train_index):
-                raise ValueError(f"{len(X)} samples are not enough for {self.p} cross-validation folds with a {self.d}-sample gap; use fewer folds, a shorter TRF, or more data")
-            yield train_index, test_index

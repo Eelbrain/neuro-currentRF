@@ -6,6 +6,28 @@ Changes
 0.5
 ---
 
+API changes
+^^^^^^^^^^^
+
+- ``mu`` **is relative to the average error per sample**, and no longer depends
+  on the number of trials. To reproduce a fixed ``mu`` from ncrf 0.4 on data
+  with several trials of equal length, divide it by the number of trials.
+  ``mu='auto'`` is unaffected, apart from the numeric values it reports.
+- ``tstop`` **is exclusive**, as in :func:`eelbrain.boosting`: ``tstart=0,
+  tstop=0.5`` at 100 Hz yields 50 lags (0 to 0.49 s) where it used to yield 51.
+- **More flexible cross-validation:** ``n_splits`` also accepts an
+  :class:`eelbrain.Splits` object (see :func:`eelbrain.split_data`), e.g. to
+  hold out whole segments (``split='case'``). The new ``validate`` argument
+  sets the length of the default validation windows (5% of each segment by
+  default).
+- **Fit metrics are averages per sample**, in the units of the whitened
+  responses (as is :meth:`~ncrf.NCRF.predict` with ``whitened=True``).
+- **Lower-level API:** :meth:`~ncrf.RegressionData.from_data` takes the same
+  input layout as :func:`eelbrain.boosting` and lost its ``stim_is_single``
+  argument; ``samples`` and ``timeslice()`` are replaced by ``blocks`` and
+  :meth:`~ncrf.RegressionData.subset`; :class:`~ncrf.CrossValidation` takes
+  ``splits`` instead of ``n_splits``.
+
 Bug fixes
 ^^^^^^^^^
 
@@ -19,13 +41,13 @@ Bug fixes
   scratch buffer across segments without resetting it, so from the second segment
   on the baseline residual was computed with the last source's weights still
   zeroed, corrupting every per-source value.
-- **``use_ES=True`` depended on the order in which workers returned.** The guard
+- ``use_ES=True`` **depended on the order in which workers returned.** The guard
   for "the cross-fit winner is already the largest ``mu``" compared it with the
   last element of the unordered result list instead of the largest ``mu``, so
   estimation-stability refinement was skipped or applied inconsistently from run
   to run. Selection is now order-independent, and the ``mu`` grid is extended
   before the criterion is applied, so it sees the complete search range.
-- **:attr:`ncrf.NCRF.h_scaled` undid the covariate scaling in the wrong
+- :attr:`ncrf.NCRF.h_scaled` **undid the covariate scaling in the wrong
   direction.** The covariates are divided by the scale, so restoring stimulus
   units requires dividing ``h`` by it as well, but ``h_scaled`` multiplied
   instead. Values obtained with ``normalize='l1'`` or ``normalize='l2'`` were
@@ -146,8 +168,12 @@ fitted model is applied to new data (see :doc:`guide`).
   which changes the scale of ``h`` (but not of ``h_scaled``) for such fits. Since
   ``mu`` regularizes coefficients on the covariate scale, values tuned before this
   change are not comparable for those fits.
-- The ``'spectral'`` norm is measured on centered covariates, so its value differs
-  slightly from the post-normalization factor of earlier versions.
+- The ``'spectral'`` norm is measured on centered covariates, and it is the
+  spectral norm of all segments' covariates together per sample (previously, the
+  average of each segment's spectral norm), so that it does not depend on how the
+  data is divided into segments or on its length. Its value differs from the
+  factor of earlier versions, and so does the scale of ``h`` (but not of
+  ``h_scaled``).
 - With ``pad_stim=True``, the zero-padded edge rows now represent a raw stimulus
   of 0: normalization subtracts the same constant offset from every covariate
   row, including rows whose lag window extends beyond the data. Previously the
@@ -173,4 +199,6 @@ Implementation
   previously per-source loops over Cython kernels, are vectorized over sources
   with NumPy; the Champagne iterations are about four times faster.
 - :attr:`ncrf.ChampLassoFit.gamma` holds one array of shape
-  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices.
+  ``(n_sources, dc, dc)`` per segment instead of a list of per-source matrices;
+  like :attr:`ncrf.ChampLassoFit.sigma_b`, it is a dictionary keyed by the
+  index of the data segment.

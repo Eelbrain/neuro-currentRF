@@ -29,17 +29,19 @@ optimizer that produced it. It can predict or evaluate another compatible
 Normalization
 -------------
 
-The covariates that an NCRF is fit against can be centered and scaled.
-:class:`~ncrf.RegressionData` handles this normalization: the values are recorded
-on its ``design`` and applied whenever the covariates are built from the
-predictors, and :meth:`~ncrf.RegressionData.from_data` derives them from the data.
+The predictors that an NCRF is fit against can be centered and scaled.
+:class:`~ncrf.RegressionData` handles this normalization: the predictors are
+normalized in place, the values are recorded on the ``design``, and
+:meth:`~ncrf.RegressionData.from_data` derives them from the data.
 
 Each predictor's mean is subtracted, and each covariate channel is
 divided by a scaling factor, determined through the ``scale`` argument:
 
-- ``'spectral'`` (the default): the average spectral norm of the channel's
-  covariates. This equalizes covariate scales across predictor variables, so that
-  one regularization parameter is appropriate for all of them.
+- ``'spectral'`` (the default): the spectral norm of the channel's covariates
+  per sample, measured on all segments together. This equalizes covariate scales
+  across predictor variables, so that one regularization parameter is
+  appropriate for all of them, and does not depend on how the data is divided
+  into segments.
 - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
   deviation.
 - ``None``: leave the covariates on their raw scale, without centering.
@@ -72,11 +74,10 @@ has to carry the same normalization as the training data. Apply the model's own
 normalization with :meth:`~ncrf.RegressionData.normalize`::
 
     test_data = RegressionData.from_data(
-        [test_meg],
-        [[test_stim]],
+        test_meg,
+        test_stim,
         tstart=0.0,
         tstop=1.0,
-        stim_is_single=True,
         scale=None,
     )
     test_data = test_data.normalize(result.model.design)
@@ -84,10 +85,9 @@ normalization with :meth:`~ncrf.RegressionData.normalize`::
 
 Note that this uses the training data's normalization values, which is what
 makes the scores comparable; values derived from the test data would put the
-covariates on a different scale. The covariates are built from the raw
-predictors, so a dataset can be normalized any number of times with any
-compatible design; ``scale=None`` merely skips deriving values that
-:meth:`~ncrf.RegressionData.normalize` would replace anyway.
+covariates on a different scale. The predictors are normalized in place, so the
+dataset has to be prepared with ``scale=None`` and can be normalized only once;
+to apply a different normalization, rebuild it from the raw data.
 
 :meth:`~ncrf.NCRF.predict`, :meth:`~ncrf.NCRF.evaluate` and
 :meth:`~ncrf.NCRF.voxelwise_explained_variance` raise an error when ``data``

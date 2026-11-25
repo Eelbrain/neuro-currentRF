@@ -5,7 +5,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, CrossValidation, crossvalidate
+from eelbrain import Datalist, NDVar, Sensor, UTS, split_data
+from ncrf import ChampLasso, CrossValidation, RegressionData, crossvalidate
 from ncrf import _crossvalidation as cv
 import ncrf._model
 from ncrf._solvers import champ_lasso
@@ -51,38 +52,185 @@ class _InlinePool:
         return map(function, values)
 
 
-def test_make_folds(monkeypatch):
+def test_make_folds():
+    """Folds are train/validation subsets of the data, sharing its covariates."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 100)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
+    meg = NDVar(rng.normal(size=(4, 2, 100)), ('case', sensor, time))
+    stim = NDVar(rng.normal(size=(4, 100)), ('case', time), name='x')
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
+
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
+
+    # by default, the last 2 windows of ceil(0.05 * 100) = 5 samples of
+    # every segment are held out in turn, trained on the data before the
+    # window, minus a gap of 4 samples (lags 0 to 4)
+    assert len(folds) == 2
+    train, validate = folds[0]
+    assert validate.blocks == [(0, 90, 95), (1, 90, 95), (2, 90, 95), (3, 90, 95)]
+    assert train.blocks == [(0, 4, 86), (1, 4, 86), (2, 4, 86), (3, 4, 86)]
+    assert train._segment_covariates is data._segment_covariates
+    assert folds[1][1].blocks == [(0, 95, 100), (1, 95, 100), (2, 95, 100), (3, 95, 100)]
+    assert folds[1][0].blocks == [(0, 4, 91), (1, 4, 91), (2, 4, 91), (3, 4, 91)]
+    # validate sets the length of the windows as proportion of the segment
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2, validate=0.2)))
+    assert folds[0][1].blocks == [(0, 60, 80), (1, 60, 80), (2, 60, 80), (3, 60, 80)]
+    assert folds[0][0].blocks == [(0, 4, 56), (1, 4, 56), (2, 4, 56), (3, 4, 56)]
+    assert folds[1][1].blocks == [(0, 80, 100), (1, 80, 100), (2, 80, 100), (3, 80, 100)]
+    # an Eelbrain Splits object is used with its own partitioning scheme; the
+    # gap also separates training data that follows the held-out data, but
+    # does not extend across segment boundaries
+    splits = split_data(data.data.segments, partitions=2, split='within-case', test=0)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
+    assert folds[0][1].blocks == [(0, 4, 50), (1, 4, 50), (2, 4, 50), (3, 4, 50)]
+    assert folds[0][0].blocks == [(0, 54, 100), (1, 54, 100), (2, 54, 100), (3, 54, 100)]
+    assert folds[1][1].blocks == [(0, 50, 100), (1, 50, 100), (2, 50, 100), (3, 50, 100)]
+    assert folds[1][0].blocks == [(0, 4, 46), (1, 4, 46), (2, 4, 46), (3, 4, 46)]
+    # but it has to describe the data's segments
+    other = split_data(np.array([[0, 200], [200, 400]]), partitions=2, test=0)
+    with pytest.raises(ValueError, match="made for different data segments"):
+        cv._fold_ranges(data, CrossValidation(other))
+    # continuous data
+    data = RegressionData.from_data(meg[0], stim[0], 0, 0.05, scale=None)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
+    assert folds[0][1].blocks == [(0, 90, 95)]
+    assert folds[0][0].blocks == [(0, 4, 86)]
+    assert folds[1][1].blocks == [(0, 95, 100)]
+    assert folds[1][0].blocks == [(0, 4, 91)]
+    # segments of unequal length are each cut in proportion to their length:
+    # windows of 15 and 20 samples
+    times = [UTS(0, 0.01, n) for n in (300, 400)]
+    meg = Datalist([NDVar(rng.normal(size=(2, len(time))), (sensor, time)) for time in times])
+    stim = Datalist([NDVar(rng.normal(size=len(time)), (time,), name='x') for time in times])
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(2)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 270, 285), (1, 360, 380)], [(0, 285, 300), (1, 380, 400)]]
+    assert [train.blocks for train, _ in folds] == [[(0, 4, 266), (1, 4, 356)], [(0, 4, 281), (1, 4, 376)]]
+    # as is holding out whole segments
+    splits = split_data(data.data.segments, partitions=2, split='case', test=0)
+    folds = cv._make_folds(data, cv._fold_ranges(data, CrossValidation(splits)))
+    assert [validate.blocks for _, validate in folds] == [[(0, 4, 300)], [(1, 4, 400)]]
+
+
+def test_make_folds_gap():
+    """Training and held-out samples never share a predictor sample in their lag windows."""
+    # 1 minute at 100 Hz, TRF from -0.1 to 0.5 s: lags -10 to 49, gap of 59 samples
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 6000)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b'])
+    meg = NDVar(rng.normal(size=(2, 6000)), (sensor, time))
+    stim = NDVar(rng.normal(size=6000), (time,), name='x')
+    data = RegressionData.from_data(meg, stim, -0.1, 0.5, scale=None)
+    assert data.blocks == [(0, 49, 5990)]
+
+    fold_ranges = cv._fold_ranges(data, CrossValidation(3))
+    folds = cv._make_folds(data, fold_ranges)
+    # windows of ceil(0.05 * 5941) = 298 samples at the end of the samples
+    # with a complete lag window; training stops 59 samples before each window
+    assert [train.blocks for train, _ in folds] == [[(0, 49, 5037)], [(0, 49, 5335)], [(0, 49, 5633)]]
+    assert [validate.blocks for _, validate in folds] == [[(0, 5096, 5394)], [(0, 5394, 5692)], [(0, 5692, 5990)]]
+    # the predictor samples in the lag windows of training and held-out samples
+    # are disjoint: row t uses x[t - 49] to x[t + 10]
+    for train, validate in folds:
+        (_, train_start, train_stop), = train.blocks
+        (_, validate_start, validate_stop), = validate.blocks
+        assert train_stop - 1 + 10 < validate_start - 49
+
+    # changing the predictor in the lag windows of the held-out samples leaves the training fold unchanged
+    for i, (train, _) in enumerate(folds):
+        validate_start = fold_ranges[i][1][0, 0]
+        stim_changed = stim.copy()
+        stim_changed.x[validate_start - 49:] = rng.normal(size=6000 - validate_start + 49)
+        data_changed = RegressionData.from_data(meg, stim_changed, -0.1, 0.5, scale=None)
+        train_changed, _ = cv._make_folds(data_changed, fold_ranges)[i]
+        np.testing.assert_array_equal(train_changed.covariates[0], train.covariates[0])
+        np.testing.assert_array_equal(train_changed.EtE[0], train.EtE[0])
+        np.testing.assert_array_equal(train_changed.bE[0], train.bE[0])
+
+    # too short for the gap: the first window starts at sample 103, so the first
+    # training range, [49, 44), is empty
+    data = RegressionData.from_data(meg.sub(time=(0, 1.25)), stim.sub(time=(0, 1.25)), -0.1, 0.5, scale=None)
+    with pytest.raises(ValueError, match="no training data remains"):
+        cv._make_folds(data, cv._fold_ranges(data, CrossValidation(3)))
+
+
+def _negative_lag_data(seconds):
+    """One segment at 100 Hz with a TRF from -0.1 to 0.2 s, i.e., without its last 10 samples."""
+    rng = np.random.RandomState(0)
+    n = int(seconds * 100)
+    time = UTS(0, 0.01, n)
+    meg = NDVar(rng.normal(size=(2, n)), (Sensor([[1., 0, 0], [0, 1, 0]], ['a', 'b']), time))
+    stim = NDVar(rng.normal(size=n), (time,), name='x')
+    return RegressionData.from_data(meg, stim, -0.1, 0.2, scale=None)
+
+
+def test_held_out_data_without_lag_window(monkeypatch):
+    """Held-out data that lies entirely in the cropped end of the segments is rejected before any worker starts, with mu='auto' before its grid is derived."""
+    # 2 s: the default windows are cut from the samples with a complete lag
+    # window, 19-190, so the last one ends at sample 190
+    data = _negative_lag_data(2)
+    fold_ranges = cv._fold_ranges(data, CrossValidation(3))
+    assert [held_out.tolist() for _, held_out in fold_ranges] == [[[163, 172]], [[172, 181]], [[181, 190]]]
+    # but the last of 4 walk-forward partitions of the whole segment, samples
+    # 190-200, lies entirely in the 10 samples cropped for the negative lags
+    splits = split_data(data.data.segments, partitions=4, scheme='walk-forward', test=0)
+    cv_splits = CrossValidation(splits)
+    with pytest.raises(ValueError, match=r"fold 2: none of its held-out samples \(segment 0: samples 190-200\) has a complete lag window"):
+        cv._fold_ranges(data, cv_splits)
+
+    # an error in a worker's initializer would hang the pool, so the folds are
+    # checked before it is created
+    def pool(**kwargs):
+        raise AssertionError("Pool created")
+
+    monkeypatch.setattr(cv, 'Pool', pool)
+    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
+        crossvalidate(data, (ChampLasso(mu=0.1), ChampLasso(mu=0.2)), CrossValidation(splits, n_workers=2))
+
+    # mu='auto' checks the folds before the solve that derives its grid
+    def auto_candidates(self, forward, data):
+        raise AssertionError("mu grid derived")
+
+    monkeypatch.setattr(ChampLasso, 'auto_candidates', auto_candidates)
+    with pytest.raises(ValueError, match="fold 2: none of its held-out samples"):
+        ChampLasso(mu='auto').search(data, cv_splits)
+    # an invalid mu is reported as such, not as a problem with the folds
+    with pytest.raises(ValueError, match="mu='autp'"):
+        ChampLasso(mu='autp').search(data, cv_splits)
+
+
+def test_cross_validation_rejects_invalid_splits():
+    segments = np.array([[0, 100], [100, 200], [200, 300]])
+    with pytest.raises(ValueError, match="splits=0: need at least one cross-validation fold"):
+        CrossValidation(splits=0)
+    with pytest.raises(TypeError, match="need the number of partitions or an eelbrain Splits"):
+        CrossValidation(splits='3')
+    with pytest.raises(TypeError, match="splits=True: need the number of partitions"):
+        CrossValidation(splits=True)
+    assert CrossValidation(splits=np.int64(2)).splits == 2
+    for validate in (0, 1, 1.5):
+        with pytest.raises(ValueError, match=f"validate={validate}: need a proportion"):
+            CrossValidation(validate=validate)
+    # true cross-validation with a test set is not implemented yet
+    with pytest.raises(NotImplementedError, match="test set is not implemented"):
+        CrossValidation(split_data(segments, partitions=3, test=1))
+    with pytest.raises(ValueError, match="no validation set"):
+        CrossValidation(split_data(segments, partitions=3, validate=0, test=0))
+    # the window length only applies to the default folds
+    splits = split_data(segments, partitions=3, test=0)
+    assert CrossValidation(splits).validate is None
+    assert CrossValidation(2).validate == 0.05
+    with pytest.raises(ValueError, match="validate=0.1: the Splits object defines its own validation sets"):
+        CrossValidation(splits, validate=0.1)
+
+
+def test_crossvalidate(monkeypatch):
+    """Each candidate is fit and scored on every fold, with progress reported per candidate."""
+    # a candidate is fit with the fold primitive, without history, and scored on the held-out data
     train_data = object()
     test_data = object()
-    data = Mock()
-    data.design.filter_length = [2, 5]
-    data.samples = np.arange(10)
-    data.timeslice.side_effect = [train_data, test_data]
-
-    splitter = Mock()
-    splitter.split.return_value = [(np.array([0, 1]), np.array([2]))]
-    captured = {}
-
-    def make_splitter(**kwargs):
-        captured.update(kwargs)
-        return splitter
-
-    monkeypatch.setattr(cv, 'TimeSeriesSplit', make_splitter)
-
-    folds = cv._make_folds(data, 2)
-
-    # the gap must cover the longest TRF, so lagged training predictors
-    # cannot reach into the held-out window
-    assert captured == {'r': 0.05, 'p': 2, 'd': 5}
-    assert folds == [(train_data, test_data)]
-
-
-def test_score_candidate_uses_fit_primitive(monkeypatch):
-    train_data = object()
-    test_data = object()
-    data = Mock()
     monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
-
     model = Mock()
     solver_fit = Mock()
     solver = ChampLasso(mu=0.1, tol=1e-5)
@@ -90,9 +238,7 @@ def test_score_candidate_uses_fit_primitive(monkeypatch):
     score_fit = Mock(return_value={'cross_fit': 1.0, 'weighted_l2_error': 2.0, 'l2_error': 3.0, 'explained_variance': 0.5})
     monkeypatch.setattr(ncrf._model, 'fit_model', fit_model)
     monkeypatch.setattr(ncrf._model, '_score_fit', score_fit)
-
-    result = cv._score_candidate(data, [(train_data, test_data)], solver)
-
+    result = cv._score_candidate(Mock(), [(train_data, test_data)], solver)
     fold_solver = fit_model.call_args.args[1]
     assert fold_solver.mu == 0.1
     assert fold_solver.tol == solver.tol
@@ -108,97 +254,63 @@ def test_score_candidate_uses_fit_primitive(monkeypatch):
         'estimation_stability': 4.0,
     }
 
+    # crossvalidate() returns the results in candidate order and advances the progress bar per candidate
+    progress = _Progress()
+    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
+    monkeypatch.setattr(cv, '_fold_ranges', lambda data, cv: [])
+    monkeypatch.setattr(cv, '_make_folds', lambda data, fold_ranges: [])
+    monkeypatch.setattr(cv, '_score_candidate', lambda data, folds, solver: _cv_result(solver.mu))
+    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
+    results = crossvalidate(object(), candidates, CrossValidation(splits=2, n_workers=0))
+    assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
+    assert progress.updates == [1, 1, 1]
+    assert progress.closed
 
-def test_time_series_split_rejects_empty_training_window():
-    splitter = cv.TimeSeriesSplit(r=0.05, p=3, d=100)
+    # a worker's error propagates, and the progress bar is closed
+    def score_candidate(data, folds, solver):
+        if solver.mu == 0.2:
+            raise RuntimeError("worker failed")
+        return _cv_result(solver.mu)
 
-    train, test = next(splitter.split(np.empty(400)))
-    assert (len(train), len(test)) == (240, 20)
-
-    with pytest.raises(ValueError, match="110 samples are not enough for 3 cross-validation folds"):
-        list(splitter.split(np.empty(110)))
-
-
-def test_cross_validation_rejects_no_folds():
-    with pytest.raises(ValueError, match="n_splits=0: need at least one cross-validation fold"):
-        CrossValidation(n_splits=0)
+    progress = _Progress()
+    monkeypatch.setattr(cv, 'Pool', _InlinePool)
+    monkeypatch.setattr(cv, '_score_candidate', score_candidate)
+    with pytest.raises(RuntimeError, match="worker failed"):
+        crossvalidate(object(), candidates[:2], CrossValidation(splits=2, n_workers=2))
+    assert progress.updates == [1]
+    assert progress.closed
 
 
-def test_extend_mu_grid():
+def test_search(monkeypatch):
+    """ChampLasso.search() cross-validates the mu grid, extends it at the boundary, and selects by cross-fit or estimation stability."""
+    # the grid is extended beyond a boundary winner, by a decade in 3 steps
     champ = ChampLasso(mu=0.1)
     mus = (0.1, 0.2, 0.3)
-
     left = champ._extend_grid([_cv_result(mu, cross_fit=mu) for mu in mus])
     right = champ._extend_grid([_cv_result(mu, cross_fit=-mu) for mu in mus])
     interior = champ._extend_grid([_cv_result(mu, cross_fit=abs(mu - 0.2)) for mu in mus])
-
     np.testing.assert_allclose([solver.mu for solver in left], np.logspace(-2, -1, 4)[:-1])
     np.testing.assert_allclose([solver.mu for solver in right], np.logspace(np.log10(0.3), np.log10(3), 4)[1:])
     assert interior == ()
 
-
-def test_select_es_solver():
+    # estimation stability selects its first local minimum above the cross-fit winner
     results = [
         _cv_result(0.1, es=5.0),
         _cv_result(0.2, es=4.0),
         _cv_result(0.3, es=2.0),
         _cv_result(0.4, es=3.0),
     ]
-
     assert champ_lasso._select_es_solver(results, 0.2).mu == 0.3
     assert champ_lasso._select_es_solver(results, 0.4) is None
 
-
-def test_crossvalidate_progress(monkeypatch):
-    progress = _Progress()
-    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
-    monkeypatch.setattr(
-        cv, '_score_candidate',
-        lambda data, folds, solver: _cv_result(solver.mu),
-    )
-    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
-
-    results = crossvalidate(object(), candidates, CrossValidation(n_splits=2, n_workers=0))
-
-    assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
-    assert progress.updates == [1, 1, 1]
-    assert progress.closed
-
-
-def test_crossvalidate_propagates_worker_error(monkeypatch):
-    progress = _Progress()
-    monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
-    monkeypatch.setattr(cv, 'Pool', _InlinePool)
-    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
-
-    def score_candidate(data, folds, solver):
-        if solver.mu == 0.2:
-            raise RuntimeError("worker failed")
-        return _cv_result(solver.mu)
-
-    monkeypatch.setattr(cv, '_score_candidate', score_candidate)
-    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2))
-
-    with pytest.raises(RuntimeError, match="worker failed"):
-        crossvalidate(object(), candidates, CrossValidation(n_splits=2, n_workers=2))
-
-    assert progress.updates == [1]
-    assert progress.closed
-
-
-def test_search_single_candidate_skips_crossvalidation(monkeypatch):
+    # a single candidate is not cross-validated
     crossvalidate = Mock()
     monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
-
     solver, cv_results = ChampLasso(mu=0.1).search(Mock(), None)
-
     assert (solver.mu, cv_results) == (0.1, [])
     crossvalidate.assert_not_called()
 
-
-def test_search_extends_grid_before_es_selection(monkeypatch):
-    """The boundary extension follows the cross-fit winner, not the ES selection."""
+    # the boundary extension follows the cross-fit winner, not the ES selection
     mus = (0.1, 0.2, 0.3, 0.4)
     extension = [float(mu) for mu in np.logspace(-2, -1, 4)[:-1]]
     # cross-fit selects the smallest mu, while ES would select an interior candidate
@@ -213,7 +325,7 @@ def test_search_extends_grid_before_es_selection(monkeypatch):
     }
     calls = []
     data = Mock()
-    cv_config = CrossValidation(n_splits=2, n_workers=0)
+    cv_config = CrossValidation(splits=2, n_workers=0)
 
     def crossvalidate(called_data, candidates, called_cv):
         assert (called_data, called_cv) == (data, cv_config)
@@ -221,16 +333,13 @@ def test_search_extends_grid_before_es_selection(monkeypatch):
         return [_cv_result(solver.mu, cross_fit=scores[solver.mu][0], es=scores[solver.mu][1]) for solver in candidates]
 
     monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
-
     solver, returned_results = ChampLasso(mu=mus, use_es=True).search(data, cv_config)
-
     assert calls == [list(mus), extension]
     # ES minimum above the extended cross-fit winner (extension[1]), not the 0.3 of the truncated grid
     assert solver.mu == extension[2]
     assert [result.solver.mu for result in returned_results] == [*mus, *extension]
 
-
-def test_search_es_is_independent_of_result_order(monkeypatch):
+    # the ES selection does not depend on the order of the results
     results = [
         _cv_result(0.1, es=5.0, cross_fit=3.0),
         _cv_result(0.3, es=2.0, cross_fit=2.0),
@@ -238,9 +347,7 @@ def test_search_es_is_independent_of_result_order(monkeypatch):
         _cv_result(0.2, es=4.0, cross_fit=1.0),
     ]
     monkeypatch.setattr(champ_lasso, 'crossvalidate', lambda *args: results.copy())
-
     solver, returned_results = ChampLasso(mu=(0.1, 0.2, 0.3, 0.4), use_es=True).search(Mock(), None)
-
     assert solver.mu == 0.3
     assert returned_results == results
     assert '0.30000*' in str(solver.cv_table(returned_results))
